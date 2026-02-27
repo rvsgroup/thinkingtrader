@@ -4,6 +4,15 @@ const path    = require('path');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// Редирект с thinkingtrader.com на www.thinkingtrader.com
+app.use((req, res, next) => {
+    const host = req.headers.host;
+    if (host === 'thinkingtrader.com') {
+        return res.redirect(301, `https://www.thinkingtrader.com${req.originalUrl}`);
+    }
+    next();
+});
+
 // ── Статика ────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
 
