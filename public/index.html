@@ -11092,25 +11092,22 @@
 
         // Автообновление графика каждую минуту
         setInterval(async () => {
-            if (chartDisplayType === 'candle' && lwSeries && rawOhlcCache.length) {
-                // Свечной режим — обновляем только последнюю свечу через текущую цену
-                try {
-                    const binanceSymbol = BINANCE_SYMBOLS[selectedCoin.id] || 'BTCUSDT';
-                    const r = await fetch(`/api/price?symbol=${binanceSymbol}`);
-                    if (!r.ok) return;
-                    const d = await r.json();
-                    const price = parseFloat(d.price || d.lastPrice || 0);
-                    if (!price) return;
+            if (!lwSeries) return;
+            try {
+                const binanceSymbol = BINANCE_SYMBOLS[selectedCoin.id] || 'BTCUSDT';
+                const r = await fetch(`/api/price?symbol=${binanceSymbol}`);
+                if (!r.ok) return;
+                const d = await r.json();
+                const price = parseFloat(d.price || d.lastPrice || 0);
+                if (!price) return;
 
+                if (chartDisplayType === 'candle' && rawOhlcCache.length) {
+                    // Свечной режим — обновляем последнюю свечу
                     const last = rawOhlcCache[rawOhlcCache.length - 1];
                     const [t, o, h, l, c] = last;
-                    const newHigh  = Math.max(h, price);
-                    const newLow   = Math.min(l, price);
-
-                    // Обновляем кэш
+                    const newHigh = Math.max(h, price);
+                    const newLow  = Math.min(l, price);
                     rawOhlcCache[rawOhlcCache.length - 1] = [t, o, newHigh, newLow, price];
-
-                    // Обновляем последнюю свечу на графике без перерисовки
                     lwSeries.update({
                         time:  Math.floor(t / 1000),
                         open:  o,
@@ -11118,11 +11115,15 @@
                         low:   newLow,
                         close: price,
                     });
-                } catch(e) {}
-            } else if (chartDisplayType === 'line') {
-                // Линейный режим — полная перезагрузка как раньше
-                if (typeof loadChartData === 'function') loadChartData();
-            }
+
+                } else if (chartDisplayType === 'line' && rawPricesCache.length) {
+                    // Линейный режим — обновляем последнюю точку
+                    const last = rawPricesCache[rawPricesCache.length - 1];
+                    const t = last[0];
+                    rawPricesCache[rawPricesCache.length - 1] = [t, price];
+                    lwSeries.update({ time: Math.floor(t / 1000), value: price });
+                }
+            } catch(e) {}
         }, 60 * 1000);
 
         // ── Мини-тикер полоска ──────────────────────────────
