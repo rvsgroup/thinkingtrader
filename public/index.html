@@ -3366,6 +3366,8 @@
             .input-large input { padding: 12px 14px; font-size: 14px; }
             .input-large label { font-size: 14px; }
             #calcContent { overflow: visible !important; max-height: none !important; }
+            #tab-patterns { overflow: hidden; flex-direction: column; gap: 0; flex: 1; min-height: 0; }
+            #patternsGrid { overflow-y: auto !important; flex: 1 !important; min-height: 0 !important; height: auto !important; max-height: none !important; }
 
             /* Результаты */
             .results-section {
@@ -3831,6 +3833,170 @@
             line-height: 1.5;
         }
 
+        /* ── Паттерны ── */
+        .patterns-filter {
+            display: flex; flex-direction: column; gap: 10px; padding: 0 0 14px 0;
+            flex-shrink: 0;
+        }
+        .pf-btns {
+            display: flex; gap: 6px;
+        }
+        .pf-btn {
+            flex: 1;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.07);
+            color: #475569; font-size: 11px; font-weight: 600;
+            padding: 8px 0; border-radius: 10px;
+            cursor: pointer; transition: all 0.2s;
+            letter-spacing: 0.4px; text-transform: uppercase;
+            position: relative; overflow: hidden;
+        }
+        .pf-btn::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.04), transparent);
+            opacity: 0; transition: opacity 0.2s;
+        }
+        .pf-btn:hover::before { opacity: 1; }
+        .pf-btn:hover { border-color: rgba(255,255,255,0.14); color: #94A3B8; }
+        .pf-btn.active {
+            background: linear-gradient(135deg, rgba(79,70,229,0.25), rgba(124,58,237,0.18));
+            border-color: rgba(99,102,241,0.5);
+            color: #A5B4FC;
+            box-shadow: 0 0 12px rgba(99,102,241,0.15), inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+        .pf-btn[data-filter="bullish"].active { 
+            background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.12));
+            border-color: rgba(16,185,129,0.4); color: #6EE7B7;
+            box-shadow: 0 0 12px rgba(16,185,129,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+        .pf-btn[data-filter="bearish"].active { 
+            background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(185,28,28,0.12));
+            border-color: rgba(239,68,68,0.4); color: #FCA5A5;
+            box-shadow: 0 0 12px rgba(239,68,68,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+        .pf-icon {
+            font-size: 7px;
+            margin-right: 5px;
+            opacity: 0.7;
+            vertical-align: middle;
+            position: relative; top: -0.5px;
+        }
+        .pf-btn[data-filter="neutral"].active { 
+            background: linear-gradient(135deg, rgba(148,163,184,0.15), rgba(100,116,139,0.1));
+            border-color: rgba(148,163,184,0.35); color: #CBD5E1;
+            box-shadow: 0 0 12px rgba(148,163,184,0.1), inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+
+        .patterns-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            padding-right: 6px;
+            overflow-y: auto;
+            align-content: start;
+        }
+        .patterns-grid::-webkit-scrollbar { width: 4px; }
+        .patterns-grid::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 6px; }
+        .patterns-grid::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #4F46E5, #7C3AED); border-radius: 6px; }
+        .patterns-grid::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #6366F1, #8B5CF6); }
+
+        .pattern-card {
+            background: #0A1628; border: 1px solid #1E2D45;
+            border-radius: 12px; overflow: hidden;
+            cursor: pointer; transition: transform 0.15s, border-color 0.15s;
+            min-height: 220px;
+        }
+        .pattern-card:hover { transform: translateY(-2px); border-color: #2A3F5F; }
+        .pattern-card.hidden { display: none; }
+
+        .pattern-card-header {
+            padding: 10px 10px 0;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .pattern-type-label { font-size: 9px; color: #3D5068; letter-spacing: 0.8px; text-transform: uppercase; }
+        .pattern-badge {
+            font-size: 9px; font-weight: 700; letter-spacing: 1px;
+            text-transform: uppercase; padding: 2px 7px; border-radius: 10px;
+        }
+        .pattern-badge.bullish { background: rgba(16,185,129,0.15); color: #10B981; border: 1px solid rgba(16,185,129,0.25); }
+        .pattern-badge.bearish { background: rgba(239,68,68,0.15); color: #EF4444; border: 1px solid rgba(239,68,68,0.25); }
+        .pattern-badge.neutral { background: rgba(148,163,184,0.15); color: #94A3B8; border: 1px solid rgba(148,163,184,0.25); }
+
+        .pattern-visual { padding: 8px 8px 4px; }
+        .pattern-name { font-size: 12px; font-weight: 600; color: #CBD5E1; padding: 4px 10px; line-height: 1.3; }
+        .pattern-meta { display: flex; justify-content: space-between; padding: 0 10px 10px; font-size: 10px; color: #3D5068; }
+
+        /* поиск */
+        .pf-search {
+            width: 100%;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #CBD5E1;
+            font-size: 12px;
+            padding: 9px 14px 9px 36px;
+            border-radius: 10px;
+            outline: none;
+            transition: all 0.2s;
+            box-sizing: border-box;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%233D5068' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: 12px center;
+        }
+        .pf-search::placeholder { color: #3D5068; }
+        .pf-search:focus { 
+            border-color: rgba(99,102,241,0.45); 
+            background-color: rgba(255,255,255,0.06);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
+        }
+
+        /* модальное окно паттерна */
+        .pattern-modal-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        .pattern-modal-overlay.open { display: flex; }
+        .pattern-modal {
+            background: #0D1726;
+            border: 1px solid #1E2D45;
+            border-radius: 16px;
+            width: 480px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            animation: modalIn 0.2s ease;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        .pattern-modal-close {
+            position: absolute; top: 12px; right: 14px;
+            background: none; border: none;
+            color: #475569; font-size: 18px; cursor: pointer; line-height: 1;
+        }
+        .pattern-modal-close:hover { color: #94A3B8; }
+        .pattern-modal-header { padding: 20px 20px 0; display: flex; align-items: center; justify-content: space-between; }
+        .pattern-modal-visual { padding: 16px; }
+        .pattern-modal-body { padding: 0 20px 20px; }
+        .pattern-modal-title { font-size: 18px; font-weight: 700; color: #F1F5F9; margin-bottom: 8px; }
+        .pattern-modal-desc { font-size: 13px; line-height: 1.6; color: #64748B; margin-bottom: 16px; }
+        .pattern-modal-divider { height: 1px; background: #1E2D45; margin-bottom: 16px; }
+        .pattern-modal-stats { display: flex; gap: 20px; }
+        .pattern-modal-stat { display: flex; flex-direction: column; gap: 3px; }
+        .pattern-modal-stat-label { font-size: 10px; color: #475569; letter-spacing: 1px; text-transform: uppercase; }
+        .pattern-modal-stat-value { font-size: 13px; font-weight: 600; color: #94A3B8; }
+        .pattern-modal-stat-value.green { color: #10B981; }
+        .pattern-modal-stat-value.red { color: #EF4444; }
+
+
+
+
         /* ── Шапка открытого калькулятора (кнопка назад + название) ── */
         .calc-header-row {
             display: flex;
@@ -4036,6 +4202,7 @@
         .news-pg-btn:disabled:hover { background: rgba(255,255,255,0.03); color: #64748B; border-color: rgba(255,255,255,0.08); }
 
     </style>
+  <script src="patterns.js"></script>
 </head>
 <body>
     <!-- Глобальный тултип для индикаторов -->
@@ -4301,6 +4468,17 @@
                 <!-- ХАБ — стартовый экран -->
                 <div id="calcHub" class="calc-hub">
                     <div class="calc-hub-grid">
+
+                        <div class="calc-hub-card" data-calc="patterns" style="--card-accent:linear-gradient(90deg,#00D4AA,#00B4D8);--icon-bg:linear-gradient(135deg,rgba(0,212,170,0.3),rgba(0,180,216,0.12))">
+                            <div class="calc-hub-card-top">
+                                <div class="calc-hub-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="#00D4AA"><polyline points="2 20 7 10 12 15 16 8 22 20"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+                                </div>
+                                <span class="calc-hub-arrow">↗</span>
+                            </div>
+                            <div class="calc-hub-name" data-i18n="hubNamePatterns">Паттерны</div>
+                            <div class="calc-hub-desc" data-i18n="hubDescPatterns">Свечные и графические паттерны</div>
+                        </div>
 
                         <div class="calc-hub-card" data-calc="sell" style="--card-accent:linear-gradient(90deg,#6366F1,#818CF8);--icon-bg:linear-gradient(135deg,rgba(79,70,229,0.35),rgba(99,102,241,0.15))">
                             <div class="calc-hub-card-top">
@@ -4687,6 +4865,21 @@
                         <div class="calc-stub-title" data-i18n="hubNameSavings">Накопление</div>
                         <div class="calc-stub-desc" data-i18n="stubDescSavings">Скоро появится. Сколько месяцев нужно для достижения цели.</div>
                     </div>
+                </div>
+
+                <!-- ПАТТЕРНЫ -->
+                <div class="tab-content" id="tab-patterns">
+                    <div class="patterns-filter">
+                        <input class="pf-search" id="patternSearch" type="text" />
+                        <div class="pf-btns">
+                            <button class="pf-btn active" data-filter="all" data-i18n="patternAll">All</button>
+                            <button class="pf-btn" data-filter="bullish" data-i18n="patternBullish"><span class="pf-icon">▲</span>Bullish</button>
+                            <button class="pf-btn" data-filter="bearish" data-i18n="patternBearish"><span class="pf-icon">▼</span>Bearish</button>
+                            <button class="pf-btn" data-filter="neutral" data-i18n="patternNeutral"><span class="pf-icon">◆</span>Neutral</button>
+                        </div>
+                    </div>
+                    <div class="patterns-grid" id="patternsGrid">
+                                        </div>
                 </div>
 
                 </div><!-- /calcContent -->
@@ -5660,7 +5853,7 @@
         <!-- FILTERS -->
         <div class="news-filters" id="newsTopicFilters">
             <span class="news-filter-label">Фильтр:</span>
-            <button class="news-filter-btn active" data-nfilter="all" data-i18n="filterAll">Все</button>
+            <button class="news-filter-btn active" data-nfilter="all" data-i18n="filterAll">All</button>
             <button class="news-filter-btn" data-nfilter="bitcoin">Bitcoin</button>
             <button class="news-filter-btn" data-nfilter="ethereum">Ethereum</button>
             <button class="news-filter-btn" data-nfilter="solana">Solana</button>
@@ -5893,6 +6086,14 @@
                 hubNamePnlgrid: 'PnL сетки', hubDescPnlgrid: 'Прибыль Grid-бота',
                 hubNameSavings: 'Накопление', hubDescSavings: 'За сколько месяцев до цели',
 
+
+                hubNamePatterns: 'Паттерны', hubDescPatterns: 'Свечные и графические паттерны',
+
+                // Паттерны
+                patternAll: 'Все', patternBullish: 'Бычьи', patternBearish: 'Медвежьи', patternNeutral: 'Нейтральные',
+                patternSearch: 'Поиск...', patternCandles: 'свечей',
+                patternLabelBullish: 'Бычий', patternLabelBearish: 'Медвежий', patternLabelNeutral: 'Нейтральный',
+                patternReliability: 'Надёжность', patternCandlesLabel: 'Свечей', patternSignal: 'Сигнал',
                 // Заглушки
                 stubDescRisk: 'Скоро появится. Расчёт размера позиции по % от депозита и stop-loss.',
                 stubDescDca: 'Скоро появится. Средняя цена входа при нескольких докупках.',
@@ -6132,6 +6333,22 @@
                 hubNamePnlgrid: 'Grid PnL', hubDescPnlgrid: 'Grid bot profit',
                 hubNameSavings: 'Savings', hubDescSavings: 'Months until goal',
 
+
+                hubNamePatterns: 'Паттерны', hubDescPatterns: 'Свечные и графические паттерны',
+
+                // Паттерны
+                patternAll: 'Все', patternBullish: 'Бычьи', patternBearish: 'Медвежьи', patternNeutral: 'Нейтральные',
+                patternSearch: 'Поиск...', patternCandles: 'свечей',
+                patternLabelBullish: 'Бычий', patternLabelBearish: 'Медвежий', patternLabelNeutral: 'Нейтральный',
+                patternReliability: 'Надёжность', patternCandlesLabel: 'Свечей', patternSignal: 'Сигнал',
+
+                hubNamePatterns: 'Patterns', hubDescPatterns: 'Candlestick & chart patterns',
+
+                // Patterns
+                patternAll: 'All', patternBullish: 'Bullish', patternBearish: 'Bearish', patternNeutral: 'Neutral',
+                patternSearch: 'Search...', patternCandles: 'candles',
+                patternLabelBullish: 'Bullish', patternLabelBearish: 'Bearish', patternLabelNeutral: 'Neutral',
+                patternReliability: 'Reliability', patternCandlesLabel: 'Candles', patternSignal: 'Signal',
                 // Заглушки
                 stubDescRisk: 'Coming soon. Position size calculation by % of deposit and stop-loss.',
                 stubDescDca: 'Coming soon. Average entry price across multiple buys.',
@@ -6340,11 +6557,13 @@
         };
 
         let currentLang = localStorage.getItem('cryptopro_lang') || 'en';
+        window.currentLang = currentLang;
 
         // Shorthand: get translation string by key
         function t(key) {
             return (TRANSLATIONS[currentLang] || TRANSLATIONS.ru)[key] || key;
         }
+        window._t = t;
         // Список монет и иконок
         const COINS = [
             { id: 'bitcoin',              name: 'Bitcoin',           symbol: 'BTC'  },
@@ -6808,7 +7027,7 @@
             sell: 'calcTabSell', compound: 'hubNameCompound', margin: 'calcTabMargin',
             risk: 'hubNameRisk', dca: 'calcTabDca', breakeven: 'hubNameBreakeven',
             possize: 'hubNamePossize', funding: 'hubNameFunding', converter: 'hubNameConverter',
-            pnlgrid: 'hubNamePnlgrid', savings: 'hubNameSavings',
+            pnlgrid: 'hubNamePnlgrid', savings: 'hubNameSavings', patterns: 'hubNamePatterns',
         };
 
         function openCalc(name) {
@@ -6831,6 +7050,7 @@
 
             redrawChartLevels();
             updateTPSL();
+            if (name === 'patterns') renderPatterns();
         }
 
         document.querySelectorAll('.calc-hub-card').forEach(card => {
@@ -6841,6 +7061,24 @@
             calcContent.style.display = 'none';
             calcHub.style.display = 'flex';
         });
+
+        // Паттерны — фильтр и поиск (логика в patterns.js)
+        document.querySelectorAll('.pf-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.pf-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const filter = btn.dataset.filter;
+                const query = document.getElementById('patternSearch')?.value || '';
+                renderPatterns(filter, query);
+            });
+        });
+        document.getElementById('patternSearch')?.addEventListener('input', e => {
+            const filter = document.querySelector('.pf-btn.active')?.dataset.filter || 'all';
+            renderPatterns(filter, e.target.value);
+        });
+
+        // Инициализация паттернов
+        renderPatterns();
 
         // Форматирование чисел
         function rawValue(str) {
@@ -7318,6 +7556,7 @@
             updateProgressBar();
             redrawChartLevels();
             updateTPSL();
+            if (name === 'patterns') renderPatterns();
         }
 
         // Compound Interest — переключение режимов
@@ -8206,6 +8445,7 @@
             riskTpStrategyBtnSpan.textContent = t(riskTpStrategyBtnSpan.dataset.i18n);
             redrawChartLevels();
             updateTPSL();
+            if (name === 'patterns') renderPatterns();
         });
 
         const sellTpStrategyBtn = document.getElementById('sellTpStrategyBtn');
@@ -8217,6 +8457,7 @@
             sellTpStrategyBtnSpan.textContent = t(sellTpStrategyBtnSpan.dataset.i18n);
             redrawChartLevels();
             updateTPSL();
+            if (name === 'patterns') renderPatterns();
         });
 
         const marginTpStrategyBtn = document.getElementById('marginTpStrategyBtn');
@@ -8228,6 +8469,7 @@
             marginTpStrategyBtnSpan.textContent = t(marginTpStrategyBtnSpan.dataset.i18n);
             redrawChartLevels();
             updateTPSL();
+            if (name === 'patterns') renderPatterns();
         });
 
         document.getElementById('riskLong').addEventListener('click', () => {
@@ -8309,6 +8551,7 @@
 
             redrawChartLevels();
             updateTPSL();
+            if (name === 'patterns') renderPatterns();
         }
 
         [riskDepositInput, riskPercentInput, riskEntryInput, riskStoplossInput, riskTakeprofitInput].forEach(el => {
@@ -11365,6 +11608,7 @@
 
         function applyLang(lang) {
             currentLang = lang;
+            window.currentLang = lang;
             localStorage.setItem('cryptopro_lang', lang);
             const tr = TRANSLATIONS[lang];
 
@@ -11409,6 +11653,19 @@
             });
             const cs2 = document.getElementById('coinSearch2');
             if (cs2) cs2.placeholder = tr.coinSearch2Placeholder || tr.coinSearchPlaceholder;
+
+            // Паттерны — фильтры, поиск, перерендер
+            document.querySelectorAll('.pf-btn[data-i18n]').forEach(btn => {
+                const key = btn.dataset.i18n;
+                if (tr[key]) btn.textContent = tr[key];
+            });
+            const psearch = document.getElementById('patternSearch');
+            if (psearch) psearch.placeholder = tr.patternSearch || 'Search...';
+            if (typeof renderPatterns === 'function') {
+                const activeFilter = document.querySelector('.pf-btn.active')?.dataset.filter || 'all';
+                const query = psearch ? psearch.value : '';
+                renderPatterns(activeFilter, query);
+            }
 
             // Перерендерим существующие buy-rows
             document.querySelectorAll('.buy-row').forEach(row => {
@@ -11639,6 +11896,24 @@
         });
 
     </script>
+
+<!-- Модальное окно паттерна -->
+<div class="pattern-modal-overlay" id="patternModalOverlay" onclick="closePatternModal(event)">
+    <div class="pattern-modal" id="patternModal">
+        <button class="pattern-modal-close" onclick="closePatternModal()">✕</button>
+        <div class="pattern-modal-header">
+            <span class="pattern-type-label" id="modalTypeLabel"></span>
+            <span class="pattern-badge" id="modalBadge"></span>
+        </div>
+        <div class="pattern-modal-visual" id="modalVisual"></div>
+        <div class="pattern-modal-body">
+            <div class="pattern-modal-title" id="modalTitle"></div>
+            <div class="pattern-modal-desc" id="modalDesc"></div>
+            <div class="pattern-modal-divider"></div>
+            <div class="pattern-modal-stats" id="modalStats"></div>
+        </div>
+    </div>
+</div>
 
 </body>
 </html>
