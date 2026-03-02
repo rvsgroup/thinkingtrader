@@ -625,6 +625,12 @@
             gap: 10px;
         }
 
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
         /* ── Языковой переключатель ── */
         .lang-selector {
             position: relative;
@@ -669,6 +675,49 @@
         .lang-option:hover { background: rgba(255,255,255,0.06); color: #fff; }
         .lang-option.active { background: rgba(99,102,241,0.15); color: #818CF8; }
         .lang-option .lang-flag { font-size: 14px; }
+
+        /* ── User Profile (Auth) ── */
+        .user-profile {
+            display: flex; align-items: center; gap: 10px; margin-left: 12px;
+        }
+        .user-avatar {
+            width: 32px; height: 32px; border-radius: 50%;
+            border: 2px solid rgba(99,102,241,0.5);
+            background: linear-gradient(135deg, #4F46E5, #7C3AED);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: 700; color: #fff;
+            flex-shrink: 0;
+        }
+        .user-name {
+            font-size: 13px; font-weight: 600; color: #CBD5E1;
+            max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .btn-logout {
+            background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
+            color: #EF4444; font-size: 12px; font-weight: 600;
+            padding: 5px 12px; border-radius: 6px; cursor: pointer;
+            font-family: 'DM Sans', -apple-system, sans-serif;
+            transition: all 0.2s;
+        }
+        .btn-logout:hover { background: rgba(239,68,68,0.2); color: #F87171; }
+
+        /* Auth loading overlay */
+        .auth-loading {
+            position: fixed; inset: 0; background: #070B14;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 9999; transition: opacity 0.3s;
+        }
+        .auth-loading.hidden { opacity: 0; pointer-events: none; }
+        .auth-spinner {
+            width: 40px; height: 40px; border: 3px solid rgba(99,102,241,0.2);
+            border-top-color: #6366F1; border-radius: 50%;
+            animation: authSpin 0.8s linear infinite;
+        }
+        @keyframes authSpin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 600px) {
+            .user-name { display: none; }
+        }
 
         .logo {
             width: 48px;
@@ -733,26 +782,24 @@
             background: rgba(17,25,40,0.95);
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 8px;
-            height: 40px;
             display: flex;
-            align-items: center;
-            padding: 0 14px;
-            gap: 0;
+            flex-direction: column;
+            padding: 8px 14px;
+            gap: 6px;
             flex-shrink: 0;
         }
         .mp-section {
             display: flex;
             align-items: center;
             gap: 7px;
-            flex: 1;
             min-width: 0;
         }
         .mp-divider {
-            width: 1px;
-            height: 20px;
+            width: 100%;
+            height: 1px;
             background: rgba(255,255,255,0.06);
             flex-shrink: 0;
-            margin: 0 14px;
+            margin: 0;
         }
         .mp-label {
             font-size: 10px;
@@ -794,14 +841,18 @@
             display: flex;
             align-items: center;
             gap: 0;
-            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
             flex-shrink: 0;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
         }
+        .mini-ticker-strip::-webkit-scrollbar { display: none; }
         .mini-ticker-item {
             display: flex;
             align-items: center;
             gap: 5px;
-            flex: 1;
+            flex: 0 0 auto;
             padding: 0 8px;
             border-right: 1px solid rgba(255,255,255,0.05);
             min-width: 0;
@@ -4202,9 +4253,17 @@
         .news-pg-btn:disabled:hover { background: rgba(255,255,255,0.03); color: #64748B; border-color: rgba(255,255,255,0.08); }
 
     </style>
+
+    <!-- Firebase SDK (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
   <script src="patterns.js"></script>
 </head>
 <body>
+    <!-- Auth loading -->
+    <div class="auth-loading" id="authLoading"><div class="auth-spinner"></div></div>
+
     <!-- Глобальный тултип для индикаторов -->
     <div id="indTooltip"></div>
 
@@ -4231,20 +4290,27 @@
                     <h1>Thinking Trader</h1>
                 </div>
             </div>
-            <!-- Языковой переключатель -->
-            <div class="lang-selector" id="langSelector">
-                <div class="lang-trigger" id="langTrigger">
-                    <span class="lang-flag" id="langFlag">🇷🇺</span>
-                    <span id="langCode">RU</span>
-                    <span class="lang-arrow">▼</span>
+            <!-- Языковой переключатель + User profile -->
+            <div class="header-right">
+                <div class="lang-selector" id="langSelector">
+                    <div class="lang-trigger" id="langTrigger">
+                        <span class="lang-flag" id="langFlag">🇷🇺</span>
+                        <span id="langCode">RU</span>
+                        <span class="lang-arrow">▼</span>
+                    </div>
+                    <div class="lang-dropdown" id="langDropdown">
+                        <div class="lang-option active" data-lang="en">
+                            <span class="lang-flag">🇬🇧</span> EN
+                        </div>
+                        <div class="lang-option" data-lang="ru">
+                            <span class="lang-flag">🇷🇺</span> RU
+                        </div>
+                    </div>
                 </div>
-                <div class="lang-dropdown" id="langDropdown">
-                    <div class="lang-option active" data-lang="en">
-                        <span class="lang-flag">🇬🇧</span> EN
-                    </div>
-                    <div class="lang-option" data-lang="ru">
-                        <span class="lang-flag">🇷🇺</span> RU
-                    </div>
+                <div class="user-profile" id="userProfile" style="display:none;">
+                    <div class="user-avatar" id="userAvatar"></div>
+                    <span class="user-name" id="userName"></span>
+                    <button class="btn-logout" id="btnLogout">Sign out</button>
                 </div>
             </div>
         </div>
@@ -11914,6 +11980,51 @@
         </div>
     </div>
 </div>
+
+<!-- Firebase Auth for Dashboard -->
+<script>
+    // ══════════════════════════════════════════════════════════
+    // Firebase Configuration (same as landing page)
+    // ══════════════════════════════════════════════════════════
+    const firebaseConfig = {
+        apiKey: "AIzaSyB0uC--M6rVbJS-kmzt_l9rOkwJUDxFGwI",
+        authDomain: "thinking-trader.firebaseapp.com",
+        projectId: "thinking-trader",
+        storageBucket: "thinking-trader.firebasestorage.app",
+        messagingSenderId: "392476633112",
+        appId: "1:392476633112:web:2b49fab3fc88aeef093b6d"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+
+    // Auth state listener
+    auth.onAuthStateChanged(user => {
+        const loader = document.getElementById('authLoading');
+        if (!user) {
+            // Not logged in → redirect to landing
+            window.location.href = '/';
+            return;
+        }
+        // User is logged in — show profile
+        const profileEl = document.getElementById('userProfile');
+        const avatarEl = document.getElementById('userAvatar');
+        const nameEl = document.getElementById('userName');
+
+        avatarEl.textContent = (user.email || user.displayName || 'U').charAt(0).toUpperCase();
+        nameEl.textContent = user.displayName || user.email || 'Trader';
+        profileEl.style.display = 'flex';
+
+        // Hide loader
+        loader.classList.add('hidden');
+    });
+
+    // Logout
+    document.getElementById('btnLogout').addEventListener('click', () => {
+        auth.signOut().then(() => {
+            window.location.href = '/';
+        });
+    });
+</script>
 
 </body>
 </html>
