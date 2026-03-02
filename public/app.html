@@ -782,24 +782,26 @@
             background: rgba(17,25,40,0.95);
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 8px;
+            height: 40px;
             display: flex;
-            flex-direction: column;
-            padding: 8px 14px;
-            gap: 6px;
+            align-items: center;
+            padding: 0 14px;
+            gap: 0;
             flex-shrink: 0;
         }
         .mp-section {
             display: flex;
             align-items: center;
             gap: 7px;
+            flex: 1;
             min-width: 0;
         }
         .mp-divider {
-            width: 100%;
-            height: 1px;
+            width: 1px;
+            height: 20px;
             background: rgba(255,255,255,0.06);
             flex-shrink: 0;
-            margin: 0;
+            margin: 0 14px;
         }
         .mp-label {
             font-size: 10px;
@@ -841,18 +843,14 @@
             display: flex;
             align-items: center;
             gap: 0;
-            overflow-x: auto;
-            overflow-y: hidden;
+            overflow: hidden;
             flex-shrink: 0;
-            scrollbar-width: none;
-            -ms-overflow-style: none;
         }
-        .mini-ticker-strip::-webkit-scrollbar { display: none; }
         .mini-ticker-item {
             display: flex;
             align-items: center;
             gap: 5px;
-            flex: 0 0 auto;
+            flex: 1;
             padding: 0 8px;
             border-right: 1px solid rgba(255,255,255,0.05);
             min-width: 0;
@@ -2526,6 +2524,12 @@
             .tpsl-price { font-size: 12px; }
             .tpsl-pct { font-size: 10px; }
             .tpsl-profit { font-size: 11px; }
+
+            /* Market Pulse — две строки на ноутбуках */
+            .market-pulse-bar {
+                height: auto; flex-direction: column; padding: 8px 12px; gap: 6px; align-items: flex-start;
+            }
+            .mp-divider { width: 100%; height: 1px; margin: 0; }
         }
 
         @media (max-width: 900px) {
