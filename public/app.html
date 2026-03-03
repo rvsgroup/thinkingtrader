@@ -2,9 +2,15 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Thinking Trader</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Thinking Trader">
+    <meta name="theme-color" content="#0B1525">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <style>
@@ -4569,7 +4575,7 @@
             .j-stat-value { font-size: 16px; }
             .j-stat-sub { font-size: 8px; }
 
-            /* Filters — hide desktop buttons, show mobile dropdown */
+            /* Filters — hide desktop on mobile */
             .journal-filters { display: none !important; }
             .j-mobile-filters {
                 display: flex !important; gap: 6px; flex-shrink: 0;
@@ -4640,51 +4646,80 @@
                 padding: 0; border: none; font-size: 12px;
             }
 
-            /* Hide columns on mobile: №, Entry, Exit, Volume, Leverage, PnL%, Pattern */
+            /* Hide: only №(1) and Result badge(12) */
             .journal-table td:nth-child(1),
-            .journal-table td:nth-child(5),
-            .journal-table td:nth-child(6),
-            .journal-table td:nth-child(7),
-            .journal-table td:nth-child(8),
-            .journal-table td:nth-child(10),
-            .journal-table td:nth-child(11) {
+            .journal-table td:nth-child(12) {
                 display: none;
             }
 
-            /* Card layout mapping */
-            /* Date (2) */
-            .journal-table td:nth-child(2) {
-                grid-column: 1; grid-row: 1;
-                font-size: 10px; color: #64748B;
+            /* Card: 3-col grid */
+            .journal-table tr:not(.editing):not(.j-add-row) {
+                grid-template-columns: auto 1fr auto;
+                grid-template-rows: auto auto auto auto;
+                gap: 2px 10px;
             }
-            /* Coin (3) */
+
+            /* LEFT: Coin(3), Side(4), Pattern(11) */
             .journal-table td:nth-child(3) {
-                grid-column: 1; grid-row: 2;
+                grid-column: 1; grid-row: 1;
             }
-            /* Side (4) */
             .journal-table td:nth-child(4) {
-                grid-column: 2; grid-row: 2;
-            }
-            /* PnL $ (9) */
-            .journal-table td:nth-child(9) {
-                grid-column: 3; grid-row: 1 / 3;
-                display: flex; align-items: center; justify-content: flex-end;
-                font-size: 14px; font-weight: 800;
-            }
-            /* Result (12) */
-            .journal-table td:nth-child(12) {
-                grid-column: 2; grid-row: 1;
+                grid-column: 1; grid-row: 2;
                 display: flex; align-items: center;
             }
-            /* Comment (13) */
-            .journal-table td:nth-child(13) {
-                grid-column: 1 / 3; grid-row: 3;
-                font-size: 10px; color: #475569;
-                max-width: none;
+            .journal-table td:nth-child(11) {
+                grid-column: 1; grid-row: 3;
+                display: inline-flex !important; align-items: center;
+                font-size: 9px;
             }
-            /* Actions (14) */
-            .journal-table td:nth-child(14) {
+
+            /* CENTER: Date(2), Entry(5), Exit(6), Volume(7), Leverage(8) */
+            .journal-table td:nth-child(2) {
+                grid-column: 2; grid-row: 1;
+                font-size: 10px; color: #94A3B8;
+                display: flex; align-items: center;
+            }
+            .journal-table td:nth-child(5) {
+                grid-column: 2; grid-row: 2;
+                font-size: 10px; color: #94A3B8;
+                display: inline-flex !important; align-items: center;
+            }
+            .journal-table td:nth-child(6) {
+                grid-column: 2; grid-row: 2;
+                display: none;
+            }
+            .journal-table td:nth-child(7) {
+                grid-column: 2; grid-row: 3;
+                font-size: 10px; color: #94A3B8;
+                display: inline-flex !important; align-items: center;
+            }
+            .journal-table td:nth-child(8) {
+                grid-column: 2; grid-row: 3;
+                display: none;
+            }
+
+            /* RIGHT: PnL$(9), PnL%(10) */
+            .journal-table td:nth-child(9) {
+                grid-column: 3; grid-row: 1 / 3;
+                display: flex; align-items: flex-end; justify-content: flex-end;
+                font-size: 15px; font-weight: 800;
+            }
+            .journal-table td:nth-child(10) {
                 grid-column: 3; grid-row: 3;
+                font-size: 10px;
+                display: flex !important; align-items: center; justify-content: flex-end;
+            }
+
+            /* BOTTOM: Comment(13) | Actions(14) */
+            .journal-table td:nth-child(13) {
+                grid-column: 1 / 3; grid-row: 4;
+                font-size: 9px; color: #475569;
+                max-width: none;
+                display: flex; align-items: center;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .journal-table td:nth-child(14) {
+                grid-column: 3; grid-row: 4;
                 display: flex; align-items: center; justify-content: flex-end; gap: 4px;
             }
 
@@ -4712,10 +4747,6 @@
             .journal-table tr.editing .j-coin-trigger {
                 width: 100%; box-sizing: border-box;
                 padding: 8px; font-size: 13px; border-radius: 6px; height: 38px;
-            }
-            .journal-table tr.editing .j-input-date {
-                font-size: 12px; -webkit-appearance: none; appearance: none;
-                min-width: 0; overflow: hidden;
             }
             .journal-table tr.editing td::before {
                 content: attr(data-label);
