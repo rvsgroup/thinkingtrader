@@ -78,6 +78,118 @@
             background: linear-gradient(90deg, #6366F1, #8B5CF6);
         }
 
+        /* ── Side Navigation Panel ── */
+        .side-nav-trigger {
+            position: fixed; right: 0; top: 0; width: 12px; height: 100vh;
+            z-index: 2000; cursor: pointer;
+        }
+        .side-nav-glow {
+            position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+            width: 5px; height: 300px; border-radius: 3px;
+            background: linear-gradient(180deg, transparent 0%, rgba(99,102,241,0.9) 30%, rgba(139,92,246,1) 50%, rgba(99,102,241,0.9) 70%, transparent 100%);
+            z-index: 1999; pointer-events: none;
+            transition: opacity 0.3s;
+            box-shadow: 0 0 12px rgba(99,102,241,0.5), 0 0 30px rgba(99,102,241,0.2);
+            animation: glowPulse 3s ease-in-out infinite;
+        }
+        @keyframes glowPulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        .side-nav-panel {
+            position: fixed; right: -140px; top: 0; width: 140px; height: 100vh;
+            background: rgba(10,15,28,0.75);
+            border-left: 1px solid rgba(255,255,255,0.04);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            z-index: 2001;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 0;
+            transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: -12px 0 50px rgba(0,0,0,0.5);
+        }
+        .side-nav-panel.open { right: 0; }
+        .side-nav-panel.open ~ .side-nav-glow { opacity: 0; }
+
+        .side-nav-item {
+            width: 110px; height: 88px; border-radius: 16px;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 8px;
+            cursor: pointer; position: relative;
+            background: transparent; border: none;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: inherit;
+        }
+        .side-nav-item:hover {
+            background: rgba(255,255,255,0.04);
+        }
+        .side-nav-item.active {
+            background: rgba(99,102,241,0.08);
+        }
+        /* Active glow bar */
+        .side-nav-item.active::before {
+            content: ''; position: absolute; left: -15px; top: 50%; transform: translateY(-50%);
+            width: 3px; height: 32px; border-radius: 0 3px 3px 0;
+            background: linear-gradient(180deg, #6366F1, #A78BFA);
+            box-shadow: 0 0 12px rgba(99,102,241,0.6);
+        }
+        /* Active bottom glow */
+        .side-nav-item.active::after {
+            content: ''; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+            width: 40px; height: 3px; border-radius: 2px;
+            background: linear-gradient(90deg, transparent, rgba(99,102,241,0.4), transparent);
+            filter: blur(2px);
+        }
+        /* Icon container */
+        .side-nav-icon {
+            width: 44px; height: 44px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.03);
+            transition: all 0.25s;
+        }
+        .side-nav-item:hover .side-nav-icon {
+            background: rgba(255,255,255,0.06);
+            transform: translateY(-1px);
+        }
+        .side-nav-item.active .side-nav-icon {
+            background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.1));
+            box-shadow: 0 4px 16px rgba(99,102,241,0.15);
+        }
+        .side-nav-item svg {
+            width: 22px; height: 22px; stroke-width: 1.5;
+            stroke: #475569; fill: none;
+            stroke-linecap: round; stroke-linejoin: round;
+            transition: all 0.25s;
+        }
+        .side-nav-item.active svg {
+            stroke: #A78BFA;
+            filter: drop-shadow(0 0 6px rgba(139,92,246,0.4));
+        }
+        .side-nav-item:hover svg { stroke: #94A3B8; }
+        .side-nav-item.active:hover svg { stroke: #A78BFA; }
+        .side-nav-label {
+            font-size: 10px; font-weight: 500; color: #475569;
+            letter-spacing: 0.03em;
+            transition: all 0.25s;
+        }
+        .side-nav-item.active .side-nav-label {
+            color: #C4B5FD; font-weight: 600;
+        }
+        .side-nav-item:hover .side-nav-label { color: #94A3B8; }
+        .side-nav-item.active:hover .side-nav-label { color: #C4B5FD; }
+
+        /* Separator dots between items */
+        .side-nav-sep {
+            width: 3px; height: 3px; border-radius: 50%;
+            background: rgba(255,255,255,0.06);
+            margin: 2px 0;
+        }
+
+        /* Hide on mobile */
+        @media (max-width: 768px) {
+            .side-nav-trigger, .side-nav-glow, .side-nav-panel { display: none; }
+        }
+
         /* ── Навигация: стрелки ── */
         .slider-arrow {
             position: fixed;
@@ -3072,20 +3184,20 @@
             color: #fff;
         }
 
-        /* Binance — фирменный золотой */
-        .news-promo-item.binance {
-            background: linear-gradient(135deg, rgba(243,186,47,0.08) 0%, rgba(0,0,0,0.2) 100%);
-            border: 1px solid rgba(243,186,47,0.2);
+        /* OKX — чёрно-белый */
+        .news-promo-item.okx {
+            background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(0,0,0,0.2) 100%);
+            border: 1px solid rgba(255,255,255,0.15);
         }
-        .news-promo-item.binance .news-promo-name { color: #F3BA2F; }
-        .news-promo-item.binance .news-promo-desc { color: #94A3B8; }
-        .news-promo-item.binance .news-promo-cta {
-            background: rgba(243,186,47,0.12);
-            border: 1px solid rgba(243,186,47,0.3);
-            color: #F3BA2F;
+        .news-promo-item.okx .news-promo-name { color: #FFFFFF; }
+        .news-promo-item.okx .news-promo-desc { color: #94A3B8; }
+        .news-promo-item.okx .news-promo-cta {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #FFFFFF;
         }
-        .news-promo-item.binance .news-promo-cta:hover {
-            background: rgba(243,186,47,0.22);
+        .news-promo-item.okx .news-promo-cta:hover {
+            background: rgba(255,255,255,0.16);
             color: #fff;
         }
 
@@ -4496,6 +4608,39 @@
         <div class="slider-dot" data-page="3"></div>
     </div>
 
+    <!-- Side Navigation Panel -->
+    <div class="side-nav-trigger" id="sideNavTrigger"></div>
+    <div class="side-nav-glow" id="sideNavGlow"></div>
+    <div class="side-nav-panel" id="sideNavPanel">
+        <button class="side-nav-item active" data-nav="0">
+            <div class="side-nav-icon">
+                <svg viewBox="0 0 24 24"><polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/><polyline points="16,7 22,7 22,13"/></svg>
+            </div>
+            <span class="side-nav-label" data-i18n="navDashboard">Dashboard</span>
+        </button>
+        <div class="side-nav-sep"></div>
+        <button class="side-nav-item" data-nav="1">
+            <div class="side-nav-icon">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+            </div>
+            <span class="side-nav-label" data-i18n="navIndicators">Indicators</span>
+        </button>
+        <div class="side-nav-sep"></div>
+        <button class="side-nav-item" data-nav="2">
+            <div class="side-nav-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2z"/><line x1="6" y1="8" x2="18" y2="8"/><line x1="6" y1="12" x2="14" y2="12"/><line x1="6" y1="16" x2="10" y2="16"/></svg>
+            </div>
+            <span class="side-nav-label" data-i18n="navNews">News</span>
+        </button>
+        <div class="side-nav-sep"></div>
+        <button class="side-nav-item" data-nav="3">
+            <div class="side-nav-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            </div>
+            <span class="side-nav-label" data-i18n="navJournal">Journal</span>
+        </button>
+    </div>
+
     <!-- Слайдер -->
     <div class="slider-wrapper slide-1" id="sliderWrapper">
     <!-- Страница 1 -->
@@ -5227,7 +5372,7 @@
                                     <span class="stat-label" data-i18n="statYield">Доходность</span>
                                     <span class="stat-value positive" id="compoundROIDisplay">+0%</span>
                                 </div>
-                                <div class="stat-item">
+                                <div class="stat-item rub-only">
                                     <span class="stat-label" data-i18n="statInRubles">В рублях</span>
                                     <span class="stat-value" id="compoundRubDisplay">₽0</span>
                                 </div>
@@ -5295,7 +5440,7 @@
                                     <span class="stat-label" data-i18n="statPriceChange">Изменение цены</span>
                                     <span class="stat-value" id="marginPriceChangeDisplay">0%</span>
                                 </div>
-                                <div class="stat-item">
+                                <div class="stat-item rub-only">
                                     <span class="stat-label" data-i18n="statInRubles">В рублях</span>
                                     <span class="stat-value" id="marginRubDisplay">₽0</span>
                                 </div>
@@ -6218,10 +6363,10 @@
                             <div class="news-promo-desc" data-i18n="promoBybit">Акция: рекомендуйте своим друзьям. Самая низкая ставка на рынке</div>
                             <a href="https://www.bybit.com/invite?ref=QO31EP" target="_blank" rel="noopener" class="news-promo-cta" data-i18n="promoRegister">Зарегистрироваться →</a>
                         </div>
-                        <div class="news-promo-item binance">
-                            <div class="news-promo-name">◈ Binance</div>
-                            <div class="news-promo-desc" data-i18n="promoBinance">Самая выгодная покупка криптовалюты. Скидка на комиссию. Топовые активы</div>
-                            <a href="https://www.binance.com/register?ref=38905316" target="_blank" rel="noopener" class="news-promo-cta" data-i18n="promoRegister">Зарегистрироваться →</a>
+                        <div class="news-promo-item okx">
+                            <div class="news-promo-name">⬡ OKX</div>
+                            <div class="news-promo-desc" data-i18n="promoOkx">Торгуйте 350+ криптовалют. Низкие комиссии. До $10,000 бонус</div>
+                            <a href="https://okx.com/join/9623972" target="_blank" rel="noopener" class="news-promo-cta" data-i18n="promoRegister">Зарегистрироваться →</a>
                         </div>
                     </div>
 
@@ -6667,7 +6812,7 @@
                 timeJustNow: 'только что',
                 newsReadMore: 'Читать далее →', newsPopular: 'Популярное', newsAllNews: 'Все новости ↗',
                 promoBybit: 'Акция: рекомендуйте своим друзьям. Самая низкая ставка на рынке',
-                promoBinance: 'Самая выгодная покупка криптовалюты. Скидка 0%. Топовые активы',
+                promoOkx: 'Торгуйте 350+ криптовалют. Низкие комиссии. До $10,000 бонус',
                 promoRegister: 'Зарегистрироваться →',
                 badgeBullish: '🐂 Бычий', badgeBearish: '🐻 Медвежий', badgeNeutral: '⚡ Нейтрально',
                 badgeMain: '🔥 Главная новость',
@@ -6678,6 +6823,8 @@
                 // Journal (page 4)
                 journalTitle: 'Trade Journal',
                 journalSubtitle: 'Записывайте сделки, анализируйте результаты, растите как трейдер',
+                // Side navigation
+                navDashboard: 'Главная', navIndicators: 'Индикаторы', navNews: 'Новости', navJournal: 'Дневник',
                 jStatTotal: 'ВСЕГО СДЕЛОК', jStatAllTime: 'за всё время',
                 jStatWinrate: 'ВИНРЕЙТ',
                 jStatPnl: 'ОБЩИЙ PNL', jStatPnlSub: 'от депозита',
@@ -6944,7 +7091,7 @@
                 timeJustNow: 'just now',
                 newsReadMore: 'Read more →', newsPopular: 'Popular', newsAllNews: 'All news ↗',
                 promoBybit: 'Promotion: refer your friends. Lowest rate on the market',
-                promoBinance: 'Best crypto exchange. 0% discount. Top assets',
+                promoOkx: 'Trade 350+ cryptocurrencies. Low fees. Up to $10,000 bonus',
                 promoRegister: 'Register →',
                 badgeBullish: '🐂 Bullish', badgeBearish: '🐻 Bearish', badgeNeutral: '⚡ Neutral',
                 badgeMain: '🔥 Top Story',
@@ -6955,6 +7102,8 @@
                 // Journal (page 4)
                 journalTitle: 'Trade Journal',
                 journalSubtitle: 'Record your trades, analyze performance, grow as a trader',
+                // Side navigation
+                navDashboard: 'Dashboard', navIndicators: 'Indicators', navNews: 'News', navJournal: 'Journal',
                 jStatTotal: 'TOTAL TRADES', jStatAllTime: 'all time',
                 jStatWinrate: 'WIN RATE',
                 jStatPnl: 'TOTAL PNL', jStatPnlSub: 'of deposit',
@@ -10865,12 +11014,45 @@
             dots.forEach((d, i) => d.classList.toggle('active', i === page));
             arrowLeft.classList.toggle('hidden', page === 0);
             arrowRight.classList.toggle('hidden', page === totalPages - 1);
-
+            // Sync side nav
+            document.querySelectorAll('.side-nav-item').forEach((item, i) => {
+                item.classList.toggle('active', i === page);
+            });
         }
 
         arrowLeft.addEventListener('click', () => goToPage(currentPage - 1));
         arrowRight.addEventListener('click', () => goToPage(currentPage + 1));
         dots.forEach(d => d.addEventListener('click', () => goToPage(+d.dataset.page)));
+
+        // Side nav panel — hover logic
+        const sideNavTrigger = document.getElementById('sideNavTrigger');
+        const sideNavPanel = document.getElementById('sideNavPanel');
+        const sideNavGlow = document.getElementById('sideNavGlow');
+        let sideNavTimeout = null;
+
+        function openSideNav() {
+            clearTimeout(sideNavTimeout);
+            sideNavPanel.classList.add('open');
+            sideNavGlow.style.opacity = '0';
+        }
+        function closeSideNav() {
+            sideNavTimeout = setTimeout(() => {
+                sideNavPanel.classList.remove('open');
+                sideNavGlow.style.opacity = '1';
+            }, 200);
+        }
+
+        sideNavTrigger.addEventListener('mouseenter', openSideNav);
+        sideNavTrigger.addEventListener('mouseleave', closeSideNav);
+        sideNavPanel.addEventListener('mouseenter', () => { clearTimeout(sideNavTimeout); });
+        sideNavPanel.addEventListener('mouseleave', closeSideNav);
+
+        // Click to navigate
+        document.querySelectorAll('.side-nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                goToPage(parseInt(item.dataset.nav));
+            });
+        });
 
         // Keyboard
         document.addEventListener('keydown', e => {
@@ -12097,6 +12279,24 @@
             if (jSearch) jSearch.placeholder = tr.jSearchPlaceholder || '🔍  Search coin...';
             // Re-render journal table with new language
             if (typeof window.journalRerender === 'function') window.journalRerender();
+
+            // Re-trigger active calculator to refresh translated results
+            const activeCalcBtn = document.querySelector('.calc-btn.active');
+            if (activeCalcBtn) activeCalcBtn.click();
+
+            // Show RUB blocks only for Russian language
+            document.querySelectorAll('.rub-only').forEach(el => {
+                el.style.display = lang === 'ru' ? '' : 'none';
+            });
+
+            // Update TP strategy "of investment" text
+            ['tpStrategyPct', 'marginTpStrategyPct'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el && el.textContent && el.textContent.includes('%')) {
+                    const pct = el.textContent.match(/[+\-]?[\d.]+%/);
+                    if (pct) el.textContent = pct[0] + ' ' + tr.ofInvestment;
+                }
+            });
 
             // Перерендерим существующие buy-rows
             document.querySelectorAll('.buy-row').forEach(row => {
