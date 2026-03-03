@@ -4552,30 +4552,60 @@
             .journal-title { font-size: 15px; }
             .journal-subtitle { font-size: 10px; }
 
-            /* Stats — horizontal scroll */
+            /* Stats — 2+2+1 grid */
             .journal-stats {
-                flex-wrap: nowrap; overflow-x: auto; gap: 6px;
-                padding-bottom: 4px;
-                scrollbar-width: none;
+                display: grid !important;
+                grid-template-columns: 1fr 1fr;
+                gap: 6px; flex-wrap: nowrap; overflow: visible;
             }
-            .journal-stats::-webkit-scrollbar { display: none; }
-            .j-stat {
-                min-width: 110px; flex-shrink: 0;
-                padding: 6px 10px;
+            .journal-stats .j-stat {
+                min-width: 0; flex-shrink: unset;
+                padding: 8px 10px;
+            }
+            .journal-stats .j-stat:last-child {
+                grid-column: 1 / -1;
             }
             .j-stat-label { font-size: 8px; }
             .j-stat-value { font-size: 16px; }
             .j-stat-sub { font-size: 8px; }
 
-            /* Filters — horizontal scroll */
+            /* Filters — hide buttons, show dropdown */
+            .journal-filters .j-filter-btn { display: none !important; }
+            .journal-filters .j-search { display: none !important; }
             .journal-filters {
-                flex-wrap: nowrap; overflow-x: auto; gap: 4px;
-                padding-bottom: 4px;
-                scrollbar-width: none;
+                gap: 6px; overflow: visible; flex-wrap: nowrap;
             }
-            .journal-filters::-webkit-scrollbar { display: none; }
-            .j-filter-btn { font-size: 10px; padding: 4px 10px; white-space: nowrap; flex-shrink: 0; }
-            .j-search { font-size: 11px; min-width: 140px; flex-shrink: 0; }
+            .j-mobile-filter-select,
+            .j-mobile-search {
+                display: block !important;
+            }
+            .journal-filters { display: none !important; }
+            .j-mobile-filters {
+                display: flex !important; gap: 6px; flex-shrink: 0;
+            }
+            .j-mobile-filter-wrap, .j-mobile-search-wrap {
+                position: relative; display: flex;
+            }
+            .j-mobile-filter-wrap { flex: 0 0 auto; }
+            .j-mobile-search-wrap { flex: 1; min-width: 0; }
+            .j-mobile-filter-icon, .j-mobile-search-icon {
+                position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+                font-size: 11px; pointer-events: none; z-index: 1; opacity: 0.5;
+            }
+            .j-mobile-filter-select {
+                padding: 8px 10px 8px 26px; font-size: 12px; font-family: inherit;
+                background: rgba(17,25,40,0.95); color: #CBD5E1;
+                border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
+                appearance: auto; cursor: pointer; outline: none; width: 100%;
+            }
+            .j-mobile-search {
+                width: 100%;
+                padding: 8px 10px 8px 26px; font-size: 12px; font-family: inherit;
+                background: rgba(17,25,40,0.95); color: #CBD5E1;
+                border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
+                outline: none;
+            }
+            .j-mobile-search:focus { border-color: rgba(99,102,241,0.4); }
 
             /* Table wrap — auto height */
             .journal-table-wrap {
@@ -4676,8 +4706,8 @@
 
             /* Editing row on mobile */
             .journal-table tr.editing {
-                display: flex !important;
-                flex-wrap: wrap;
+                display: grid !important;
+                grid-template-columns: 1fr 1fr;
                 gap: 8px; padding: 14px;
                 border: 1px solid rgba(99,102,241,0.3);
                 border-radius: 12px;
@@ -4685,8 +4715,12 @@
             .journal-table tr.editing td {
                 display: flex !important;
                 flex-direction: column; gap: 2px;
-                width: calc(50% - 4px);
-                box-sizing: border-box;
+                min-width: 0; box-sizing: border-box;
+            }
+            .journal-table tr.editing .j-coin-dropdown { width: 100%; }
+            .journal-table tr.editing .j-coin-trigger {
+                width: 100%; box-sizing: border-box;
+                padding: 8px; font-size: 13px; border-radius: 6px; height: 38px;
             }
             .journal-table tr.editing td::before {
                 content: attr(data-label);
@@ -4697,26 +4731,26 @@
             .journal-table tr.editing .j-edit-pnl { display: none !important; }
             .journal-table tr.editing .j-edit-pnlpct { display: none !important; }
             .journal-table tr.editing .j-edit-status { display: none !important; }
-            .journal-table tr.editing .j-edit-date { order: 1; }
-            .journal-table tr.editing .j-edit-coin { order: 2; }
-            .journal-table tr.editing .j-edit-entry { order: 3; }
-            .journal-table tr.editing .j-edit-exit { order: 4; }
-            .journal-table tr.editing .j-edit-vol { order: 5; }
-            .journal-table tr.editing .j-edit-side { order: 6; }
-            .journal-table tr.editing .j-edit-lev { order: 7; }
-            .journal-table tr.editing .j-edit-pat { order: 8; }
+            .journal-table tr.editing .j-edit-date { grid-column: 1; grid-row: 1; }
+            .journal-table tr.editing .j-edit-coin { grid-column: 2; grid-row: 1; }
+            .journal-table tr.editing .j-edit-entry { grid-column: 1; grid-row: 2; }
+            .journal-table tr.editing .j-edit-exit { grid-column: 2; grid-row: 2; }
+            .journal-table tr.editing .j-edit-vol { grid-column: 1; grid-row: 3; }
+            .journal-table tr.editing .j-edit-side { grid-column: 2; grid-row: 3; }
+            .journal-table tr.editing .j-edit-lev { grid-column: 1; grid-row: 4; }
+            .journal-table tr.editing .j-edit-pat { grid-column: 2; grid-row: 4; }
             .journal-table tr.editing .j-edit-comment {
-                order: 9; width: 100%;
+                grid-column: 1 / -1; grid-row: 5;
             }
             .journal-table tr.editing .j-edit-comment::before { content: ''; }
             .journal-table tr.editing .j-edit-actions {
-                order: 10; width: 100%;
-                flex-direction: row; gap: 8px;
+                grid-column: 1 / -1; grid-row: 6;
+                flex-direction: row !important; gap: 8px;
                 padding-top: 4px;
             }
-            .journal-table tr.editing .j-edit-actions::before { content: ''; }
+            .journal-table tr.editing .j-edit-actions::before { content: '' !important; display: none !important; }
             .journal-table tr.editing .j-input,
-            .journal-table tr.editing .j-select { width: 100%; font-size: 13px; padding: 8px; border-radius: 6px; }
+            .journal-table tr.editing .j-select { width: 100%; font-size: 13px; padding: 8px; border-radius: 6px; height: 38px; box-sizing: border-box; }
             .journal-table tr.editing .j-input-sm,
             .journal-table tr.editing .j-input-xs,
             .journal-table tr.editing .j-input-date { width: 100%; }
@@ -4757,6 +4791,8 @@
         }
         /* FAB hidden on desktop */
         .j-fab-add { display: none; }
+        /* Mobile filters hidden on desktop */
+        .j-mobile-filters { display: none; }
 
         /* Coin icon in table */
         .j-coin-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
@@ -6750,6 +6786,24 @@
             <button class="j-filter-btn" data-jfilter="long" data-i18n="jFilterLong">Только лонг</button>
             <button class="j-filter-btn" data-jfilter="short" data-i18n="jFilterShort">Только шорт</button>
             <input class="j-search" id="jSearch" placeholder="🔍  Поиск по монете...">
+        </div>
+
+        <!-- Mobile filter & search (hidden on desktop) -->
+        <div class="j-mobile-filters">
+            <div class="j-mobile-filter-wrap">
+                <span class="j-mobile-filter-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></span>
+                <select class="j-mobile-filter-select" id="jMobileFilter">
+                    <option value="all">Все сделки</option>
+                    <option value="week">Эта неделя</option>
+                    <option value="month">Этот месяц</option>
+                    <option value="long">Только лонг</option>
+                    <option value="short">Только шорт</option>
+                </select>
+            </div>
+            <div class="j-mobile-search-wrap">
+                <span class="j-mobile-search-icon">🔍</span>
+                <input class="j-mobile-search" id="jMobileSearch" placeholder="">
+            </div>
         </div>
 
         <!-- Table -->
@@ -12503,6 +12557,13 @@
             // Re-render journal table with new language
             if (typeof window.journalRerender === 'function') window.journalRerender();
 
+            // Mobile filter translation
+            const mfSel = document.getElementById('jMobileFilter');
+            if (mfSel) {
+                const fk = {all:'jFilterAll',week:'jFilterWeek',month:'jFilterMonth',long:'jFilterLong',short:'jFilterShort'};
+                mfSel.querySelectorAll('option').forEach(o => { if (fk[o.value] && tr[fk[o.value]]) o.textContent = tr[fk[o.value]]; });
+            }
+
             // Re-trigger active calculator to refresh translated results
             const activeCalcBtn = document.querySelector('.calc-btn.active');
             if (activeCalcBtn) activeCalcBtn.click();
@@ -13319,6 +13380,28 @@
         currentJPage = 1;
         renderTable();
     });
+
+    // ── Mobile filter dropdown ──
+    const mobileFilter = document.getElementById('jMobileFilter');
+    if (mobileFilter) {
+        mobileFilter.addEventListener('change', e => {
+            currentFilter = e.target.value;
+            document.querySelectorAll('[data-jfilter]').forEach(b => b.classList.remove('active'));
+            const ab = document.querySelector('[data-jfilter="' + currentFilter + '"]');
+            if (ab) ab.classList.add('active');
+            currentJPage = 1;
+            renderTable();
+        });
+    }
+    const mobileSearch = document.getElementById('jMobileSearch');
+    if (mobileSearch) {
+        mobileSearch.addEventListener('input', e => {
+            searchQuery = e.target.value;
+            document.getElementById('jSearch').value = e.target.value;
+            currentJPage = 1;
+            renderTable();
+        });
+    }
 
     // ── Event delegation for coin dropdown ──
     document.getElementById('jTableBody').addEventListener('click', e => {
