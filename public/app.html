@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Thinking Trader</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -4712,6 +4712,10 @@
             .journal-table tr.editing .j-coin-trigger {
                 width: 100%; box-sizing: border-box;
                 padding: 8px; font-size: 13px; border-radius: 6px; height: 38px;
+            }
+            .journal-table tr.editing .j-input-date {
+                font-size: 12px; -webkit-appearance: none; appearance: none;
+                min-width: 0; overflow: hidden;
             }
             .journal-table tr.editing td::before {
                 content: attr(data-label);
