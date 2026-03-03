@@ -4416,6 +4416,7 @@
         .j-stat.amber::before { background: linear-gradient(180deg, #F59E0B, #FBBF24); }
         .j-stat.red::before { background: linear-gradient(180deg, #DC2626, #EF4444); }
         .j-stat.cyan::before { background: linear-gradient(180deg, #0891B2, #06B6D4); }
+        .j-stat.blue::before { background: linear-gradient(180deg, #2563EB, #3B82F6); }
         .j-stat-label { font-size: 10px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; }
         .j-stat-value { font-size: 20px; font-weight: 800; color: white; margin-top: 1px; }
         .j-stat-value.positive { color: #10B981; }
@@ -4558,22 +4559,22 @@
             .journal-title { font-size: 15px; }
             .journal-subtitle { font-size: 10px; }
 
-            /* Stats — 2+2+1 grid */
+            /* Stats — 3-col grid */
             .journal-stats {
                 display: grid !important;
-                grid-template-columns: 1fr 1fr;
-                gap: 6px; flex-wrap: nowrap; overflow: visible;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: 4px; flex-wrap: nowrap; overflow: visible;
             }
             .journal-stats .j-stat {
                 min-width: 0; flex-shrink: unset;
-                padding: 8px 10px;
+                padding: 6px 8px;
             }
             .journal-stats .j-stat:last-child {
-                grid-column: 1 / -1;
+                grid-column: auto;
             }
-            .j-stat-label { font-size: 8px; }
-            .j-stat-value { font-size: 16px; }
-            .j-stat-sub { font-size: 8px; }
+            .j-stat-label { font-size: 7px; }
+            .j-stat-value { font-size: 14px; }
+            .j-stat-sub { font-size: 7px; }
 
             /* Filters — hide desktop on mobile */
             .journal-filters { display: none !important; }
@@ -6802,6 +6803,26 @@
                 <div class="j-stat-value negative" id="jStatWorst">—</div>
                 <div class="j-stat-sub" id="jStatWorstInfo">—</div>
             </div>
+            <div class="j-stat cyan">
+                <div class="j-stat-label" data-i18n="jStatStreak">ТЕКУЩАЯ СЕРИЯ</div>
+                <div class="j-stat-value" id="jStatStreak">—</div>
+                <div class="j-stat-sub" id="jStatStreakMax">—</div>
+            </div>
+            <div class="j-stat blue">
+                <div class="j-stat-label" data-i18n="jStatTopCoin">ТОП МОНЕТА</div>
+                <div class="j-stat-value positive" id="jStatTopCoin">—</div>
+                <div class="j-stat-sub" id="jStatTopCoinInfo">—</div>
+            </div>
+            <div class="j-stat red">
+                <div class="j-stat-label" data-i18n="jStatBottomCoin">ХУДШАЯ МОНЕТА</div>
+                <div class="j-stat-value negative" id="jStatBottomCoin">—</div>
+                <div class="j-stat-sub" id="jStatBottomCoinInfo">—</div>
+            </div>
+            <div class="j-stat purple">
+                <div class="j-stat-label" data-i18n="jStatCoins">УНИКАЛЬНЫХ МОНЕТ</div>
+                <div class="j-stat-value" id="jStatCoins">0</div>
+                <div class="j-stat-sub" id="jStatAvgWeek" data-i18n="jStatAvgWeek">сделок/нед: 0</div>
+            </div>
         </div>
 
         <!-- Filters -->
@@ -7132,6 +7153,9 @@
                 jStatWinrate: 'ВИНРЕЙТ',
                 jStatPnl: 'ОБЩИЙ PNL', jStatPnlSub: 'от депозита',
                 jStatBest: 'ЛУЧШАЯ СДЕЛКА', jStatWorst: 'ХУДШАЯ СДЕЛКА',
+                jStatStreak: 'ТЕКУЩАЯ СЕРИЯ', jStatStreakMax: 'макс:',
+                jStatTopCoin: 'ТОП МОНЕТА', jStatBottomCoin: 'ХУДШАЯ МОНЕТА',
+                jStatCoins: 'УНИКАЛЬНЫХ МОНЕТ', jStatAvgWeek: 'сделок/нед:',
                 jFilterAll: 'Все сделки', jFilterWeek: 'Эта неделя', jFilterMonth: 'Этот месяц',
                 jFilterLong: 'Только лонг', jFilterShort: 'Только шорт',
                 jSearchPlaceholder: '🔍  Поиск по монете...',
@@ -7411,6 +7435,9 @@
                 jStatWinrate: 'WIN RATE',
                 jStatPnl: 'TOTAL PNL', jStatPnlSub: 'of deposit',
                 jStatBest: 'BEST TRADE', jStatWorst: 'WORST TRADE',
+                jStatStreak: 'CURRENT STREAK', jStatStreakMax: 'max:',
+                jStatTopCoin: 'TOP COIN', jStatBottomCoin: 'WORST COIN',
+                jStatCoins: 'UNIQUE COINS', jStatAvgWeek: 'trades/week:',
                 jFilterAll: 'All trades', jFilterWeek: 'This week', jFilterMonth: 'This month',
                 jFilterLong: 'Long only', jFilterShort: 'Short only',
                 jSearchPlaceholder: '🔍  Search coin...',
@@ -13188,6 +13215,84 @@
             document.getElementById('jStatBestInfo').textContent = '—';
             document.getElementById('jStatWorst').textContent = '—';
             document.getElementById('jStatWorstInfo').textContent = '—';
+        }
+
+        // ── Streak ──
+        if (closed.length > 0) {
+            let curStreak = 0, curType = '';
+            let maxWin = 0, maxLoss = 0, tmpWin = 0, tmpLoss = 0;
+            const sorted = [...closed].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+            for (const t of sorted) {
+                if (t.status === 'win') {
+                    tmpWin++; tmpLoss = 0;
+                    if (tmpWin > maxWin) maxWin = tmpWin;
+                } else {
+                    tmpLoss++; tmpWin = 0;
+                    if (tmpLoss > maxLoss) maxLoss = tmpLoss;
+                }
+            }
+            const last = sorted[sorted.length - 1];
+            curType = last.status;
+            curStreak = 1;
+            for (let i = sorted.length - 2; i >= 0; i--) {
+                if (sorted[i].status === curType) curStreak++;
+                else break;
+            }
+            const streakEl = document.getElementById('jStatStreak');
+            streakEl.textContent = curStreak + (curType === 'win' ? ' WIN' : ' LOSS');
+            streakEl.className = 'j-stat-value ' + (curType === 'win' ? 'positive' : 'negative');
+            document.getElementById('jStatStreakMax').textContent = jt('jStatStreakMax') + ' ' + maxWin + 'W / ' + maxLoss + 'L';
+        } else {
+            document.getElementById('jStatStreak').textContent = '—';
+            document.getElementById('jStatStreak').className = 'j-stat-value';
+            document.getElementById('jStatStreakMax').textContent = '—';
+        }
+
+        // ── Coin stats ──
+        const coinMap = {};
+        closed.forEach(t => {
+            if (!coinMap[t.coin]) coinMap[t.coin] = 0;
+            coinMap[t.coin] += (t.pnl || 0);
+        });
+        const coinEntries = Object.entries(coinMap);
+        const uniqueCoins = coinEntries.length;
+        document.getElementById('jStatCoins').textContent = uniqueCoins;
+
+        if (coinEntries.length > 0) {
+            coinEntries.sort((a, b) => b[1] - a[1]);
+            const topCoin = coinEntries[0];
+            const bottomCoin = coinEntries[coinEntries.length - 1];
+            const fmt = v => (v >= 0 ? '+' : '-') + '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            document.getElementById('jStatTopCoin').textContent = topCoin[0];
+            document.getElementById('jStatTopCoin').className = 'j-stat-value ' + (topCoin[1] >= 0 ? 'positive' : 'negative');
+            const topCount = closed.filter(t => t.coin === topCoin[0]).length;
+            document.getElementById('jStatTopCoinInfo').textContent = fmt(topCoin[1]) + ' (' + topCount + ')';
+
+            document.getElementById('jStatBottomCoin').textContent = bottomCoin[0];
+            document.getElementById('jStatBottomCoin').className = 'j-stat-value ' + (bottomCoin[1] >= 0 ? 'positive' : 'negative');
+            const botCount = closed.filter(t => t.coin === bottomCoin[0]).length;
+            document.getElementById('jStatBottomCoinInfo').textContent = fmt(bottomCoin[1]) + ' (' + botCount + ')';
+        } else {
+            document.getElementById('jStatTopCoin').textContent = '—';
+            document.getElementById('jStatTopCoinInfo').textContent = '—';
+            document.getElementById('jStatBottomCoin').textContent = '—';
+            document.getElementById('jStatBottomCoinInfo').textContent = '—';
+        }
+
+        // ── Avg trades per week ──
+        if (trades.length > 0) {
+            const dates = trades.map(t => new Date(t.date)).filter(d => !isNaN(d));
+            if (dates.length > 1) {
+                const minD = Math.min(...dates);
+                const maxD = Math.max(...dates);
+                const weeks = Math.max(1, (maxD - minD) / (7 * 86400000));
+                document.getElementById('jStatAvgWeek').textContent = jt('jStatAvgWeek') + ' ' + (trades.length / weeks).toFixed(1);
+            } else {
+                document.getElementById('jStatAvgWeek').textContent = jt('jStatAvgWeek') + ' ' + trades.length;
+            }
+        } else {
+            document.getElementById('jStatAvgWeek').textContent = jt('jStatAvgWeek') + ' 0';
         }
     }
 
