@@ -26,14 +26,15 @@
         /* ── Слайдер ── */
         .slider-wrapper {
             display: flex;
-            width: 300vw;
+            width: 400vw;
             height: 100vh;
             transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
             will-change: transform;
         }
         .slider-wrapper.slide-1 { transform: translateX(0); }
-        .slider-wrapper.slide-2 { transform: translateX(-33.333%); }
-        .slider-wrapper.slide-3 { transform: translateX(-66.666%); }
+        .slider-wrapper.slide-2 { transform: translateX(-25%); }
+        .slider-wrapper.slide-3 { transform: translateX(-50%); }
+        .slider-wrapper.slide-4 { transform: translateX(-75%); }
 
         .slider-page {
             width: 100vw;
@@ -4256,11 +4257,223 @@
         .news-pg-btn:disabled { opacity: 0.3; cursor: default; }
         .news-pg-btn:disabled:hover { background: rgba(255,255,255,0.03); color: #64748B; border-color: rgba(255,255,255,0.08); }
 
+        /* ══════════════════════════════════════════════════════════
+           PAGE 4: TRADE JOURNAL
+        ══════════════════════════════════════════════════════════ */
+        .journal-container {
+            width: 100%; max-width: 100%; height: calc(100vh - 40px);
+            display: flex; flex-direction: column; gap: 6px;
+            padding: 8px 20px 4px; overflow: hidden;
+        }
+        #slider-page-4 {
+            overflow: hidden; padding: 0;
+            background: linear-gradient(165deg, #0B1120 0%, #101829 40%, #0d1522 100%);
+        }
+        .journal-header {
+            display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+        }
+        .journal-title {
+            font-size: 17px; font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #94A3B8 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .journal-title span { -webkit-text-fill-color: transparent; }
+        .journal-subtitle { font-size: 11px; color: #475569; margin-top: 2px; }
+
+        /* Stat cards */
+        .journal-stats {
+            display: flex; gap: 8px; flex-shrink: 0;
+        }
+        .j-stat {
+            flex: 1; background: rgba(17,25,40,0.95);
+            border: 1px solid rgba(255,255,255,0.07); border-radius: 8px;
+            padding: 8px 12px; position: relative; overflow: hidden;
+        }
+        .j-stat::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+            border-radius: 0 2px 2px 0;
+        }
+        .j-stat.purple::before { background: linear-gradient(180deg, #6366F1, #8B5CF6); }
+        .j-stat.green::before { background: linear-gradient(180deg, #059669, #10B981); }
+        .j-stat.amber::before { background: linear-gradient(180deg, #F59E0B, #FBBF24); }
+        .j-stat.red::before { background: linear-gradient(180deg, #DC2626, #EF4444); }
+        .j-stat.cyan::before { background: linear-gradient(180deg, #0891B2, #06B6D4); }
+        .j-stat-label { font-size: 10px; font-weight: 700; color: #475569; letter-spacing: 0.05em; text-transform: uppercase; }
+        .j-stat-value { font-size: 20px; font-weight: 800; color: white; margin-top: 1px; }
+        .j-stat-value.positive { color: #10B981; }
+        .j-stat-value.negative { color: #EF4444; }
+        .j-stat-sub { font-size: 10px; color: #475569; margin-top: 1px; }
+
+        /* Winrate bar */
+        .j-winrate-bar { width: 100%; height: 5px; background: rgba(255,255,255,0.07); border-radius: 3px; margin-top: 4px; }
+        .j-winrate-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #059669, #10B981); transition: width 0.5s; }
+
+        /* Filters row */
+        .journal-filters {
+            display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap;
+        }
+        .j-filter-btn {
+            padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.04); color: #64748B; font-size: 11px; font-weight: 600;
+            cursor: pointer; font-family: inherit; transition: all 0.15s;
+        }
+        .j-filter-btn:hover { background: rgba(255,255,255,0.08); color: #94A3B8; }
+        .j-filter-btn.active { background: rgba(99,102,241,0.15); color: #818CF8; border-color: rgba(99,102,241,0.3); }
+        .j-search {
+            padding: 5px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.04); color: #CBD5E1; font-size: 11px;
+            font-family: inherit; width: 160px; outline: none;
+        }
+        .j-search::placeholder { color: #475569; }
+        .j-search:focus { border-color: rgba(99,102,241,0.3); }
+        .j-export-btn {
+            padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04); color: #94A3B8; font-size: 11px; font-weight: 600;
+            cursor: pointer; font-family: inherit; margin-left: auto;
+        }
+
+        /* Table wrapper */
+        .journal-table-wrap {
+            flex: 1; min-height: 0; overflow: auto;
+            background: rgba(17,25,40,0.95); border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px; scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.3) transparent;
+        }
+        .journal-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+        .journal-table-wrap::-webkit-scrollbar-track { background: transparent; }
+        .journal-table-wrap::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 3px; }
+
+        .journal-table {
+            width: 100%; min-width: 1200px; border-collapse: collapse;
+        }
+        .journal-table thead { position: sticky; top: 0; z-index: 5; }
+        .journal-table th {
+            padding: 6px 10px; font-size: 10px; font-weight: 700; color: #475569;
+            text-transform: uppercase; letter-spacing: 0.05em; text-align: left;
+            background: rgba(15,23,42,0.98); border-bottom: 1px solid rgba(255,255,255,0.06);
+            white-space: nowrap;
+        }
+        .journal-table td {
+            padding: 4px 10px; font-size: 12px; color: #CBD5E1;
+            border-bottom: 1px solid rgba(255,255,255,0.04); white-space: nowrap; vertical-align: middle;
+        }
+        .journal-table tr.win { background: rgba(16,185,129,0.03); }
+        .journal-table tr.win td:first-child { box-shadow: inset 3px 0 0 #10B981; }
+        .journal-table tr.loss { background: rgba(239,68,68,0.03); }
+        .journal-table tr.loss td:first-child { box-shadow: inset 3px 0 0 #EF4444; }
+        .journal-table tr.open { background: rgba(99,102,241,0.03); }
+        .journal-table tr.open td:first-child { box-shadow: inset 3px 0 0 #6366F1; }
+
+        /* Table inputs/selects */
+        .j-input, .j-select {
+            padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04); color: #CBD5E1; font-size: 11px;
+            font-family: inherit; outline: none; width: 100%;
+        }
+        .j-input:focus, .j-select:focus { border-color: rgba(99,102,241,0.4); }
+        .j-select { cursor: pointer; appearance: auto; }
+        .j-input-sm { width: 80px; }
+        .j-input-xs { width: 60px; }
+        .j-input-date { width: 100px; }
+
+        /* Badges */
+        .j-badge-long { background: rgba(16,185,129,0.15); color: #10B981; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .j-badge-short { background: rgba(239,68,68,0.15); color: #EF4444; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .j-badge-win { background: rgba(16,185,129,0.2); color: #10B981; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .j-badge-loss { background: rgba(239,68,68,0.15); color: #EF4444; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .j-badge-open { background: rgba(99,102,241,0.2); color: #818CF8; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .j-badge-pattern { background: rgba(99,102,241,0.12); color: #818CF8; padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 600; }
+
+        .j-pnl-pos { color: #10B981; font-weight: 700; }
+        .j-pnl-neg { color: #EF4444; font-weight: 700; }
+        .j-pnl-open { color: #FBBF24; font-weight: 700; }
+
+        /* Action buttons */
+        .j-btn-edit, .j-btn-del, .j-btn-save {
+            padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.04); font-size: 11px; cursor: pointer;
+            font-family: inherit; transition: all 0.15s;
+        }
+        .j-btn-edit { color: #64748B; }
+        .j-btn-edit:hover { background: rgba(99,102,241,0.1); color: #818CF8; }
+        .j-btn-del { color: #64748B; border-color: rgba(239,68,68,0.15); }
+        .j-btn-del:hover { background: rgba(239,68,68,0.1); color: #EF4444; }
+        .j-btn-save { color: #10B981; border-color: rgba(16,185,129,0.2); }
+        .j-btn-save:hover { background: rgba(16,185,129,0.1); }
+
+        /* Add trade row */
+        .j-add-row {
+            border: 1px dashed rgba(99,102,241,0.25); background: rgba(99,102,241,0.03);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .j-add-row:hover { background: rgba(99,102,241,0.08); border-color: rgba(99,102,241,0.4); }
+        .j-add-row td { text-align: center; color: rgba(99,102,241,0.6); font-weight: 600; font-size: 12px; padding: 10px; }
+
+        /* Footer */
+        .journal-footer {
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; padding: 2px 0; gap: 12px; position: relative;
+        }
+        .j-footer-info { font-size: 11px; color: #475569; position: absolute; left: 20px; }
+        .j-pagination { display: flex; gap: 4px; }
+        .j-page-btn {
+            min-width: 26px; height: 26px; border-radius: 5px;
+            border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.04);
+            color: #64748B; font-size: 11px; font-weight: 600; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-family: inherit;
+        }
+        .j-page-btn.active { background: rgba(99,102,241,0.2); color: #818CF8; border-color: rgba(99,102,241,0.3); }
+        .j-page-btn:hover { background: rgba(255,255,255,0.08); }
+
+        /* Coin icon in table */
+        .j-coin-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+        .j-coin-badge img { width: 14px; height: 14px; border-radius: 50%; }
+
+        /* Custom coin dropdown */
+        .j-coin-dropdown { position: relative; display: inline-block; }
+        .j-coin-trigger {
+            display: flex; align-items: center; gap: 5px;
+            padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04); cursor: pointer; font-size: 11px; color: #CBD5E1;
+            min-width: 80px; font-family: inherit;
+        }
+        .j-coin-trigger img { width: 16px; height: 16px; border-radius: 50%; }
+        .j-coin-trigger:hover { border-color: rgba(99,102,241,0.3); }
+        .j-coin-panel {
+            position: fixed; z-index: 1000;
+            width: 220px; max-height: 280px;
+            background: #1E293B; border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            display: none; flex-direction: column; overflow: hidden;
+        }
+        .j-coin-panel.open { display: flex; }
+        .j-coin-search {
+            padding: 8px 10px; border: none; border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: transparent; color: #CBD5E1; font-size: 12px; outline: none;
+            font-family: inherit;
+        }
+        .j-coin-search::placeholder { color: #475569; }
+        .j-coin-list {
+            flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.3) transparent;
+        }
+        .j-coin-list::-webkit-scrollbar { width: 4px; }
+        .j-coin-list::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 2px; }
+        .j-coin-opt {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 10px; cursor: pointer; font-size: 12px; color: #CBD5E1;
+            transition: background 0.1s;
+        }
+        .j-coin-opt:hover { background: rgba(99,102,241,0.12); }
+        .j-coin-opt.selected { background: rgba(99,102,241,0.2); color: #818CF8; }
+        .j-coin-opt img { width: 18px; height: 18px; border-radius: 50%; }
+        .j-coin-opt .j-coin-sym { font-weight: 700; min-width: 50px; }
+        .j-coin-opt .j-coin-name { color: #64748B; font-size: 10px; }
+
     </style>
 
     <!-- Firebase SDK (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <script src="patterns.js"></script>
 </head>
@@ -4280,6 +4493,7 @@
         <div class="slider-dot active" data-page="0"></div>
         <div class="slider-dot" data-page="1"></div>
         <div class="slider-dot" data-page="2"></div>
+        <div class="slider-dot" data-page="3"></div>
     </div>
 
     <!-- Слайдер -->
@@ -6118,6 +6332,98 @@
     </div><!-- /page3-container -->
     </div><!-- /slider-page-3 -->
 
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- Страница 4: Trade Journal -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="slider-page" id="slider-page-4">
+    <div class="journal-container">
+        <!-- Header -->
+        <div class="journal-header">
+            <div>
+                <div class="journal-title" data-i18n="journalTitle">Trade Journal</div>
+                <div class="journal-subtitle" data-i18n="journalSubtitle">Записывайте сделки, анализируйте результаты, растите как трейдер</div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="journal-stats">
+            <div class="j-stat purple">
+                <div class="j-stat-label" data-i18n="jStatTotal">ВСЕГО СДЕЛОК</div>
+                <div class="j-stat-value" id="jStatTotal">0</div>
+                <div class="j-stat-sub" data-i18n="jStatAllTime">за всё время</div>
+            </div>
+            <div class="j-stat green">
+                <div class="j-stat-label" data-i18n="jStatWinrate">ВИНРЕЙТ</div>
+                <div class="j-stat-value positive" id="jStatWinrate">0%</div>
+                <div class="j-winrate-bar"><div class="j-winrate-fill" id="jWinrateFill" style="width:0%"></div></div>
+                <div class="j-stat-sub" id="jStatWinLoss">0 W / 0 L</div>
+            </div>
+            <div class="j-stat green">
+                <div class="j-stat-label" data-i18n="jStatPnl">ОБЩИЙ PNL</div>
+                <div class="j-stat-value" id="jStatPnl">$0</div>
+                <div class="j-stat-sub" id="jStatPnlPct">0%</div>
+            </div>
+            <div class="j-stat amber">
+                <div class="j-stat-label" data-i18n="jStatBest">ЛУЧШАЯ СДЕЛКА</div>
+                <div class="j-stat-value positive" id="jStatBest">—</div>
+                <div class="j-stat-sub" id="jStatBestInfo">—</div>
+            </div>
+            <div class="j-stat red">
+                <div class="j-stat-label" data-i18n="jStatWorst">ХУДШАЯ СДЕЛКА</div>
+                <div class="j-stat-value negative" id="jStatWorst">—</div>
+                <div class="j-stat-sub" id="jStatWorstInfo">—</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="journal-filters">
+            <button class="j-filter-btn active" data-jfilter="all" data-i18n="jFilterAll">Все сделки</button>
+            <button class="j-filter-btn" data-jfilter="week" data-i18n="jFilterWeek">Эта неделя</button>
+            <button class="j-filter-btn" data-jfilter="month" data-i18n="jFilterMonth">Этот месяц</button>
+            <button class="j-filter-btn" data-jfilter="long" data-i18n="jFilterLong">Только лонг</button>
+            <button class="j-filter-btn" data-jfilter="short" data-i18n="jFilterShort">Только шорт</button>
+            <input class="j-search" id="jSearch" placeholder="🔍  Поиск по монете...">
+        </div>
+
+        <!-- Table -->
+        <div class="journal-table-wrap">
+            <table class="journal-table">
+                <thead>
+                    <tr>
+                        <th data-i18n="jThNum">№</th>
+                        <th data-i18n="jThDate">Дата</th>
+                        <th data-i18n="jThCoin">Монета</th>
+                        <th data-i18n="jThSide">Направление</th>
+                        <th data-i18n="jThEntry">Вход $</th>
+                        <th data-i18n="jThExit">Выход $</th>
+                        <th data-i18n="jThVolume">Объём $</th>
+                        <th data-i18n="jThLeverage">Плечо</th>
+                        <th data-i18n="jThPnl">PnL $</th>
+                        <th data-i18n="jThPnlPct">PnL %</th>
+                        <th data-i18n="jThPattern">Паттерн</th>
+                        <th data-i18n="jThResult">Итог</th>
+                        <th data-i18n="jThComment">Комментарий</th>
+                        <th data-i18n="jThActions">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="jTableBody">
+                </tbody>
+                <tfoot>
+                    <tr class="j-add-row" id="jAddRow">
+                        <td colspan="14" data-i18n="jAddTrade">＋ Добавить новую сделку</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- Footer -->
+        <div class="journal-footer">
+            <div class="j-footer-info" id="jFooterInfo"></div>
+            <div class="j-pagination" id="jPagination"></div>
+        </div>
+    </div>
+    </div><!-- /slider-page-4 -->
+
     </div><!-- /slider-wrapper -->
 
     <script>
@@ -6368,6 +6674,28 @@
                 newsModalSentiment: 'Сентимент',
                 timeMinAgo: 'мин назад', timeHAgo: 'ч назад', timeDayAgo: 'дн назад',
                 newsFeedLoading: 'Загрузка...', newsFeedError: 'Ошибка загрузки',
+
+                // Journal (page 4)
+                journalTitle: 'Trade Journal',
+                journalSubtitle: 'Записывайте сделки, анализируйте результаты, растите как трейдер',
+                jStatTotal: 'ВСЕГО СДЕЛОК', jStatAllTime: 'за всё время',
+                jStatWinrate: 'ВИНРЕЙТ',
+                jStatPnl: 'ОБЩИЙ PNL', jStatPnlSub: 'от депозита',
+                jStatBest: 'ЛУЧШАЯ СДЕЛКА', jStatWorst: 'ХУДШАЯ СДЕЛКА',
+                jFilterAll: 'Все сделки', jFilterWeek: 'Эта неделя', jFilterMonth: 'Этот месяц',
+                jFilterLong: 'Только лонг', jFilterShort: 'Только шорт',
+                jSearchPlaceholder: '🔍  Поиск по монете...',
+                jThNum: '№', jThDate: 'Дата', jThCoin: 'Монета', jThSide: 'Направление',
+                jThEntry: 'Вход $', jThExit: 'Выход $', jThVolume: 'Объём $', jThLeverage: 'Плечо',
+                jThPnl: 'PnL $', jThPnlPct: 'PnL %', jThPattern: 'Паттерн', jThResult: 'Итог',
+                jThComment: 'Комментарий', jThActions: 'Действия',
+                jAddTrade: '＋ Добавить новую сделку',
+                jShown: 'Показано', jOf: 'из', jTrades: 'сделок',
+                jDeleteConfirm: 'Удалить сделку?',
+                jSideLong: 'Лонг', jSideShort: 'Шорт',
+                jStatusWin: '✓ WIN', jStatusLoss: '✗ LOSS', jStatusOpen: '◉ В СДЕЛКЕ',
+                jCoinSearch: 'Поиск монеты...',
+                jCommentPlaceholder: 'Комментарий...',
             },
             en: {
                 // UI общее
@@ -6623,6 +6951,28 @@
                 newsModalSentiment: 'Sentiment',
                 timeMinAgo: 'min ago', timeHAgo: 'h ago', timeDayAgo: 'd ago',
                 newsFeedLoading: 'Loading...', newsFeedError: 'Load error',
+
+                // Journal (page 4)
+                journalTitle: 'Trade Journal',
+                journalSubtitle: 'Record your trades, analyze performance, grow as a trader',
+                jStatTotal: 'TOTAL TRADES', jStatAllTime: 'all time',
+                jStatWinrate: 'WIN RATE',
+                jStatPnl: 'TOTAL PNL', jStatPnlSub: 'of deposit',
+                jStatBest: 'BEST TRADE', jStatWorst: 'WORST TRADE',
+                jFilterAll: 'All trades', jFilterWeek: 'This week', jFilterMonth: 'This month',
+                jFilterLong: 'Long only', jFilterShort: 'Short only',
+                jSearchPlaceholder: '🔍  Search coin...',
+                jThNum: '#', jThDate: 'Date', jThCoin: 'Coin', jThSide: 'Side',
+                jThEntry: 'Entry $', jThExit: 'Exit $', jThVolume: 'Size $', jThLeverage: 'Leverage',
+                jThPnl: 'PnL $', jThPnlPct: 'PnL %', jThPattern: 'Pattern', jThResult: 'Result',
+                jThComment: 'Comment', jThActions: 'Actions',
+                jAddTrade: '＋ Add new trade',
+                jShown: 'Showing', jOf: 'of', jTrades: 'trades',
+                jDeleteConfirm: 'Delete trade?',
+                jSideLong: 'Long', jSideShort: 'Short',
+                jStatusWin: '✓ WIN', jStatusLoss: '✗ LOSS', jStatusOpen: '◉ OPEN',
+                jCoinSearch: 'Search coin...',
+                jCommentPlaceholder: 'Comment...',
             }
         };
 
@@ -10505,12 +10855,12 @@
         const arrowLeft = document.getElementById('arrowLeft');
         const arrowRight = document.getElementById('arrowRight');
         let currentPage = 0;
-        const totalPages = 3;
+        const totalPages = 4;
 
         function goToPage(page) {
             if (page < 0 || page >= totalPages) return;
             currentPage = page;
-            slider.classList.remove('slide-1', 'slide-2', 'slide-3');
+            slider.classList.remove('slide-1', 'slide-2', 'slide-3', 'slide-4');
             slider.classList.add(`slide-${page + 1}`);
             dots.forEach((d, i) => d.classList.toggle('active', i === page));
             arrowLeft.classList.toggle('hidden', page === 0);
@@ -10526,6 +10876,11 @@
         document.addEventListener('keydown', e => {
             if (e.key === 'ArrowLeft') goToPage(currentPage - 1);
             if (e.key === 'ArrowRight') goToPage(currentPage + 1);
+            // Ctrl+1/2/3 — быстрое переключение страниц
+            if (e.ctrlKey && e.key >= '1' && e.key <= '4') {
+                e.preventDefault();
+                goToPage(parseInt(e.key) - 1);
+            }
         });
 
         // Touch swipe — только горизонтальный, не мешает вертикальному скроллу
@@ -11737,6 +12092,12 @@
                 renderPatterns(activeFilter, query);
             }
 
+            // Journal (page 4) — placeholder + re-render
+            const jSearch = document.getElementById('jSearch');
+            if (jSearch) jSearch.placeholder = tr.jSearchPlaceholder || '🔍  Search coin...';
+            // Re-render journal table with new language
+            if (typeof window.journalRerender === 'function') window.journalRerender();
+
             // Перерендерим существующие buy-rows
             document.querySelectorAll('.buy-row').forEach(row => {
                 const al = row.querySelector('.amount-input + label') || row.querySelector('label:first-of-type');
@@ -11985,6 +12346,642 @@
     </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TRADE JOURNAL LOGIC -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+    'use strict';
+    // Translation helper
+    function jt(key) { return window._t ? window._t(key) : key; }
+
+    const COINS = [
+        { sym: 'BTC', name: 'Bitcoin', cg: 'bitcoin' },
+        { sym: 'ETH', name: 'Ethereum', cg: 'ethereum' },
+        { sym: 'BNB', name: 'BNB', cg: 'binancecoin' },
+        { sym: 'SOL', name: 'Solana', cg: 'solana' },
+        { sym: 'XRP', name: 'XRP', cg: 'ripple' },
+        { sym: 'ADA', name: 'Cardano', cg: 'cardano' },
+        { sym: 'DOGE', name: 'Dogecoin', cg: 'dogecoin' },
+        { sym: 'AVAX', name: 'Avalanche', cg: 'avalanche-2' },
+        { sym: 'DOT', name: 'Polkadot', cg: 'polkadot' },
+        { sym: 'TRX', name: 'TRON', cg: 'tron' },
+        { sym: 'LINK', name: 'Chainlink', cg: 'chainlink' },
+        { sym: 'TON', name: 'Toncoin', cg: 'the-open-network' },
+        { sym: 'MATIC', name: 'Polygon', cg: 'matic-network' },
+        { sym: 'SHIB', name: 'Shiba Inu', cg: 'shiba-inu' },
+        { sym: 'LTC', name: 'Litecoin', cg: 'litecoin' },
+        { sym: 'UNI', name: 'Uniswap', cg: 'uniswap' },
+        { sym: 'ATOM', name: 'Cosmos', cg: 'cosmos' },
+        { sym: 'XLM', name: 'Stellar', cg: 'stellar' },
+        { sym: 'NEAR', name: 'NEAR', cg: 'near' },
+        { sym: 'APT', name: 'Aptos', cg: 'aptos' },
+        { sym: 'SUI', name: 'Sui', cg: 'sui' },
+        { sym: 'ARB', name: 'Arbitrum', cg: 'arbitrum' },
+        { sym: 'OP', name: 'Optimism', cg: 'optimism' },
+        { sym: 'FIL', name: 'Filecoin', cg: 'filecoin' },
+        { sym: 'INJ', name: 'Injective', cg: 'injective-protocol' },
+        { sym: 'FET', name: 'Fetch.ai', cg: 'fetch-ai' },
+        { sym: 'TIA', name: 'Celestia', cg: 'celestia' },
+        { sym: 'MKR', name: 'Maker', cg: 'maker' },
+        { sym: 'AAVE', name: 'Aave', cg: 'aave' },
+        { sym: 'GRT', name: 'The Graph', cg: 'the-graph' },
+        { sym: 'PEPE', name: 'Pepe', cg: 'pepe' },
+        { sym: 'WIF', name: 'dogwifhat', cg: 'dogwifcoin' },
+        { sym: 'BONK', name: 'Bonk', cg: 'bonk' },
+        { sym: 'RENDER', name: 'Render', cg: 'render-token' },
+        { sym: 'ALGO', name: 'Algorand', cg: 'algorand' },
+        { sym: 'FTM', name: 'Fantom', cg: 'fantom' },
+        { sym: 'THETA', name: 'Theta', cg: 'theta-token' },
+        { sym: 'LDO', name: 'Lido DAO', cg: 'lido-dao' },
+        { sym: 'RUNE', name: 'THORChain', cg: 'thorchain' },
+        { sym: 'EOS', name: 'EOS', cg: 'eos' },
+        { sym: 'SAND', name: 'Sandbox', cg: 'the-sandbox' },
+        { sym: 'MANA', name: 'Decentraland', cg: 'decentraland' },
+        { sym: 'AXS', name: 'Axie Infinity', cg: 'axie-infinity' },
+        { sym: 'GALA', name: 'Gala', cg: 'gala' },
+        { sym: 'CRV', name: 'Curve', cg: 'curve-dao-token' },
+        { sym: 'SNX', name: 'Synthetix', cg: 'havven' },
+        { sym: 'COMP', name: 'Compound', cg: 'compound-governance-token' },
+        { sym: 'DYDX', name: 'dYdX', cg: 'dydx' },
+        { sym: '1INCH', name: '1inch', cg: '1inch' },
+        { sym: 'ENS', name: 'ENS', cg: 'ethereum-name-service' },
+        { sym: 'IMX', name: 'Immutable', cg: 'immutable-x' },
+        { sym: 'FLOW', name: 'Flow', cg: 'flow' },
+        { sym: 'EGLD', name: 'MultiversX', cg: 'elrond-erd-2' },
+        { sym: 'XTZ', name: 'Tezos', cg: 'tezos' },
+        { sym: 'CHZ', name: 'Chiliz', cg: 'chiliz' },
+        { sym: 'PENDLE', name: 'Pendle', cg: 'pendle' },
+        { sym: 'STX', name: 'Stacks', cg: 'blockstack' },
+        { sym: 'KAVA', name: 'Kava', cg: 'kava' },
+        { sym: 'ZIL', name: 'Zilliqa', cg: 'zilliqa' },
+        { sym: 'ENJ', name: 'Enjin', cg: 'enjincoin' },
+        { sym: 'BAT', name: 'Basic Attention', cg: 'basic-attention-token' },
+        { sym: 'MINA', name: 'Mina', cg: 'mina-protocol' },
+        { sym: 'CAKE', name: 'PancakeSwap', cg: 'pancakeswap-token' },
+        { sym: 'CRO', name: 'Cronos', cg: 'crypto-com-chain' },
+        { sym: 'HBAR', name: 'Hedera', cg: 'hedera-hashgraph' },
+        { sym: 'VET', name: 'VeChain', cg: 'vechain' },
+        { sym: 'ICP', name: 'Internet Computer', cg: 'internet-computer' },
+        { sym: 'QNT', name: 'Quant', cg: 'quant-network' },
+        { sym: 'IOTA', name: 'IOTA', cg: 'iota' },
+        { sym: 'NEO', name: 'NEO', cg: 'neo' },
+        { sym: 'KSM', name: 'Kusama', cg: 'kusama' },
+        { sym: 'ZEC', name: 'Zcash', cg: 'zcash' },
+        { sym: 'DASH', name: 'Dash', cg: 'dash' },
+        { sym: 'WAVES', name: 'Waves', cg: 'waves' },
+        { sym: 'XMR', name: 'Monero', cg: 'monero' },
+        { sym: 'ETC', name: 'Ethereum Classic', cg: 'ethereum-classic' },
+        { sym: 'BCH', name: 'Bitcoin Cash', cg: 'bitcoin-cash' },
+        { sym: 'FLOKI', name: 'Floki', cg: 'floki' },
+        { sym: 'JUP', name: 'Jupiter', cg: 'jupiter-exchange-solana' },
+        { sym: 'PYTH', name: 'Pyth Network', cg: 'pyth-network' },
+        { sym: 'SEI', name: 'Sei', cg: 'sei-network' },
+        { sym: 'BLUR', name: 'Blur', cg: 'blur' },
+        { sym: 'WLD', name: 'Worldcoin', cg: 'worldcoin-wld' },
+        { sym: 'STRK', name: 'Starknet', cg: 'starknet' },
+        { sym: 'ONDO', name: 'Ondo', cg: 'ondo-finance' },
+        { sym: 'W', name: 'Wormhole', cg: 'wormhole' },
+        { sym: 'TAO', name: 'Bittensor', cg: 'bittensor' },
+        { sym: 'JASMY', name: 'JasmyCoin', cg: 'jasmycoin' },
+        { sym: 'GMT', name: 'GMT', cg: 'stepn' },
+        { sym: 'APE', name: 'ApeCoin', cg: 'apecoin' },
+        { sym: 'ZRX', name: '0x Protocol', cg: '0x' },
+        { sym: 'MASK', name: 'Mask Network', cg: 'mask-network' },
+        { sym: 'YFI', name: 'yearn.finance', cg: 'yearn-finance' },
+        { sym: 'SUSHI', name: 'SushiSwap', cg: 'sushi' },
+        { sym: 'RSR', name: 'Reserve Rights', cg: 'reserve-rights-token' },
+        { sym: 'CELO', name: 'Celo', cg: 'celo' },
+        { sym: 'ROSE', name: 'Oasis', cg: 'oasis-network' },
+        { sym: 'ONE', name: 'Harmony', cg: 'harmony' },
+        { sym: 'ANKR', name: 'Ankr', cg: 'ankr' },
+        { sym: 'SKL', name: 'SKALE', cg: 'skale' }
+    ];
+    function coinIcon(sym) {
+        const c = COINS.find(x => x.sym === sym);
+        if (!c) return '';
+        return `https://assets.coingecko.com/coins/images/1/small/${c.cg}.png`;
+    }
+    // Prebuilt icon URL map for faster lookups
+    const COIN_ICON_MAP = {};
+    COINS.forEach(c => { COIN_ICON_MAP[c.sym] = `https://raw.githubusercontent.com/nicehash/cryptocurrency-icons/master/32/${c.sym.toLowerCase()}.png`; });
+
+    const PATTERNS = [
+        { key: '—', ru: '—', en: '—' },
+        { key: 'Bull Flag', ru: 'Бычий флаг', en: 'Bull Flag' },
+        { key: 'Bear Flag', ru: 'Медвежий флаг', en: 'Bear Flag' },
+        { key: 'Double Bottom', ru: 'Двойное дно', en: 'Double Bottom' },
+        { key: 'Double Top', ru: 'Двойная вершина', en: 'Double Top' },
+        { key: 'Head & Shoulders', ru: 'Голова и плечи', en: 'Head & Shoulders' },
+        { key: 'Inv H&S', ru: 'Обратная Г&П', en: 'Inverse H&S' },
+        { key: 'Asc Triangle', ru: 'Восходящий треугольник', en: 'Ascending Triangle' },
+        { key: 'Desc Triangle', ru: 'Нисходящий треугольник', en: 'Descending Triangle' },
+        { key: 'Sym Triangle', ru: 'Симметричный треугольник', en: 'Symmetrical Triangle' },
+        { key: 'Wedge', ru: 'Клин', en: 'Wedge' },
+        { key: 'Hammer', ru: 'Молот', en: 'Hammer' },
+        { key: 'Hanging Man', ru: 'Повешенный', en: 'Hanging Man' },
+        { key: 'Doji', ru: 'Доджи', en: 'Doji' },
+        { key: 'Bullish Engulfing', ru: 'Поглощение бычье', en: 'Bullish Engulfing' },
+        { key: 'Bearish Engulfing', ru: 'Поглощение медвежье', en: 'Bearish Engulfing' },
+        { key: 'Morning Star', ru: 'Утренняя звезда', en: 'Morning Star' },
+        { key: 'Evening Star', ru: 'Вечерняя звезда', en: 'Evening Star' },
+        { key: 'Pin Bar', ru: 'Пинбар', en: 'Pin Bar' },
+        { key: 'Break & Retest', ru: 'Break & Retest', en: 'Break & Retest' },
+        { key: 'Fakeout', ru: 'Ложный пробой', en: 'Fakeout' },
+        { key: 'Trendline', ru: 'Трендовая линия', en: 'Trendline' },
+        { key: 'Support Zone', ru: 'Зона поддержки', en: 'Support Zone' },
+        { key: 'Resistance Zone', ru: 'Зона сопротивления', en: 'Resistance Zone' },
+        { key: 'FVG', ru: 'FVG', en: 'FVG' },
+        { key: 'Order Block', ru: 'Order Block', en: 'Order Block' }
+    ];
+    function getPatternLabel(key) {
+        const lang = window.currentLang || 'en';
+        const p = PATTERNS.find(p => p.key === key);
+        return p ? (p[lang] || p.en) : key;
+    }
+
+    const LEVERAGE_OPTIONS = ['—', '×2', '×3', '×5', '×10', '×15', '×20', '×25', '×50', '×75', '×100', '×125'];
+    const PER_PAGE = 20;
+    let trades = [];
+    let currentFilter = 'all';
+    let searchQuery = '';
+    let currentJPage = 1;
+    let editingId = null;
+
+    // ── Load/Save from Firestore ──
+    let db = null;
+    let currentUserId = null;
+
+    function getTradesRef() {
+        if (!db || !currentUserId) return null;
+        return db.collection('users').doc(currentUserId).collection('trades');
+    }
+
+    async function loadTrades() {
+        const ref = getTradesRef();
+        if (!ref) { trades = []; return; }
+        try {
+            const snap = await ref.orderBy('date', 'desc').get();
+            trades = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        } catch (err) {
+            console.error('Firestore load error:', err);
+            trades = [];
+        }
+    }
+
+    async function saveTrade(t) {
+        const ref = getTradesRef();
+        if (!ref) return;
+        try {
+            const { id, ...data } = t;
+            await ref.doc(id).set(data);
+        } catch (err) {
+            console.error('Firestore save error:', err);
+        }
+    }
+
+    async function deleteTrade(id) {
+        const ref = getTradesRef();
+        if (!ref) return;
+        try {
+            await ref.doc(id).delete();
+        } catch (err) {
+            console.error('Firestore delete error:', err);
+        }
+    }
+
+    // Called from Firebase auth script when user is ready
+    window.initJournal = async function(userId) {
+        currentUserId = userId;
+        db = firebase.firestore();
+        await loadTrades();
+        trades.forEach(computeFields);
+        renderTable();
+    };
+
+    // ── Compute PnL, %, R:R ──
+    function computeFields(t) {
+        const entry = parseFloat(t.entry) || 0;
+        const exit = parseFloat(t.exit) || 0;
+        const volume = parseFloat(t.volume) || 0;
+        const sl = parseFloat(t.sl) || 0;
+        const lev = t.leverage === '—' ? 1 : parseInt(t.leverage.replace('×','')) || 1;
+
+        // PnL
+        if (entry > 0 && exit > 0 && volume > 0) {
+            const direction = t.side === 'Лонг' ? 1 : -1;
+            const pctMove = ((exit - entry) / entry) * direction;
+            t.pnl = +(pctMove * volume * lev).toFixed(2);
+            t.pnlPct = +(pctMove * lev * 100).toFixed(2);
+        } else if (entry > 0 && exit === 0 && volume > 0) {
+            t.pnl = null;
+            t.pnlPct = null;
+        } else {
+            t.pnl = 0;
+            t.pnlPct = 0;
+        }
+
+        // R:R (risk = |entry - sl|, reward = |exit - entry|)
+        if (entry > 0 && sl > 0 && exit > 0) {
+            const risk = Math.abs(entry - sl);
+            const reward = Math.abs(exit - entry);
+            t.rr = risk > 0 ? (reward / risk).toFixed(1) : '—';
+        } else {
+            t.rr = '—';
+        }
+
+        // Status
+        if (!t.exit || parseFloat(t.exit) === 0) {
+            t.status = 'open';
+        } else if (t.pnl > 0) {
+            t.status = 'win';
+        } else if (t.pnl < 0) {
+            t.status = 'loss';
+        } else {
+            t.status = 'breakeven';
+        }
+
+        return t;
+    }
+
+    // ── Filter trades ──
+    function getFilteredTrades() {
+        let arr = [...trades];
+        const now = new Date();
+        if (currentFilter === 'week') {
+            const weekAgo = new Date(now - 7 * 86400000);
+            arr = arr.filter(t => new Date(t.date) >= weekAgo);
+        } else if (currentFilter === 'month') {
+            arr = arr.filter(t => {
+                const d = new Date(t.date);
+                return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+            });
+        } else if (currentFilter === 'long') {
+            arr = arr.filter(t => t.side === 'Лонг');
+        } else if (currentFilter === 'short') {
+            arr = arr.filter(t => t.side === 'Шорт');
+        }
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase();
+            arr = arr.filter(t => t.coin && t.coin.toLowerCase().includes(q));
+        }
+        // Sort by date desc
+        arr.sort((a, b) => new Date(b.date) - new Date(a.date));
+        return arr;
+    }
+
+    // ── Update stats ──
+    function updateStats() {
+        const closed = trades.filter(t => t.status === 'win' || t.status === 'loss');
+        const wins = closed.filter(t => t.status === 'win');
+        const losses = closed.filter(t => t.status === 'loss');
+
+        document.getElementById('jStatTotal').textContent = trades.length;
+
+        const winrate = closed.length > 0 ? ((wins.length / closed.length) * 100).toFixed(1) : 0;
+        document.getElementById('jStatWinrate').textContent = winrate + '%';
+        document.getElementById('jWinrateFill').style.width = winrate + '%';
+        document.getElementById('jStatWinLoss').textContent = `${wins.length} W / ${losses.length} L`;
+
+        const totalPnl = closed.reduce((s, t) => s + (t.pnl || 0), 0);
+        const pnlEl = document.getElementById('jStatPnl');
+        pnlEl.textContent = (totalPnl >= 0 ? '+' : '-') + '$' + Math.abs(totalPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        pnlEl.className = 'j-stat-value ' + (totalPnl >= 0 ? 'positive' : 'negative');
+
+        // Best & worst
+        if (closed.length > 0) {
+            const best = closed.reduce((a, b) => (a.pnl || 0) > (b.pnl || 0) ? a : b);
+            const worst = closed.reduce((a, b) => (a.pnl || 0) < (b.pnl || 0) ? a : b);
+            document.getElementById('jStatBest').textContent = (best.pnl >= 0 ? '+' : '-') + '$' + Math.abs(best.pnl || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            document.getElementById('jStatBestInfo').textContent = best.coin + ' ' + (best.side === 'Лонг' ? jt('jSideLong') : jt('jSideShort'));
+            document.getElementById('jStatWorst').textContent = (worst.pnl >= 0 ? '+' : '-') + '$' + Math.abs(worst.pnl || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const worstEl = document.getElementById('jStatWorst');
+            worstEl.className = 'j-stat-value ' + (worst.pnl >= 0 ? 'positive' : 'negative');
+            document.getElementById('jStatWorstInfo').textContent = worst.coin + ' ' + (worst.side === 'Лонг' ? jt('jSideLong') : jt('jSideShort'));
+        } else {
+            document.getElementById('jStatBest').textContent = '—';
+            document.getElementById('jStatBestInfo').textContent = '—';
+            document.getElementById('jStatWorst').textContent = '—';
+            document.getElementById('jStatWorstInfo').textContent = '—';
+        }
+    }
+
+    // ── Build select options ──
+    function patternOptions(selected) {
+        return PATTERNS.map(p =>
+            `<option value="${p.key}" ${p.key === selected ? 'selected' : ''}>${getPatternLabel(p.key)}</option>`
+        ).join('');
+    }
+    function leverageOptions(selected) {
+        return LEVERAGE_OPTIONS.map(l =>
+            `<option value="${l}" ${l === selected ? 'selected' : ''}>${l}</option>`
+        ).join('');
+    }
+    function sideOptions(selected) {
+        const sides = [
+            { val: 'Лонг', label: jt('jSideLong') },
+            { val: 'Шорт', label: jt('jSideShort') }
+        ];
+        return sides.map(s =>
+            `<option value="${s.val}" ${s.val === selected ? 'selected' : ''}>${s.label}</option>`
+        ).join('');
+    }
+
+    // ── Render coin badge ──
+    function coinBadge(sym) {
+        const iconUrl = COIN_ICON_MAP[sym] || '';
+        const imgTag = iconUrl ? `<img src="${iconUrl}" onerror="this.style.display='none'" width="14" height="14">` : '';
+        return `<span class="j-coin-badge" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1)">${imgTag}${sym}</span>`;
+    }
+
+    // ── Render table ──
+    function renderTable() {
+        const filtered = getFilteredTrades();
+        const totalFiltered = filtered.length;
+        const totalPages = Math.max(1, Math.ceil(totalFiltered / PER_PAGE));
+        if (currentJPage > totalPages) currentJPage = totalPages;
+        const start = (currentJPage - 1) * PER_PAGE;
+        const pageItems = filtered.slice(start, start + PER_PAGE);
+
+        const tbody = document.getElementById('jTableBody');
+        let html = '';
+
+        pageItems.forEach((t, i) => {
+            const isEditing = editingId === t.id;
+            const rowClass = t.status || '';
+            const num = start + i + 1;
+
+            if (isEditing) {
+                html += `<tr class="editing" data-id="${t.id}">
+                    <td>${num}</td>
+                    <td><input type="date" class="j-input j-input-date" value="${t.date}" data-field="date"></td>
+                    <td>
+                        <div class="j-coin-dropdown" data-field="coin" data-value="${t.coin || 'BTC'}">
+                            <div class="j-coin-trigger">
+                                <img src="${COIN_ICON_MAP[t.coin] || ''}" onerror="this.style.display='none'" width="16" height="16">
+                                <span>${t.coin || 'BTC'}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td><select class="j-select" data-field="side">${sideOptions(t.side)}</select></td>
+                    <td><input class="j-input j-input-sm" value="${t.entry || ''}" data-field="entry" placeholder="0.00"></td>
+                    <td><input class="j-input j-input-sm" value="${t.exit || ''}" data-field="exit" placeholder="—"></td>
+                    <td><input class="j-input j-input-sm" value="${t.volume || ''}" data-field="volume" placeholder="0"></td>
+                    <td><select class="j-select j-input-xs" data-field="leverage">${leverageOptions(t.leverage)}</select></td>
+                    <td>${formatPnl(t)}</td>
+                    <td>${formatPnlPct(t)}</td>
+                    <td><select class="j-select" data-field="pattern">${patternOptions(t.pattern)}</select></td>
+                    <td>${statusBadge(t)}</td>
+                    <td><input class="j-input" value="${t.comment || ''}" data-field="comment" placeholder="${jt('jCommentPlaceholder')}" style="min-width:120px"></td>
+                    <td>
+                        <button class="j-btn-save" onclick="journalSave('${t.id}')">💾</button>
+                        <button class="j-btn-del" onclick="journalDelete('${t.id}')">✕</button>
+                    </td>
+                </tr>`;
+            } else {
+                html += `<tr class="${rowClass}" data-id="${t.id}">
+                    <td>${num}</td>
+                    <td>${formatDate(t.date)}</td>
+                    <td>${t.coin ? coinBadge(t.coin) : '—'}</td>
+                    <td>${t.side === 'Лонг' ? '<span class="j-badge-long">▲ ' + jt('jSideLong') + '</span>' : '<span class="j-badge-short">▼ ' + jt('jSideShort') + '</span>'}</td>
+                    <td>$${fmtNum(t.entry)}</td>
+                    <td>${t.exit ? '$' + fmtNum(t.exit) : '—'}</td>
+                    <td>$${fmtNum(t.volume)}</td>
+                    <td>${t.leverage || '—'}</td>
+                    <td>${formatPnl(t)}</td>
+                    <td>${formatPnlPct(t)}</td>
+                    <td>${t.pattern && t.pattern !== '—' ? '<span class="j-badge-pattern">' + getPatternLabel(t.pattern) + '</span>' : '—'}</td>
+                    <td>${statusBadge(t)}</td>
+                    <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;color:#64748B">${t.comment || ''}</td>
+                    <td>
+                        <button class="j-btn-edit" onclick="journalEdit('${t.id}')">✏</button>
+                        <button class="j-btn-del" onclick="journalDelete('${t.id}')">✕</button>
+                    </td>
+                </tr>`;
+            }
+        });
+
+        tbody.innerHTML = html;
+
+        // Footer
+        document.getElementById('jFooterInfo').textContent = `${jt('jShown')} ${pageItems.length} ${jt('jOf')} ${totalFiltered} ${jt('jTrades')}`;
+
+        // Pagination
+        let pagHtml = '';
+        if (totalPages > 1) {
+            pagHtml += `<button class="j-page-btn" onclick="journalGoPage(${currentJPage - 1})" ${currentJPage === 1 ? 'disabled' : ''}>‹</button>`;
+            for (let p = 1; p <= totalPages; p++) {
+                pagHtml += `<button class="j-page-btn ${p === currentJPage ? 'active' : ''}" onclick="journalGoPage(${p})">${p}</button>`;
+            }
+            pagHtml += `<button class="j-page-btn" onclick="journalGoPage(${currentJPage + 1})" ${currentJPage === totalPages ? 'disabled' : ''}>›</button>`;
+        }
+        document.getElementById('jPagination').innerHTML = pagHtml;
+
+        updateStats();
+    }
+
+    // ── Helpers ──
+    function fmtNum(v) {
+        const n = parseFloat(v);
+        if (isNaN(n)) return '0';
+        return n.toLocaleString('en-US', { maximumFractionDigits: n < 1 ? 4 : 2 });
+    }
+    function formatDate(d) {
+        if (!d) return '—';
+        const dt = new Date(d);
+        return dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    }
+    function formatPnl(t) {
+        if (t.pnl === null) return '<span class="j-pnl-open">—</span>';
+        if (t.pnl === undefined) return '—';
+        const cls = t.pnl >= 0 ? 'j-pnl-pos' : 'j-pnl-neg';
+        return `<span class="${cls}">${t.pnl >= 0 ? '+' : ''}$${Math.abs(t.pnl).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>`;
+    }
+    function formatPnlPct(t) {
+        if (t.pnlPct === null) return '<span class="j-pnl-open">—</span>';
+        if (t.pnlPct === undefined) return '—';
+        const cls = t.pnlPct >= 0 ? 'j-pnl-pos' : 'j-pnl-neg';
+        return `<span class="${cls}">${t.pnlPct >= 0 ? '+' : ''}${t.pnlPct}%</span>`;
+    }
+    function statusBadge(t) {
+        if (t.status === 'win') return '<span class="j-badge-win">' + jt('jStatusWin') + '</span>';
+        if (t.status === 'loss') return '<span class="j-badge-loss">' + jt('jStatusLoss') + '</span>';
+        if (t.status === 'open') return '<span class="j-badge-open">' + jt('jStatusOpen') + '</span>';
+        return '<span style="color:#64748B">—</span>';
+    }
+    function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+    // ── Actions ──
+    window.journalEdit = function(id) {
+        editingId = id;
+        renderTable();
+    };
+
+    window.journalSave = function(id) {
+        const row = document.querySelector(`tr[data-id="${id}"]`);
+        if (!row) return;
+        const t = trades.find(t => t.id === id);
+        if (!t) return;
+
+        row.querySelectorAll('[data-field]').forEach(el => {
+            if (el.classList.contains('j-coin-dropdown')) {
+                t[el.dataset.field] = el.dataset.value;
+            } else {
+                t[el.dataset.field] = el.value;
+            }
+        });
+
+        computeFields(t);
+        editingId = null;
+        saveTrade(t);
+        renderTable();
+    };
+
+    window.journalDelete = function(id) {
+        if (!confirm(jt('jDeleteConfirm'))) return;
+        trades = trades.filter(t => t.id !== id);
+        deleteTrade(id);
+        renderTable();
+    };
+
+    window.journalGoPage = function(p) {
+        const filtered = getFilteredTrades();
+        const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+        if (p < 1 || p > totalPages) return;
+        currentJPage = p;
+        renderTable();
+    };
+
+    // ── Add new trade ──
+    document.getElementById('jAddRow').addEventListener('click', () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const newTrade = {
+            id: genId(), date: today, coin: 'BTC', side: 'Лонг',
+            entry: '', exit: '', volume: '', leverage: '—',
+            pattern: '—', comment: '',
+            pnl: 0, pnlPct: 0, rr: '—', status: 'open'
+        };
+        trades.push(newTrade);
+        editingId = newTrade.id;
+        // Go to last page
+        const filtered = getFilteredTrades();
+        currentJPage = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+        saveTrade(newTrade);
+        renderTable();
+        // Scroll to bottom
+        document.querySelector('.journal-table-wrap').scrollTop = 99999;
+    });
+
+    // ── Filters ──
+    document.querySelectorAll('[data-jfilter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-jfilter]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentFilter = btn.dataset.jfilter;
+            currentJPage = 1;
+            renderTable();
+        });
+    });
+
+    document.getElementById('jSearch').addEventListener('input', e => {
+        searchQuery = e.target.value;
+        currentJPage = 1;
+        renderTable();
+    });
+
+    // ── Event delegation for coin dropdown ──
+    document.getElementById('jTableBody').addEventListener('click', e => {
+        const trigger = e.target.closest('.j-coin-trigger');
+        if (trigger) {
+            e.stopPropagation();
+            openCoinDropdown(trigger);
+        }
+    });
+
+    // ── Custom coin dropdown ──
+    let activeCoinPanel = null;
+
+    function openCoinDropdown(trigger) {
+        // Close any existing panel
+        closeCoinDropdown();
+
+        const dropdown = trigger.closest('.j-coin-dropdown');
+        const currentVal = dropdown.dataset.value || '';
+
+        // Create panel
+        const panel = document.createElement('div');
+        panel.className = 'j-coin-panel open';
+        panel.innerHTML = `
+            <input class="j-coin-search" placeholder="${jt('jCoinSearch')}" autofocus>
+            <div class="j-coin-list"></div>
+        `;
+        document.body.appendChild(panel);
+        activeCoinPanel = { panel, dropdown, trigger };
+
+        // Position panel
+        const rect = trigger.getBoundingClientRect();
+        panel.style.left = rect.left + 'px';
+        panel.style.top = (rect.bottom + 4) + 'px';
+
+        // If goes below viewport, show above
+        if (rect.bottom + 290 > window.innerHeight) {
+            panel.style.top = (rect.top - 284) + 'px';
+        }
+
+        const list = panel.querySelector('.j-coin-list');
+        const searchInput = panel.querySelector('.j-coin-search');
+
+        function renderList(filter) {
+            const q = (filter || '').toLowerCase();
+            const filtered = COINS.filter(c => 
+                c.sym.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+            );
+            list.innerHTML = filtered.map(c => `
+                <div class="j-coin-opt ${c.sym === currentVal ? 'selected' : ''}" data-sym="${c.sym}">
+                    <img src="${COIN_ICON_MAP[c.sym]}" onerror="this.style.display='none'" width="18" height="18">
+                    <span class="j-coin-sym">${c.sym}</span>
+                    <span class="j-coin-name">${c.name}</span>
+                </div>
+            `).join('');
+
+            list.querySelectorAll('.j-coin-opt').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    const sym = opt.dataset.sym;
+                    dropdown.dataset.value = sym;
+                    trigger.innerHTML = `<img src="${COIN_ICON_MAP[sym]}" onerror="this.style.display='none'" width="16" height="16"><span>${sym}</span>`;
+                    closeCoinDropdown();
+                });
+            });
+        }
+
+        renderList('');
+        searchInput.addEventListener('input', () => renderList(searchInput.value));
+        setTimeout(() => searchInput.focus(), 50);
+    }
+
+    function closeCoinDropdown() {
+        if (activeCoinPanel) {
+            activeCoinPanel.panel.remove();
+            activeCoinPanel = null;
+        }
+    }
+
+    // Close on click outside
+    document.addEventListener('mousedown', e => {
+        if (activeCoinPanel && !activeCoinPanel.panel.contains(e.target) && !activeCoinPanel.trigger.contains(e.target)) {
+            closeCoinDropdown();
+        }
+    });
+
+    // ── Init ── (called by window.initJournal from auth script)
+    renderTable(); // show empty table initially
+
+    // Expose re-render for language switch
+    window.journalRerender = function() { renderTable(); };
+
+})();
+</script>
+
 <!-- Firebase Auth for Dashboard -->
 <script>
     // ══════════════════════════════════════════════════════════
@@ -12020,6 +13017,11 @@
 
         // Hide loader
         loader.classList.add('hidden');
+
+        // Initialize journal with user's data
+        if (typeof window.initJournal === 'function') {
+            window.initJournal(user.uid);
+        }
     });
 
     // Logout
