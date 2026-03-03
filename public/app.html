@@ -4698,11 +4698,11 @@
             .journal-table tr.editing .j-edit-pnlpct { display: none !important; }
             .journal-table tr.editing .j-edit-status { display: none !important; }
             .journal-table tr.editing .j-edit-date { order: 1; }
-            .journal-table tr.editing .j-edit-entry { order: 2; }
-            .journal-table tr.editing .j-edit-side { order: 3; }
-            .journal-table tr.editing .j-edit-coin { order: 4; }
-            .journal-table tr.editing .j-edit-exit { order: 5; }
-            .journal-table tr.editing .j-edit-vol { order: 6; }
+            .journal-table tr.editing .j-edit-coin { order: 2; }
+            .journal-table tr.editing .j-edit-entry { order: 3; }
+            .journal-table tr.editing .j-edit-exit { order: 4; }
+            .journal-table tr.editing .j-edit-vol { order: 5; }
+            .journal-table tr.editing .j-edit-side { order: 6; }
             .journal-table tr.editing .j-edit-lev { order: 7; }
             .journal-table tr.editing .j-edit-pat { order: 8; }
             .journal-table tr.editing .j-edit-comment {
@@ -4711,7 +4711,7 @@
             .journal-table tr.editing .j-edit-comment::before { content: ''; }
             .journal-table tr.editing .j-edit-actions {
                 order: 10; width: 100%;
-                flex-direction: row; justify-content: center; gap: 12px;
+                flex-direction: row; gap: 8px;
                 padding-top: 4px;
             }
             .journal-table tr.editing .j-edit-actions::before { content: ''; }
@@ -4721,9 +4721,16 @@
             .journal-table tr.editing .j-input-xs,
             .journal-table tr.editing .j-input-date { width: 100%; }
             .journal-table tr.editing .j-btn-save,
-            .journal-table tr.editing .j-btn-del { padding: 10px 28px; font-size: 15px; border-radius: 8px; }
-            .journal-table tr.editing .j-btn-save { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); }
-            .journal-table tr.editing .j-btn-del { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.2); }
+            .journal-table tr.editing .j-btn-del {
+                flex: 1; padding: 11px 0; font-size: 14px; border-radius: 8px;
+                text-align: center; font-weight: 600; display: flex; align-items: center; justify-content: center;
+            }
+            .journal-table tr.editing .j-btn-save {
+                background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.25); color: #10B981;
+            }
+            .journal-table tr.editing .j-btn-del {
+                background: rgba(239,68,68,0.07); border-color: rgba(239,68,68,0.2); color: #EF4444;
+            }
 
             /* Footer */
             .journal-footer {
