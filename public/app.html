@@ -7740,6 +7740,21 @@
         sheetClose.addEventListener('click', closeSheet);
         sheetOverlay.addEventListener('click', e => { if (e.target === sheetOverlay) closeSheet(); });
 
+        // Adjust sheet height when mobile keyboard opens
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => {
+                if (sheet.classList.contains('open')) {
+                    const vpH = window.visualViewport.height;
+                    const offset = window.innerHeight - vpH;
+                    sheet.style.maxHeight = Math.min(vpH * 0.85, vpH - 20) + 'px';
+                    sheet.style.bottom = offset + 'px';
+                } else {
+                    sheet.style.maxHeight = '';
+                    sheet.style.bottom = '';
+                }
+            });
+        }
+
         // Swipe down to close sheet
         let sheetTouchY = 0;
         sheet.addEventListener('touchstart', e => { sheetTouchY = e.touches[0].clientY; }, { passive: true });
@@ -13157,9 +13172,9 @@
                         </div>
                     </td>
                     <td class="j-edit-side" data-label="${jt('jThSide')}"><select class="j-select" data-field="side">${sideOptions(t.side)}</select></td>
-                    <td class="j-edit-entry" data-label="${jt('jThEntry')}"><input class="j-input j-input-sm" value="${t.entry || ''}" data-field="entry" placeholder="0.00"></td>
-                    <td class="j-edit-exit" data-label="${jt('jThExit')}"><input class="j-input j-input-sm" value="${t.exit || ''}" data-field="exit" placeholder="—"></td>
-                    <td class="j-edit-vol" data-label="${jt('jThVolume')}"><input class="j-input j-input-sm" value="${t.volume || ''}" data-field="volume" placeholder="0"></td>
+                    <td class="j-edit-entry" data-label="${jt('jThEntry')}"><input class="j-input j-input-sm" value="${t.entry || ''}" data-field="entry" inputmode="decimal" placeholder="0.00"></td>
+                    <td class="j-edit-exit" data-label="${jt('jThExit')}"><input class="j-input j-input-sm" value="${t.exit || ''}" data-field="exit" inputmode="decimal" placeholder="—"></td>
+                    <td class="j-edit-vol" data-label="${jt('jThVolume')}"><input class="j-input j-input-sm" value="${t.volume || ''}" data-field="volume" inputmode="decimal" placeholder="0"></td>
                     <td class="j-edit-lev" data-label="${jt('jThLeverage')}"><select class="j-select j-input-xs" data-field="leverage">${leverageOptions(t.leverage)}</select></td>
                     <td class="j-edit-pnl">${formatPnl(t)}</td>
                     <td class="j-edit-pnlpct">${formatPnlPct(t)}</td>
