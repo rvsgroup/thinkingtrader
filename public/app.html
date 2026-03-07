@@ -8,6 +8,8 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Thinking Trader">
     <meta name="theme-color" content="#0B1525">
@@ -1760,7 +1762,7 @@
             position: fixed;
             inset: 0;
             background: rgba(0,0,0,0);
-            z-index: 900;
+            z-index: 10000;
             transition: background 0.3s ease;
         }
         .coin-sheet-overlay.open { display: block; background: rgba(0,0,0,0.55); }
@@ -1773,7 +1775,7 @@
             background: #111827;
             border-top: 1px solid rgba(255,255,255,0.08);
             border-radius: 8px 8px 0 0;
-            z-index: 1000;
+            z-index: 10001;
             padding: 0 0 env(safe-area-inset-bottom, 12px);
             transform: translateY(100%);
             transition: transform 0.38s cubic-bezier(0.4,0,0.2,1);
@@ -2367,21 +2369,67 @@
             display: flex; align-items: center; gap: 10px;
         }
         .chart-title h3 { color: white; font-size: 15px; font-weight: 600; white-space: nowrap; }
-        .chart-source-toggle {
-            display: flex; align-items: center; gap: 2px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 6px; padding: 2px;
-        }
-        .chart-source-btn {
-            background: none; border: none; cursor: pointer;
-            color: #475569; font-size: 11px; font-weight: 600;
-            padding: 4px 10px; border-radius: 4px;
-            transition: background 0.15s, color 0.15s; white-space: nowrap;
-        }
-        .chart-source-btn.active { background: rgba(99,102,241,0.25); color: #818CF8; }
-        .chart-source-btn:hover:not(.active) { color: #94A3B8; }
-
         .chart-container { position: relative; height: 180px; width: 100%; }
+
+        /* Pattern filter dropdown */
+        .pattern-filter-dropdown {
+            display: none; position: absolute; top: 100%; right: 0; margin-top: 6px;
+            background: #131C2E; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 6px 0; min-width: 200px; z-index: 100;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5); max-height: 380px; overflow-y: auto;
+        }
+        .pattern-filter-dropdown.open { display: block; }
+        @media (max-width: 768px) {
+            .pattern-filter-dropdown {
+                right: auto;
+                left: 0;
+                min-width: 240px;
+                max-height: 60vh;
+            }
+        }
+        .pf-item {
+            display: flex; align-items: center; gap: 7px;
+            padding: 5px 10px; cursor: pointer; font-size: 11px; color: #CBD5E1;
+        }
+        .pf-item:hover { background: rgba(255,255,255,0.05); }
+        .pf-item input { accent-color: #6366F1; width: 13px; height: 13px; cursor: pointer; }
+        .pf-action {
+            font-size: 10px; font-family: inherit; background: none;
+            border: none; color: #6366F1; cursor: pointer; padding: 2px 4px;
+        }
+        .pf-action:hover { color: #818CF8; }
+        #scanBtnApp.scan-active { background: linear-gradient(135deg, #10B981, #059669) !important; box-shadow: 0 0 12px rgba(16,185,129,0.3); }
+
+        /* Fullscreen chart */
+        .chart-column.fullscreen {
+            position: fixed !important;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 9999;
+            background: #0B1120;
+            border-radius: 0 !important;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+        .chart-column.fullscreen .chart-header {
+            flex-shrink: 0;
+            margin-bottom: 6px;
+        }
+        .chart-column.fullscreen .chart-container {
+            flex: 1;
+            height: auto !important;
+            min-height: 0;
+            position: relative;
+        }
+        .chart-column.fullscreen .chart-container #ourChartWrap {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .chart-column.fullscreen .chart-coin-bar { display: none; }
         #lwPriceChart { width: 100%; height: 100%; }
 
         .chart-loading {
@@ -4865,6 +4913,206 @@
         .j-coin-opt .j-coin-sym { font-weight: 700; min-width: 50px; }
         .j-coin-opt .j-coin-name { color: #64748B; font-size: 10px; }
 
+        /* ═══════════════════════════════════════════════
+           FULLSCREEN CHART OVERLAY (like indextest)
+           ═══════════════════════════════════════════════ */
+        .fs-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            z-index: 9999;
+            background: #080E1A;
+            flex-direction: column;
+        }
+        .fs-overlay.active { display: flex; }
+
+        .fs-topbar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 14px;
+            background: #0B1525;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+        .fs-coin-btn {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 6px 12px;
+            color: #E2E8F0; font-family: inherit; font-size: 14px; font-weight: 700;
+            cursor: pointer; transition: border-color 0.2s;
+        }
+        .fs-coin-btn:hover { border-color: rgba(99,102,241,0.4); }
+        .fs-coin-btn img { width: 20px; height: 20px; border-radius: 50%; }
+        .fs-price { font-size: 18px; font-weight: 700; color: #fff; }
+        .fs-change { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+        .fs-change.up { background: rgba(16,185,129,0.15); color: #10B981; }
+        .fs-change.down { background: rgba(239,68,68,0.15); color: #EF4444; }
+
+        .fs-info { display: flex; align-items: center; gap: 10px; }
+        .fs-periods { display: flex; gap: 4px; margin-left: auto; }
+        .fs-period-btn {
+            padding: 4px 10px; font-size: 11px; font-family: inherit;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px;
+            color: #64748B; cursor: pointer; transition: all 0.2s;
+        }
+        .fs-period-btn.active {
+            background: rgba(99,102,241,0.15);
+            border-color: rgba(99,102,241,0.4);
+            color: #818CF8;
+        }
+        @media (max-width: 600px) {
+            .fs-topbar { padding: 6px 10px; gap: 6px; }
+            .fs-coin-btn { padding: 5px 8px; font-size: 13px; }
+            .fs-price { font-size: 15px; }
+            .fs-info { flex: 1; }
+            .fs-periods { margin-left: 0; width: 100%; justify-content: space-between; }
+            .fs-period-btn { flex: 1; text-align: center; padding: 4px 4px; font-size: 11px; }
+        }
+
+        .fs-scan-btn {
+            padding: 6px 14px; font-size: 12px; font-family: inherit; font-weight: 600;
+            background: linear-gradient(135deg, #6366F1, #8B5CF6);
+            border: none; border-radius: 8px;
+            color: #fff; cursor: pointer; transition: opacity 0.2s; white-space: nowrap;
+        }
+        .fs-scan-btn:hover { opacity: 0.85; }
+        .fs-scan-btn.active {
+            background: linear-gradient(135deg, #10B981, #059669);
+            box-shadow: 0 0 20px rgba(16,185,129,0.3);
+        }
+
+        .fs-close-btn {
+            width: 34px; height: 34px; border-radius: 8px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #94A3B8; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s; flex-shrink: 0;
+        }
+        .fs-close-btn:hover { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #EF4444; }
+
+        /* Fullscreen coin dropdown (compact) */
+        .fs-coin-dropdown {
+            display: none; position: absolute; top: calc(100% + 6px); left: 0;
+            background: #111827; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; width: 240px; z-index: 10001;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+        .fs-coin-dropdown.open { display: block; }
+        .fs-coin-search-wrap {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .fs-coin-search-wrap input {
+            flex: 1; background: none; border: none; outline: none;
+            color: #E2E8F0; font-family: inherit; font-size: 13px;
+        }
+        .fs-coin-search-wrap input::placeholder { color: #475569; }
+        .fs-coin-list {
+            max-height: 260px; overflow-y: auto; padding: 4px;
+            scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.3) transparent;
+        }
+        .fs-coin-list::-webkit-scrollbar { width: 4px; }
+        .fs-coin-list::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius: 2px; }
+        .fs-coin-opt {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 8px; border-radius: 6px; cursor: pointer;
+            transition: background 0.12s;
+        }
+        .fs-coin-opt:hover { background: rgba(255,255,255,0.06); }
+        .fs-coin-opt.selected { background: rgba(99,102,241,0.15); }
+        .fs-coin-opt img { width: 24px; height: 24px; border-radius: 50%; }
+        .fs-coin-opt-name { font-weight: 600; font-size: 13px; color: #E2E8F0; }
+        .fs-coin-opt-sym { font-size: 11px; color: #64748B; }
+
+        .fs-filter-dropdown {
+            display: none; position: absolute; top: 100%; right: 0; margin-top: 6px;
+            background: #131C2E; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 6px 0; min-width: 200px; z-index: 10001;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5); max-height: 380px; overflow-y: auto;
+        }
+        .fs-filter-dropdown.open { display: block; }
+        @media (max-width: 768px) {
+            .fs-filter-dropdown {
+                position: fixed !important;
+                top: 80px !important;
+                right: 16px !important;
+                left: auto !important;
+                bottom: auto !important;
+                max-width: calc(100vw - 32px) !important;
+                margin-top: 0 !important;
+                transform: none !important;
+            }
+        }
+
+        .fs-chart-area { flex: 1; position: relative; background: #0B1525; }
+
+        /* OHLC legend (like TradingView) */
+        .fs-ohlc-legend {
+            position: absolute; top: 8px; left: 12px;
+            z-index: 15; pointer-events: none;
+            font-family: 'Inter', -apple-system, sans-serif;
+            font-size: 12px; font-weight: 500;
+            color: #94A3B8;
+            display: flex; align-items: center; gap: 6px;
+            white-space: nowrap;
+        }
+        .fs-ohlc-legend .ohlc-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            display: inline-block;
+        }
+        .fs-ohlc-legend .ohlc-label { color: #64748B; }
+        .fs-ohlc-legend .ohlc-val { font-weight: 600; }
+        .fs-ohlc-legend .ohlc-val.up { color: #10B981; }
+        .fs-ohlc-legend .ohlc-val.down { color: #EF4444; }
+        .fs-ohlc-legend .ohlc-change { font-weight: 600; margin-left: 2px; }
+        .fs-ohlc-legend .ohlc-change.up { color: #10B981; }
+        .fs-ohlc-legend .ohlc-change.down { color: #EF4444; }
+        .fs-chart-area #fsChart { width: 100%; height: 100%; }
+
+        /* Scanner frame overlay */
+        .fs-scanner-frame {
+            display: none; position: absolute; inset: 0;
+            border: 2px solid rgba(99,102,241,0.4);
+            pointer-events: none; z-index: 10;
+        }
+        .fs-scanner-frame.active { display: block; }
+        .fs-scanner-frame::before { content: ''; position: absolute; inset: 0; background: rgba(99,102,241,0.03); }
+        .fs-scanner-frame .corner { position: absolute; width: 20px; height: 20px; border-color: #6366F1; border-style: solid; }
+        .fs-scanner-frame .corner.tl { top: 0; left: 0; border-width: 3px 0 0 3px; }
+        .fs-scanner-frame .corner.tr { top: 0; right: 0; border-width: 3px 3px 0 0; }
+        .fs-scanner-frame .corner.bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; }
+        .fs-scanner-frame .corner.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; }
+        .fs-scanner-label {
+            position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+            background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+            border-radius: 6px; padding: 3px 12px; font-size: 10px; font-weight: 600;
+            color: #818CF8; text-transform: uppercase; letter-spacing: 0.1em;
+        }
+
+        /* Patterns panel */
+        .fs-patterns-panel {
+            display: none; position: absolute; bottom: 12px; left: 12px;
+            background: rgba(11,21,37,0.95); border: 1px solid rgba(99,102,241,0.2);
+            border-radius: 10px; padding: 10px 14px;
+            z-index: 20; max-width: 300px; max-height: 40vh; overflow-y: auto;
+            backdrop-filter: blur(10px);
+        }
+        .fs-patterns-panel.active { display: block; }
+        .fs-patterns-panel h4 { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+        .fs-pat-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+        .fs-pat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .fs-pat-dot.bullish { background: #10B981; }
+        .fs-pat-dot.bearish { background: #EF4444; }
+        .fs-pat-dot.neutral { background: #FBBF24; }
+        .fs-pat-name { font-weight: 600; color: #E2E8F0; }
+        .fs-pat-count { color: #64748B; font-size: 11px; margin-left: auto; }
+        .fs-no-patterns { color: #475569; font-size: 11px; font-style: italic; }
+
     </style>
 
     <!-- Firebase SDK (compat) -->
@@ -4873,6 +5121,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <script src="patterns.js"></script>
+  <script src="patterns-scanner.js"></script>
 </head>
 <body>
     <!-- Auth loading -->
@@ -4971,27 +5220,54 @@
             <!-- График -->
             <div class="chart-column">
                 <div class="chart-header">
-                    <div class="chart-title">
-                        <h3 data-i18n="chartTitle">График цены</h3>
-                        <div class="chart-source-toggle">
-                            <button class="chart-source-btn active" id="btnOurChart">Custom</button>
-                            <button class="chart-source-btn" id="btnTVChart">TradingView</button>
+                    <div id="ourChartControls" style="display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div class="chart-period-buttons">
+                                <button class="period-btn" data-period="0.04">1H</button>
+                                <button class="period-btn" data-period="0.17">4H</button>
+                                <button class="period-btn active" data-period="1">1Д</button>
+                                <button class="period-btn" data-period="7">7Д</button>
+                                <button class="period-btn" data-period="30">30Д</button>
+                                <button class="period-btn" data-period="90">90Д</button>
+                            </div>
+                            <div class="chart-type-toggle">
+                                <button class="chart-type-btn active" id="btnLine" title="Линия">
+                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="1,11 5,5 8,8 13,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                </button>
+                                <button class="chart-type-btn" id="btnCandle" title="Свечи">
+                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="4" width="3" height="6" rx="0.5" stroke="currentColor" stroke-width="1.5"/><line x1="3.5" y1="1" x2="3.5" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="3.5" y1="10" x2="3.5" y2="13" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="5" width="3" height="5" rx="0.5" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="2" x2="10.5" y2="5" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10" x2="10.5" y2="13" stroke="currentColor" stroke-width="1.5"/></svg>
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                    <div id="ourChartControls" style="display:flex;align-items:center;gap:8px;">
-                        <div class="chart-period-buttons">
-                            <button class="period-btn active" data-period="1">1Д</button>
-                            <button class="period-btn" data-period="7">7Д</button>
-                            <button class="period-btn" data-period="30">30Д</button>
-                            <button class="period-btn" data-period="90">90Д</button>
-                        </div>
-                        <div class="chart-type-toggle">
-                            <button class="chart-type-btn active" id="btnLine" title="Линия">
-                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="1,11 5,5 8,8 13,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                            </button>
-                            <button class="chart-type-btn" id="btnCandle" title="Свечи">
-                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="4" width="3" height="6" rx="0.5" stroke="currentColor" stroke-width="1.5"/><line x1="3.5" y1="1" x2="3.5" y2="4" stroke="currentColor" stroke-width="1.5"/><line x1="3.5" y1="10" x2="3.5" y2="13" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="5" width="3" height="5" rx="0.5" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="2" x2="10.5" y2="5" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10" x2="10.5" y2="13" stroke="currentColor" stroke-width="1.5"/></svg>
-                            </button>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <button id="scanBtnApp" style="padding:5px 12px;font-size:11px;font-weight:600;background:linear-gradient(135deg,#6366F1,#8B5CF6);border:none;border-radius:6px;color:#fff;cursor:pointer;white-space:nowrap;transition:opacity 0.2s;">Scan</button>
+                            <div style="position:relative;">
+                                <button id="filterBtnApp" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
+                                <div class="pattern-filter-dropdown" id="filterDropdownApp">
+                                    <div style="display:flex;gap:6px;padding:6px 10px 4px;">
+                                        <button class="pf-action" id="pfAll">Все</button>
+                                        <button class="pf-action" id="pfNone">Сбросить</button>
+                                    </div>
+                                    <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
+                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;">Одиночные</div>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Доджи" checked>Доджи</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Марибозу" checked>Марибозу</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Молот" checked>Молот</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Повешенный" checked>Повешенный</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Падающая звезда" checked>Падающая звезда</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Перевёрнутый молот" checked>Перевёрнутый молот</label>
+                                    <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
+                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;">Двойные</div>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Поглощение" checked>Поглощение</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Харами" checked>Харами</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Пинцет" checked>Пинцет</label>
+                                    <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
+                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;">Графические</div>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Двойная вершина" checked>Двойная вершина</label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Двойное дно" checked>Двойное дно</label>
+                                </div>
+                            </div>
+                            <button id="expandChartBtn" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;" title="Развернуть"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
                         </div>
                     </div>
                 </div>
@@ -5000,30 +5276,6 @@
                     <div id="ourChartWrap" style="width:100%;height:100%;position:absolute;top:0;left:0;">
                         <div id="lwPriceChart" style="width:100%;height:100%;"></div>
                         <div class="chart-loading" id="chartLoading" data-i18n="chartLoading">Загрузка графика...</div>
-                    </div>
-                    <!-- TradingView -->
-                    <div id="tvChartWrap" style="width:100%;height:100%;position:absolute;top:0;left:0;display:none;border-radius:16px;overflow:hidden;">
-                        <div class="tradingview-widget-container" style="height:100%;">
-                            <div class="tradingview-widget-container__widget" style="height:100%;"></div>
-                            <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-                            {
-                                "autosize": true,
-                                "symbol": "BINANCE:BTCUSDT",
-                                "interval": "D",
-                                "timezone": "Europe/Moscow",
-                                "theme": "dark",
-                                "style": "1",
-                                "locale": "ru",
-                                "hide_top_toolbar": false,
-                                "hide_legend": false,
-                                "save_image": false,
-                                "support_host": "https://www.tradingview.com",
-                                "backgroundColor": "rgba(17, 25, 40, 1)",
-                                "gridLineColor": "rgba(255, 255, 255, 0.04)",
-                                "textColor": "#475569"
-                            }
-                            </script>
-                        </div>
                     </div>
                 </div>
                 <div class="chart-coin-bar">
@@ -6936,6 +7188,15 @@
 
                 // Паттерны
                 patternAll: 'Все', patternBullish: 'Бычьи', patternBearish: 'Медвежьи', patternNeutral: 'Нейтральные',
+                fsScannerLabel: 'Сканер паттернов активен',
+                fsPatternsFound: 'Обнаруженные паттерны',
+                fsFilterAll: 'Все', fsFilterReset: 'Сбросить',
+                fsGroupSingle: 'Одиночные', fsGroupDouble: 'Двойные', fsGroupChart: 'Графические',
+                fsPatDoji: 'Доджи', fsPatMarubozu: 'Марибозу', fsPatHammer: 'Молот',
+                fsPatHangingMan: 'Повешенный', fsPatShootingStar: 'Падающая звезда',
+                fsPatInvHammer: 'Перевёрнутый молот', fsPatEngulfing: 'Поглощение',
+                fsPatHarami: 'Харами', fsPatTweezer: 'Пинцет',
+                fsPatDoubleTop: 'Двойная вершина', fsPatDoubleBottom: 'Двойное дно',
                 patternSearch: 'Поиск...', patternCandles: 'свечей',
                 patternLabelBullish: 'Бычий', patternLabelBearish: 'Медвежий', patternLabelNeutral: 'Нейтральный',
                 patternReliability: 'Надёжность', patternCandlesLabel: 'Свечей', patternSignal: 'Сигнал',
@@ -7218,6 +7479,15 @@
 
                 // Patterns
                 patternAll: 'All', patternBullish: 'Bullish', patternBearish: 'Bearish', patternNeutral: 'Neutral',
+                fsScannerLabel: 'Pattern scanner active',
+                fsPatternsFound: 'Detected patterns',
+                fsFilterAll: 'All', fsFilterReset: 'Reset',
+                fsGroupSingle: 'Single', fsGroupDouble: 'Double', fsGroupChart: 'Chart',
+                fsPatDoji: 'Doji', fsPatMarubozu: 'Marubozu', fsPatHammer: 'Hammer',
+                fsPatHangingMan: 'Hanging Man', fsPatShootingStar: 'Shooting Star',
+                fsPatInvHammer: 'Inv. Hammer', fsPatEngulfing: 'Engulfing',
+                fsPatHarami: 'Harami', fsPatTweezer: 'Tweezer',
+                fsPatDoubleTop: 'Double Top', fsPatDoubleBottom: 'Double Bottom',
                 patternSearch: 'Search...', patternCandles: 'candles',
                 patternLabelBullish: 'Bullish', patternLabelBearish: 'Bearish', patternLabelNeutral: 'Neutral',
                 patternReliability: 'Reliability', patternCandlesLabel: 'Candles', patternSignal: 'Signal',
@@ -7474,7 +7744,7 @@
             { id: 'avalanche-2',          name: 'Avalanche',         symbol: 'AVAX' },
             { id: 'dogecoin',             name: 'Dogecoin',          symbol: 'DOGE' },
             { id: 'polkadot',             name: 'Polkadot',          symbol: 'DOT'  },
-            { id: 'matic-network',        name: 'Polygon',           symbol: 'MATIC'},
+            { id: 'matic-network',        name: 'Polygon',           symbol: 'POL'},
             { id: 'shiba-inu',            name: 'Shiba Inu',         symbol: 'SHIB' },
             { id: 'tron',                 name: 'TRON',              symbol: 'TRX'  },
             { id: 'litecoin',             name: 'Litecoin',          symbol: 'LTC'  },
@@ -7516,96 +7786,6 @@
             { id: 'lido-dao',             name: 'Lido DAO',          symbol: 'LDO'  },
             { id: 'curve-dao-token',      name: 'Curve',             symbol: 'CRV'  },
         ];
-
-        // Маппинг CoinGecko ID → символ Binance для TradingView
-        const TV_SYMBOLS = {
-            'bitcoin':                'BINANCE:BTCUSDT',
-            'ethereum':               'BINANCE:ETHUSDT',
-            'binancecoin':            'BINANCE:BNBUSDT',
-            'solana':                 'BINANCE:SOLUSDT',
-            'ripple':                 'BINANCE:XRPUSDT',
-            'cardano':                'BINANCE:ADAUSDT',
-            'avalanche-2':            'BINANCE:AVAXUSDT',
-            'dogecoin':               'BINANCE:DOGEUSDT',
-            'polkadot':               'BINANCE:DOTUSDT',
-            'matic-network':          'BINANCE:MATICUSDT',
-            'shiba-inu':              'BINANCE:SHIBUSDT',
-            'tron':                   'BINANCE:TRXUSDT',
-            'litecoin':               'BINANCE:LTCUSDT',
-            'chainlink':              'BINANCE:LINKUSDT',
-            'uniswap':                'BINANCE:UNIUSDT',
-            'stellar':                'BINANCE:XLMUSDT',
-            'monero':                 'BINANCE:XMRUSDT',
-            'ethereum-classic':       'BINANCE:ETCUSDT',
-            'near':                   'BINANCE:NEARUSDT',
-            'cosmos':                 'BINANCE:ATOMUSDT',
-            'algorand':               'BINANCE:ALGOUSDT',
-            'vechain':                'BINANCE:VETUSDT',
-            'internet-computer':      'BINANCE:ICPUSDT',
-            'aptos':                  'BINANCE:APTUSDT',
-            'arbitrum':               'BINANCE:ARBUSDT',
-            'optimism':               'BINANCE:OPUSDT',
-            'filecoin':               'BINANCE:FILUSDT',
-            'the-sandbox':            'BINANCE:SANDUSDT',
-            'decentraland':           'BINANCE:MANAUSDT',
-            'aave':                   'BINANCE:AAVEUSDT',
-            'pepe':                   'BINANCE:PEPEUSDT',
-            'sui':                    'BINANCE:SUIUSDT',
-            'toncoin':                'BINANCE:TONUSDT',
-            'fetch-ai':               'BINANCE:FETUSDT',
-            'injective-protocol':     'BINANCE:INJUSDT',
-            'render-token':           'BINANCE:RENDERUSDT',
-            'sei-network':            'BINANCE:SEIUSDT',
-            'worldcoin-wld':          'BINANCE:WLDUSDT',
-            'bonk':                   'BINANCE:BONKUSDT',
-            'floki':                  'BINANCE:FLOKIUSDT',
-            'kaspa':                  'BINANCE:KASUSDT',
-            'jupiter-exchange-solana':'BINANCE:JUPUSDT',
-            'celestia':               'BINANCE:TIAUSDT',
-            'starknet':               'BINANCE:STRKUSDT',
-            'mantle':                 'BINANCE:MNTUSDT',
-            'immutable-x':            'BINANCE:IMXUSDT',
-            'blur':                   'BINANCE:BLURUSDT',
-            'maker':                  'BINANCE:MKRUSDT',
-            'lido-dao':               'BINANCE:LDOUSDT',
-            'curve-dao-token':        'BINANCE:CRVUSDT',
-        };
-
-        function updateTVChart(coinId) {
-            const symbol = TV_SYMBOLS[coinId] || 'BINANCE:BTCUSDT';
-            const wrap = document.getElementById('tvChartWrap');
-            // Удаляем старый виджет
-            wrap.innerHTML = '';
-            // Создаём новый контейнер
-            const container = document.createElement('div');
-            container.className = 'tradingview-widget-container';
-            container.style.height = '100%';
-            const widget = document.createElement('div');
-            widget.className = 'tradingview-widget-container__widget';
-            widget.style.height = '100%';
-            container.appendChild(widget);
-            const script = document.createElement('script');
-            script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
-            script.async = true;
-            script.innerHTML = JSON.stringify({
-                autosize: true,
-                symbol,
-                interval: 'D',
-                timezone: 'Europe/Moscow',
-                theme: 'dark',
-                style: '1',
-                locale: currentLang === 'ru' ? 'ru' : 'en',
-                hide_top_toolbar: false,
-                hide_legend: false,
-                save_image: false,
-                support_host: 'https://www.tradingview.com',
-                backgroundColor: 'rgba(17, 25, 40, 1)',
-                gridLineColor: 'rgba(255, 255, 255, 0.04)',
-                textColor: '#475569',
-            });
-            container.appendChild(script);
-            wrap.appendChild(container);
-        }
 
         const ICONS = {
             'bitcoin':                'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
@@ -7750,7 +7930,6 @@
             window._tpslChartPrices = null;
             window._ema90closes = null;
             _indCache = null; // сброс кэша индикаторов при смене монеты
-            updateTVChart(coin.id);
             updateCurrentPrice();
             // Загружаем кэш один раз — все индикаторы возьмут данные из него
             ensureIndCache(coin.id).then(() => {
@@ -7806,6 +7985,10 @@
             e.stopPropagation();
             dropdown.classList.contains('open') ? closeDropdown() : openDropdown();
         });
+
+        // Expose for fullscreen overlay
+        window._openCoinSelector = openDropdown;
+        window._openCoinSheet = openSheet;
         document.addEventListener('click', e => {
             if (!wrapper.contains(e.target)) closeDropdown();
         });
@@ -8169,8 +8352,26 @@
             btn.addEventListener('click', () => {
                 periodButtons.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                currentPeriod = parseInt(btn.dataset.period);
+                currentPeriod = parseFloat(btn.dataset.period);
                 loadChartData();
+                if (window.smallScanActive) setTimeout(() => window.runSmallScan && window.runSmallScan(), 500);
+                // Синхронизируем большой график если открыт
+                const fsOverlayEl = document.getElementById('fsOverlay');
+                if (fsOverlayEl && fsOverlayEl.classList.contains('active')) {
+                    const fsDays = currentPeriod;
+                    document.querySelectorAll('.fs-period-btn').forEach(b => {
+                        b.classList.toggle('active', parseFloat(b.dataset.fsDays) === fsDays);
+                    });
+                    if (typeof fsCurrentDays !== 'undefined') {
+                        // fsCurrentDays живёт в IIFE — триггерим через click нужной кнопки (без эха)
+                        if (!window._periodSyncing) {
+                            window._periodSyncing = true;
+                            const fsBtn = document.querySelector(`.fs-period-btn[data-fs-days="${fsDays}"]`);
+                            if (fsBtn) fsBtn.click();
+                            window._periodSyncing = false;
+                        }
+                    }
+                }
             });
         });
 
@@ -8915,7 +9116,7 @@
             'bitcoin': 'BTCUSDT', 'ethereum': 'ETHUSDT', 'binancecoin': 'BNBUSDT',
             'solana': 'SOLUSDT', 'ripple': 'XRPUSDT', 'cardano': 'ADAUSDT',
             'avalanche-2': 'AVAXUSDT', 'dogecoin': 'DOGEUSDT', 'polkadot': 'DOTUSDT',
-            'matic-network': 'MATICUSDT', 'shiba-inu': 'SHIBUSDT', 'tron': 'TRXUSDT',
+            'matic-network': 'POLUSDT', 'shiba-inu': 'SHIBUSDT', 'tron': 'TRXUSDT',
             'litecoin': 'LTCUSDT', 'chainlink': 'LINKUSDT', 'uniswap': 'UNIUSDT',
             'stellar': 'XLMUSDT', 'monero': 'XMRUSDT', 'ethereum-classic': 'ETCUSDT',
             'near': 'NEARUSDT', 'cosmos': 'ATOMUSDT', 'algorand': 'ALGOUSDT',
@@ -8979,7 +9180,13 @@
                 // Интервалы Binance с большим количеством свечей
                 let interval, limit;
                 
-                if (days <= 1) {
+                if (days <= 0.04) {
+                    interval = '1h';  // 1Ч = часовые свечи
+                    limit = 200;
+                } else if (days <= 0.17) {
+                    interval = '4h';  // 4Ч = 4-часовые свечи
+                    limit = 200;
+                } else if (days <= 1) {
                     interval = '1d';  // 1Д = дневные свечи
                     limit = 200;       // максимум свечей
                 } else if (days <= 7) {
@@ -9016,9 +9223,15 @@
                 // Для Binance: выбираем интервал в зависимости от периода
                 let interval, limit;
                 
-                if (days <= 1) {
+                if (days <= 0.04) {
+                    interval = '1h';  // 1Ч = часовые свечи
+                    limit = 200;      // ~8 дней
+                } else if (days <= 0.17) {
+                    interval = '4h';  // 4Ч = 4-часовые свечи
+                    limit = 200;      // ~33 дня
+                } else if (days <= 1) {
                     interval = '1d';  // 1Д = дневные свечи
-                    limit = 200;      // максимум свечей
+                    limit = 200;      // ~200 дней
                 } else if (days <= 7) {
                     interval = '1w';  // 7Д = недельные свечи
                     limit = 1000;      // максимум свечей
@@ -9047,7 +9260,23 @@
             let first, last;
             last = prices[prices.length - 1][1];
 
-            if (currentPeriod <= 1) {
+            if (currentPeriod <= 0.04) {
+                // 1Ч — изменение за последний час
+                const lastOhlc = rawOhlcCache[rawOhlcCache.length - 1];
+                if (lastOhlc) {
+                    first = lastOhlc[1]; // open последней свечи
+                } else {
+                    first = prices[prices.length - 2][1];
+                }
+            } else if (currentPeriod <= 0.17) {
+                // 4Ч — изменение за последние 4 часа
+                const lastOhlc = rawOhlcCache[rawOhlcCache.length - 1];
+                if (lastOhlc) {
+                    first = lastOhlc[1];
+                } else {
+                    first = prices[prices.length - 2][1];
+                }
+            } else if (currentPeriod <= 1) {
                 // 1Д — изменение только последней свечи (open → close)
                 const lastOhlc = rawOhlcCache[rawOhlcCache.length - 1];
                 if (lastOhlc) {
@@ -9072,6 +9301,9 @@
             const pct = ((last - first) / first) * 100;
             priceChangeBadge.textContent = `${pct >= 0 ? '▲ +' : '▼ '}${pct.toFixed(2)}%`;
             priceChangeBadge.className = `price-change-badge ${pct >= 0 ? 'positive' : 'negative'}`;
+            // Сохраняем для большого графика
+            window._mainChartPrice = last;
+            window._mainChartPct   = pct;
         }
 
         // Получить уровни для текущего активного таба
@@ -9722,23 +9954,6 @@
                 chartLoading.textContent = t('chartError');
             }
         }
-
-        // Переключатель источника графика (Наш / TradingView)
-        document.getElementById('btnOurChart').addEventListener('click', () => {
-            document.getElementById('btnOurChart').classList.add('active');
-            document.getElementById('btnTVChart').classList.remove('active');
-            document.getElementById('ourChartWrap').style.display = 'block';
-            document.getElementById('tvChartWrap').style.display = 'none';
-            document.getElementById('ourChartControls').style.display = 'flex';
-            if (lwChart) lwChart.applyOptions({ width: document.getElementById('lwPriceChart').offsetWidth });
-        });
-        document.getElementById('btnTVChart').addEventListener('click', () => {
-            document.getElementById('btnTVChart').classList.add('active');
-            document.getElementById('btnOurChart').classList.remove('active');
-            document.getElementById('ourChartWrap').style.display = 'none';
-            document.getElementById('tvChartWrap').style.display = 'block';
-            document.getElementById('ourChartControls').style.display = 'none';
-        });
 
         // Переключатель тип графика
         document.getElementById('btnLine').addEventListener('click', () => {
@@ -12594,7 +12809,7 @@
             // Кнопки периода
             const periodMap = { 1: tr.periodD1, 7: tr.periodD7, 30: tr.periodD30, 90: tr.periodD90 };
             document.querySelectorAll('.period-btn').forEach(btn => {
-                const p = parseInt(btn.dataset.period);
+                const p = parseFloat(btn.dataset.period);
                 if (periodMap[p]) btn.textContent = periodMap[p];
             });
 
@@ -12624,6 +12839,31 @@
             if (jSearch) jSearch.placeholder = tr.jSearchPlaceholder || '🔍  Search coin...';
             // Re-render journal table with new language
             if (typeof window.journalRerender === 'function') window.journalRerender();
+
+            // Re-label scanner button if active
+            const fsScanBtnEl = document.getElementById('fsScanBtn');
+            if (fsScanBtnEl && fsScanBtnEl.classList.contains('active')) {
+                fsScanBtnEl.textContent = lang === 'en' ? '✓ Scanner active' : '✓ Сканер активен';
+            }
+
+            // Принудительно переводим фильтр сканера (на случай если display:none мешал)
+            const fsDD = document.getElementById('fsFilterDropdown');
+            if (fsDD) {
+                fsDD.querySelectorAll('[data-i18n]').forEach(el => {
+                    const key = el.dataset.i18n;
+                    if (tr[key] !== undefined) el.textContent = tr[key];
+                });
+            }
+            // Надпись на графике и заголовок панели
+            const fsScanLabel = document.querySelector('.fs-scanner-label');
+            if (fsScanLabel && tr.fsScannerLabel) fsScanLabel.textContent = tr.fsScannerLabel;
+            const fsPanelH4 = document.querySelector('#fsPatternsPanel h4');
+            if (fsPanelH4 && tr.fsPatternsFound) fsPanelH4.textContent = tr.fsPatternsFound;
+
+            // Re-run scanner if active to update localized marker labels and panel
+            if (typeof fsScannerActive !== 'undefined' && fsScannerActive && typeof runFsScan === 'function') {
+                runFsScan();
+            }
 
             // Mobile filter translation
             const mfSel = document.getElementById('jMobileFilter');
@@ -12768,6 +13008,8 @@
 
         // Инициализация языка
         applyLang(currentLang);
+        // Повторный вызов после загрузки DOM — на случай если элементы ещё не были готовы
+        document.addEventListener('DOMContentLoaded', () => applyLang(currentLang));
 
         // ═══════════════════════════════════════════════════
         // ПЕРЕВОД НОВОСТЕЙ: Lingva Translate + localStorage кэш
@@ -12797,31 +13039,24 @@
             if (changed) newsTransSave();
         })();
 
-        // Перевод одного текста через Lingva (бесплатный публичный Google Translate frontend)
+        // Перевод через собственный прокси /api/translate (MyMemory)
         async function translateViaLingva(text, targetLang = 'ru') {
             if (!text || targetLang === 'en') return text;
             const cacheKey = `${targetLang}:${text.slice(0, 80)}`;
             if (newsTransCache[cacheKey]) return newsTransCache[cacheKey].t;
-
-            // Пробуем несколько публичных инстансов Lingva
-            const instances = [
-                'https://lingva.ml',
-                'https://lingva.thedaviddelta.com',
-            ];
-            const encoded = encodeURIComponent(text);
-            for (const base of instances) {
-                try {
-                    const res = await fetch(`${base}/api/v1/en/${targetLang}/${encoded}`, { signal: AbortSignal.timeout(4000) });
-                    if (!res.ok) continue;
-                    const data = await res.json();
-                    if (data.translation) {
-                        newsTransCache[cacheKey] = { t: data.translation, ts: Date.now() };
-                        newsTransSave();
-                        return data.translation;
-                    }
-                } catch {}
+            try {
+                const res = await fetch(`/api/translate?text=${encodeURIComponent(text.slice(0, 400))}`, { signal: AbortSignal.timeout(8000) });
+                if (!res.ok) return text;
+                const data = await res.json();
+                const translated = data?.translation || data?.responseData?.translatedText || text;
+                if (translated && translated !== text) {
+                    newsTransCache[cacheKey] = { t: translated, ts: Date.now() };
+                    newsTransSave();
+                }
+                return translated;
+            } catch {
+                return text; // fallback — оригинал
             }
-            return text; // fallback — оригинал
         }
 
         // Переводим заголовки новостей пачками по 5
@@ -12920,7 +13155,7 @@
         { sym: 'TRX', name: 'TRON', cg: 'tron' },
         { sym: 'LINK', name: 'Chainlink', cg: 'chainlink' },
         { sym: 'TON', name: 'Toncoin', cg: 'the-open-network' },
-        { sym: 'MATIC', name: 'Polygon', cg: 'matic-network' },
+        { sym: 'POL', name: 'Polygon', cg: 'matic-network' },
         { sym: 'SHIB', name: 'Shiba Inu', cg: 'shiba-inu' },
         { sym: 'LTC', name: 'Litecoin', cg: 'litecoin' },
         { sym: 'UNI', name: 'Uniswap', cg: 'uniswap' },
@@ -13558,6 +13793,87 @@
         }
     });
 
+    // ── Fullscreen chart — handled by separate overlay (see bottom of file) ──
+
+    // ── Scan кнопка на маленьком графике ──
+    window.smallScanActive = false;
+
+    window.runSmallScan = function runSmallScan() {
+        // Переключаем на свечной если ещё линейный
+        if (typeof chartDisplayType !== 'undefined' && chartDisplayType !== 'candle') {
+            document.getElementById('btnCandle').click();
+            setTimeout(runSmallScan, 300);
+            return;
+        }
+        if (!lwSeries || !rawOhlcCache.length) return;
+
+        // Конвертируем OHLC в формат PatternScanner
+        const candles = rawOhlcCache.map(k => ({
+            time:  Math.floor(k[0] / 1000),
+            open:  parseFloat(k[1]),
+            high:  parseFloat(k[2]),
+            low:   parseFloat(k[3]),
+            close: parseFloat(k[4]),
+        }));
+
+        // Включённые фильтры из filterDropdownApp
+        const enabledNames = [];
+        document.querySelectorAll('#filterDropdownApp input[type="checkbox"]').forEach(cb => {
+            if (cb.checked) enabledNames.push(cb.dataset.pat.toLowerCase());
+        });
+
+        PatternScanner.enableAll();
+        const allPatterns = PatternScanner.scan(candles);
+        const patterns = allPatterns.filter(p =>
+            enabledNames.some(n => p.type.toLowerCase().includes(n) || n.includes(p.type.toLowerCase()))
+        );
+
+        const markers = patterns.map(p => ({
+            time:     p.time,
+            position: p.position,
+            color:    p.color,
+            shape:    p.direction === 'bullish' ? 'arrowUp' : (p.direction === 'bearish' ? 'arrowDown' : 'circle'),
+            text:     (currentLang === 'en' && p.typeEn) ? p.typeEn : p.type,
+        }));
+        markers.sort((a, b) => a.time - b.time);
+        try { lwSeries.setMarkers(markers); } catch {}
+    }
+
+    window.clearSmallScan = function clearSmallScan() {
+        try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
+    }
+
+    const scanBtnAppEl = document.getElementById('scanBtnApp');
+    if (scanBtnAppEl) {
+        scanBtnAppEl.addEventListener('click', () => {
+            window.smallScanActive = !window.smallScanActive;
+            scanBtnAppEl.classList.toggle('scan-active', window.smallScanActive);
+            scanBtnAppEl.textContent = window.smallScanActive
+                ? (currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен')
+                : 'Scan';
+            if (window.smallScanActive) runSmallScan(); else clearSmallScan();
+        });
+    }
+
+    // ── Filter dropdown toggle ──
+    document.getElementById('filterBtnApp').addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.getElementById('filterDropdownApp').classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+        const dd = document.getElementById('filterDropdownApp');
+        if (dd && !dd.contains(e.target) && e.target !== document.getElementById('filterBtnApp')) {
+            dd.classList.remove('open');
+        }
+    });
+    document.getElementById('filterDropdownApp').addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('pfAll').addEventListener('click', () => {
+        document.querySelectorAll('#filterDropdownApp input[type="checkbox"]').forEach(c => c.checked = true);
+    });
+    document.getElementById('pfNone').addEventListener('click', () => {
+        document.querySelectorAll('#filterDropdownApp input[type="checkbox"]').forEach(c => c.checked = false);
+    });
+
     // ── Custom coin dropdown ──
     let activeCoinPanel = null;
 
@@ -13690,6 +14006,627 @@
             window.location.href = '/';
         });
     });
+</script>
+
+<!-- ═══════════════════════════════════════════
+     FULLSCREEN CHART OVERLAY
+     ═══════════════════════════════════════════ -->
+<div class="fs-overlay" id="fsOverlay">
+    <div class="fs-topbar">
+        <div style="position:relative;">
+            <button class="fs-coin-btn" id="fsCoinBtn">
+                <img id="fsCoinIcon" src="" alt="">
+                <span id="fsCoinSymbol">BTC</span>
+                <span style="font-size:10px;color:#64748B;margin-left:2px;">▼</span>
+            </button>
+            <div class="fs-coin-dropdown" id="fsCoinDropdown">
+                <div class="fs-coin-search-wrap">
+                    <span style="color:#64748B;font-size:13px;">🔍</span>
+                    <input type="text" id="fsCoinSearch" placeholder="Поиск монеты..." autocomplete="off">
+                </div>
+                <div class="fs-coin-list" id="fsCoinList"></div>
+            </div>
+        </div>
+        <div class="fs-info">
+            <span class="fs-price" id="fsPrice">—</span>
+            <span class="fs-change" id="fsChange">—</span>
+        </div>
+
+        <div class="fs-periods">
+            <button class="fs-period-btn" data-fs-days="0.17">4H</button>
+            <button class="fs-period-btn active" data-fs-days="1">1D</button>
+            <button class="fs-period-btn" data-fs-days="7">1W</button>
+            <button class="fs-period-btn" data-fs-days="30">1M</button>
+            <button class="fs-period-btn" data-fs-days="90">3M</button>
+        </div>
+
+        <button class="fs-scan-btn" id="fsScanBtn">Scan</button>
+        <div style="position:relative;">
+            <button class="fs-close-btn" id="fsFilterBtn" title="Фильтр" style="color:#818CF8;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            </button>
+            <div class="fs-filter-dropdown" id="fsFilterDropdown">
+                <div style="display:flex;gap:6px;padding:6px 10px 4px;">
+                    <button class="pf-action" id="fsPfAll" data-i18n="fsFilterAll">Все</button>
+                    <button class="pf-action" id="fsPfNone" data-i18n="fsFilterReset">Сбросить</button>
+                </div>
+                <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
+                <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="fsGroupSingle">Одиночные</div>
+                <label class="pf-item"><input type="checkbox" data-fspat="Доджи" checked><span data-i18n="fsPatDoji">Доджи</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Марибозу" checked><span data-i18n="fsPatMarubozu">Марибозу</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Молот" checked><span data-i18n="fsPatHammer">Молот</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Повешенный" checked><span data-i18n="fsPatHangingMan">Повешенный</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Падающая звезда" checked><span data-i18n="fsPatShootingStar">Падающая звезда</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Перевёрнутый молот" checked><span data-i18n="fsPatInvHammer">Перевёрнутый молот</span></label>
+                <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
+                <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="fsGroupDouble">Двойные</div>
+                <label class="pf-item"><input type="checkbox" data-fspat="Поглощение" checked><span data-i18n="fsPatEngulfing">Поглощение</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Харами" checked><span data-i18n="fsPatHarami">Харами</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Пинцет" checked><span data-i18n="fsPatTweezer">Пинцет</span></label>
+                <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
+                <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="fsGroupChart">Графические</div>
+                <label class="pf-item"><input type="checkbox" data-fspat="Двойная вершина" checked><span data-i18n="fsPatDoubleTop">Двойная вершина</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Двойное дно" checked><span data-i18n="fsPatDoubleBottom">Двойное дно</span></label>
+            </div>
+        </div>
+
+        <button class="fs-close-btn" id="fsCloseBtn" title="Свернуть">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
+    </div>
+
+    <div class="fs-chart-area">
+        <div id="fsOhlcLegend" class="fs-ohlc-legend"></div>
+        <div id="fsChart"></div>
+        <div class="fs-scanner-frame" id="fsScannerFrame">
+            <div class="corner tl"></div><div class="corner tr"></div>
+            <div class="corner bl"></div><div class="corner br"></div>
+            <div class="fs-scanner-label" data-i18n="fsScannerLabel">Сканер паттернов активен</div>
+        </div>
+        <div class="fs-patterns-panel" id="fsPatternsPanel">
+            <h4 data-i18n="fsPatternsFound">Обнаруженные паттерны</h4>
+            <div id="fsPatternsList"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// FULLSCREEN CHART — SEPARATE LW CHART INSTANCE
+// ═══════════════════════════════════════════════
+(function() {
+    const fsOverlay     = document.getElementById('fsOverlay');
+    const fsChartEl     = document.getElementById('fsChart');
+    const fsScanBtn     = document.getElementById('fsScanBtn');
+    const fsCloseBtn    = document.getElementById('fsCloseBtn');
+    const fsScannerFrame = document.getElementById('fsScannerFrame');
+    const fsPatternsPanel = document.getElementById('fsPatternsPanel');
+    const fsPatternsList  = document.getElementById('fsPatternsList');
+
+    let fsChart = null;
+    let fsCandleSeries = null;
+    let fsCandleData = [];
+    let fsOhlcData = [];
+    let fsScannerActive = false;
+    let fsCurrentDays = 1;
+
+    const BINANCE_MAP = {
+        'bitcoin':'BTCUSDT','ethereum':'ETHUSDT','binancecoin':'BNBUSDT','solana':'SOLUSDT',
+        'ripple':'XRPUSDT','cardano':'ADAUSDT','avalanche-2':'AVAXUSDT','dogecoin':'DOGEUSDT',
+        'polkadot':'DOTUSDT','matic-network':'POLUSDT','shiba-inu':'SHIBUSDT','tron':'TRXUSDT',
+        'litecoin':'LTCUSDT','chainlink':'LINKUSDT','uniswap':'UNIUSDT','stellar':'XLMUSDT',
+        'near':'NEARUSDT','pepe':'PEPEUSDT','sui':'SUIUSDT','toncoin':'TONUSDT',
+    };
+
+    // ── Init chart (like indextest) ──
+    function initFsChart() {
+        if (fsChart) { fsChart.remove(); fsChart = null; }
+        fsChart = LightweightCharts.createChart(fsChartEl, {
+            layout: { background: { type: 'solid', color: '#0B1525' }, textColor: '#64748B', fontFamily: "'Inter', -apple-system, sans-serif" },
+            grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
+            crosshair: { mode: 0, vertLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 }, horzLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 } },
+            timeScale: { timeVisible: true, secondsVisible: false, borderColor: 'rgba(255,255,255,0.06)' },
+            rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)' },
+        });
+        fsCandleSeries = fsChart.addCandlestickSeries({
+            upColor: '#10B981', downColor: '#EF4444',
+            borderUpColor: '#10B981', borderDownColor: '#EF4444',
+            wickUpColor: '#10B981', wickDownColor: '#EF4444',
+        });
+        let fsRangeChangeTimer = null;
+        fsChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            if (!fsScannerActive) return;
+            clearTimeout(fsRangeChangeTimer);
+            fsRangeChangeTimer = setTimeout(() => runFsScan(), 200);
+        });
+
+        // OHLC legend on crosshair move
+        const ohlcLegend = document.getElementById('fsOhlcLegend');
+        fsChart.subscribeCrosshairMove((param) => {
+            if (!param || !param.time || !param.seriesData) {
+                // Show last candle data when not hovering
+                if (fsCandleData.length) {
+                    const last = fsCandleData[fsCandleData.length - 1];
+                    updateOhlcLegend(last);
+                }
+                return;
+            }
+            const data = param.seriesData.get(fsCandleSeries);
+            if (data && data.open !== undefined) {
+                updateOhlcLegend(data);
+            }
+        });
+
+        function updateOhlcLegend(d) {
+            const isBull = d.close >= d.open;
+            const cls = isBull ? 'up' : 'down';
+            const dotColor = isBull ? '#10B981' : '#EF4444';
+            const change = d.close - d.open;
+            const changePct = d.open > 0 ? ((change / d.open) * 100).toFixed(2) : '0.00';
+            const sign = change >= 0 ? '+' : '';
+            const fmt = (v) => {
+                if (v >= 1000) return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                if (v >= 1) return v.toFixed(2);
+                if (v >= 0.01) return v.toFixed(4);
+                return v.toFixed(6);
+            };
+            const isRu = (typeof currentLang !== 'undefined' && currentLang === 'ru');
+            ohlcLegend.innerHTML = `
+                <span class="ohlc-dot" style="background:${dotColor}"></span>
+                <span class="ohlc-label">${isRu ? 'ОТКР' : 'O'}</span><span class="ohlc-val ${cls}">${fmt(d.open)}</span>
+                <span class="ohlc-label">${isRu ? 'МАКС' : 'H'}</span><span class="ohlc-val ${cls}">${fmt(d.high)}</span>
+                <span class="ohlc-label">${isRu ? 'МИН' : 'L'}</span><span class="ohlc-val ${cls}">${fmt(d.low)}</span>
+                <span class="ohlc-label">${isRu ? 'ЗАКР' : 'C'}</span><span class="ohlc-val ${cls}">${fmt(d.close)}</span>
+                <span class="ohlc-change ${cls}">${sign}${fmt(Math.abs(change))} (${sign}${changePct}%)</span>
+            `;
+        }
+    }
+
+    // ── Fetch OHLC ──
+    async function fetchFsOHLC(coinId, days) {
+        const symbol = BINANCE_MAP[coinId];
+        if (!symbol) return [];
+        let interval, limit;
+        if (days <= 0.04) { interval = '1h'; limit = 500; }
+        else if (days <= 0.17) { interval = '4h'; limit = 1000; }
+        else if (days <= 1) { interval = '1d'; limit = 730; }
+        else if (days <= 7) { interval = '1w'; limit = 200; }
+        else if (days <= 30) { interval = '1M'; limit = 200; }
+        else { interval = '1M'; limit = 500; }
+        try {
+            const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+            const d = await r.json();
+            if (!Array.isArray(d)) return [];
+            return d.map(k => [+k[0], +k[1], +k[2], +k[3], +k[4]]);
+        } catch { return []; }
+    }
+
+    // ── Load chart ──
+    let fsLoadId = 0;
+    async function loadFsChart() {
+        const myId = ++fsLoadId;
+        fsClearDoubleLines();
+        const coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+        fsOhlcData = await fetchFsOHLC(coinId, fsCurrentDays);
+        if (myId !== fsLoadId) return; // отменён — запустился новый loadFsChart
+        if (!fsOhlcData.length) return;
+
+        fsCandleData = fsOhlcData.map(([t, o, h, l, c]) => ({
+            time: Math.floor(t / 1000), open: o, high: h, low: l, close: c
+        }));
+
+        if (!fsChart) initFsChart();
+        fsCandleSeries.setData(fsCandleData);
+        fsChart.timeScale().fitContent();
+
+        // Price info — цена всегда последняя, pct считаем по периоду большого графика
+        const last = fsOhlcData[fsOhlcData.length - 1];
+        const price = last[4];
+        document.getElementById('fsPrice').textContent = '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        // Считаем изменение за период fsCurrentDays от первой свечи периода
+        const periodMs = fsCurrentDays * 24 * 60 * 60 * 1000;
+        const targetTs = last[0] - periodMs;
+        let periodFirst = fsOhlcData[0];
+        for (let i = 0; i < fsOhlcData.length; i++) {
+            if (Math.abs(fsOhlcData[i][0] - targetTs) < Math.abs(periodFirst[0] - targetTs)) {
+                periodFirst = fsOhlcData[i];
+            }
+        }
+        const pct = ((price - periodFirst[1]) / periodFirst[1] * 100);
+        const chEl = document.getElementById('fsChange');
+        chEl.textContent = (pct >= 0 ? '▲ +' : '▼ ') + Math.abs(pct).toFixed(2) + '%';
+        chEl.className = 'fs-change ' + (pct >= 0 ? 'up' : 'down');
+
+        // Ensure resize
+        setTimeout(() => {
+            if (fsChart && fsChartEl.offsetWidth > 0) {
+                fsChart.applyOptions({ width: fsChartEl.offsetWidth, height: fsChartEl.offsetHeight });
+                fsChart.timeScale().fitContent();
+            }
+        }, 100);
+
+        if (fsScannerActive) runFsScan();
+
+        // Show last candle OHLC in legend on load
+        const lastCandle = fsCandleData[fsCandleData.length - 1];
+        if (lastCandle) {
+            const ohlcEl = document.getElementById('fsOhlcLegend');
+            if (ohlcEl) {
+                const isBull = lastCandle.close >= lastCandle.open;
+                const cls = isBull ? 'up' : 'down';
+                const dotColor = isBull ? '#10B981' : '#EF4444';
+                const ch = lastCandle.close - lastCandle.open;
+                const chPct = lastCandle.open > 0 ? ((ch / lastCandle.open) * 100).toFixed(2) : '0.00';
+                const s = ch >= 0 ? '+' : '';
+                const f = (v) => v >= 1000 ? v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : v >= 1 ? v.toFixed(2) : v >= 0.01 ? v.toFixed(4) : v.toFixed(6);
+                const isRu = (typeof currentLang !== 'undefined' && currentLang === 'ru');
+                ohlcEl.innerHTML = `<span class="ohlc-dot" style="background:${dotColor}"></span>
+                    <span class="ohlc-label">${isRu ? 'ОТКР' : 'O'}</span><span class="ohlc-val ${cls}">${f(lastCandle.open)}</span>
+                    <span class="ohlc-label">${isRu ? 'МАКС' : 'H'}</span><span class="ohlc-val ${cls}">${f(lastCandle.high)}</span>
+                    <span class="ohlc-label">${isRu ? 'МИН' : 'L'}</span><span class="ohlc-val ${cls}">${f(lastCandle.low)}</span>
+                    <span class="ohlc-label">${isRu ? 'ЗАКР' : 'C'}</span><span class="ohlc-val ${cls}">${f(lastCandle.close)}</span>
+                    <span class="ohlc-change ${cls}">${s}${f(Math.abs(ch))} (${s}${chPct}%)</span>`;
+            }
+        }
+    }
+
+    // ── Sync coin info ──
+    function syncFsCoin() {
+        if (typeof selectedCoin === 'undefined') return;
+        document.getElementById('fsCoinSymbol').textContent = selectedCoin.symbol || 'BTC';
+        const mainIcon = document.getElementById('selectedCoinIcon');
+        const fsIcon = document.getElementById('fsCoinIcon');
+        if (mainIcon && fsIcon && mainIcon.src) fsIcon.src = mainIcon.src;
+    }
+
+
+    // Double lines state — rendering handled here, detection via PatternScanner.scanDouble()
+    let fsDoubleLines = [];
+
+    let fsClearingLines = false;
+    function fsClearDoubleLines() {
+        if (fsClearingLines) return;
+        fsClearingLines = true;
+        const lines = fsDoubleLines.splice(0);
+        lines.forEach(s => { try { fsChart.removeSeries(s); } catch {} });
+        fsClearingLines = false;
+    }
+
+    // ── Pattern scan ──
+    function getEnabledFilters() {
+        const enabled = [];
+        document.querySelectorAll('#fsFilterDropdown input[type="checkbox"]').forEach(cb => {
+            if (cb.checked) enabled.push(cb.dataset.fspat.toLowerCase());
+        });
+        return enabled;
+    }
+
+    function runFsScan() {
+        if (!fsCandleData.length || !fsChart || !fsCandleSeries) return;
+        const visibleRange = fsChart.timeScale().getVisibleLogicalRange();
+        if (!visibleRange) return;
+
+        const from = Math.max(0, Math.floor(visibleRange.from));
+        const to = Math.min(fsCandleData.length - 1, Math.ceil(visibleRange.to));
+        const visibleCandles = fsCandleData.slice(from, to + 1);
+        if (visibleCandles.length < 3) return;
+
+        const allPatterns = PatternScanner.scan(visibleCandles);
+
+        // Filter by enabled checkboxes
+        const enabledNames = getEnabledFilters();
+        const patterns = allPatterns.filter(p => {
+            const typeLower = p.type.toLowerCase();
+            return enabledNames.some(name => typeLower.includes(name) || name.includes(typeLower));
+        });
+
+        // ── Свечные паттерны — маркеры ──
+        const candleMarkers = patterns.map(p => ({
+            time: p.time, position: p.position, color: p.color,
+            shape: p.direction === 'bullish' ? 'arrowUp' : (p.direction === 'bearish' ? 'arrowDown' : 'circle'),
+            text: (currentLang === 'en' && p.typeEn) ? p.typeEn : p.type,
+        }));
+
+        // ── Double Top / Double Bottom ──
+        fsClearDoubleLines();
+        const enabledFspats = getEnabledFilters();
+        const doubleEnabled = {
+            top:    enabledFspats.some(n => n.includes('вершина') || n.includes('double top')),
+            bottom: enabledFspats.some(n => n.includes('дно')     || n.includes('double bottom')),
+        };
+
+        const doublePatterns = (doubleEnabled.top || doubleEnabled.bottom)
+            ? PatternScanner.scanDouble(visibleCandles, fsCurrentDays)
+            : [];
+
+        const doubleMarkers = [];
+        doublePatterns.forEach(p => {
+            if (p.type === 'double_top'    && !doubleEnabled.top)    return;
+            if (p.type === 'double_bottom' && !doubleEnabled.bottom) return;
+
+            const isTop = p.type === 'double_top';
+            const color = isTop ? '#EF4444' : '#10B981';
+
+            // Пунктирная линия между вершинами/днами
+            const ls = fsChart.addLineSeries({
+                color, lineWidth: 2, lineStyle: 2,
+                crosshairMarkerVisible: false, lastValueVisible: false,
+                priceLineVisible: false, priceScaleId: 'right',
+            });
+            ls.setData([
+                { time: p.time1, value: p.level },
+                { time: p.time2, value: p.level },
+            ]);
+            fsDoubleLines.push(ls);
+
+            const markerText = currentLang === 'en'
+                ? (isTop ? `Double Top ↓ retrace ${p.retrace}%` : `Double Bottom ↑ retrace ${p.retrace}%`)
+                : (isTop ? `Двойная вершина ↓ откат ${p.retrace}%` : `Двойное дно ↑ откат ${p.retrace}%`);
+
+            doubleMarkers.push(
+                { time: p.time1, position: isTop ? 'aboveBar' : 'belowBar', color, shape: 'circle',                        text: '' },
+                { time: p.time2, position: isTop ? 'aboveBar' : 'belowBar', color, shape: isTop ? 'arrowDown' : 'arrowUp', text: markerText }
+            );
+        });
+
+        // Объединяем все маркеры и устанавливаем за один вызов
+        const allMarkers = [...candleMarkers, ...doubleMarkers];
+        allMarkers.sort((a, b) => a.time - b.time);
+        fsCandleSeries.setMarkers(allMarkers);
+
+        // ── Панель статистики ──
+        const stats = {};
+        patterns.forEach(p => {
+            const key = (currentLang === 'en' && p.typeEn) ? p.typeEn : p.type;
+            if (!stats[key]) stats[key] = { count: 0, direction: p.direction };
+            stats[key].count++;
+        });
+        doublePatterns.forEach(p => {
+            if (p.type === 'double_top'    && !doubleEnabled.top)    return;
+            if (p.type === 'double_bottom' && !doubleEnabled.bottom) return;
+            const isTop = p.type === 'double_top';
+            const key = currentLang === 'en'
+                ? (isTop ? 'Double Top' : 'Double Bottom')
+                : (isTop ? 'Двойная вершина' : 'Двойное дно');
+            if (!stats[key]) stats[key] = { count: 0, direction: isTop ? 'bearish' : 'bullish' };
+            stats[key].count++;
+        });
+
+        if (Object.keys(stats).length === 0) {
+            fsPatternsList.innerHTML = `<div class="fs-no-patterns">${currentLang === 'en' ? 'No patterns found' : 'Паттерны не найдены'}</div>`;
+        } else {
+            const countLabel = currentLang === 'en' ? 'pcs.' : 'шт.';
+            fsPatternsList.innerHTML = Object.keys(stats).map(key => {
+                const s = stats[key];
+                const dotClass = s.direction === 'bearish' ? 'bearish' : (s.direction === 'neutral' ? 'neutral' : 'bullish');
+                return `<div class="fs-pat-item">
+                    <div class="fs-pat-dot ${dotClass}"></div>
+                    <span class="fs-pat-name">${key}</span>
+                    <span class="fs-pat-count">${s.count} ${countLabel}</span>
+                </div>`;
+            }).join('');
+        }
+
+        fsPatternsPanel.classList.add('active');
+    }
+
+    function clearFsMarkers() {
+        fsClearDoubleLines();
+        if (fsCandleSeries) try { fsCandleSeries.setMarkers([]); } catch {}
+    }
+
+    // ── Open / Close ──
+    function openFullscreen() {
+        fsOverlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        syncFsCoin();
+        // Синхронизируем состояние сканера с маленького графика
+        if (window.smallScanActive && !fsScannerActive) {
+            fsScannerActive = true;
+            fsScanBtn.classList.add('active');
+            fsScanBtn.textContent = currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен';
+            fsScannerFrame.classList.add('active');
+        }
+
+        // Sync period from main
+        const mainActive = document.querySelector('.chart-period-buttons .period-btn.active');
+        if (mainActive) fsCurrentDays = parseFloat(mainActive.dataset.period) || 1;
+
+        document.querySelectorAll('.fs-period-btn').forEach(b => {
+            b.classList.toggle('active', parseFloat(b.dataset.fsDays) === fsCurrentDays);
+        });
+
+        setTimeout(() => loadFsChart(), 50);
+    }
+
+    function closeFullscreen() {
+        fsOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+        fsScannerActive = false;
+        fsScanBtn.classList.remove('active');
+        fsScanBtn.textContent = 'Scan';
+        fsScannerFrame.classList.remove('active');
+        fsPatternsPanel.classList.remove('active');
+        clearFsMarkers();
+        if (fsChart) { fsChart.remove(); fsChart = null; fsCandleSeries = null; }
+        // Синхронизируем маленький
+        window.smallScanActive = false;
+        const _scanBtn = document.getElementById('scanBtnApp');
+        if (_scanBtn) {
+            _scanBtn.classList.remove('scan-active');
+            _scanBtn.textContent = 'Scan';
+            try { if (typeof lwSeries !== 'undefined' && lwSeries) lwSeries.setMarkers([]); } catch {}
+        }
+    }
+
+    // ── Events ──
+    document.getElementById('expandChartBtn').addEventListener('click', openFullscreen);
+    fsCloseBtn.addEventListener('click', closeFullscreen);
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && fsOverlay.classList.contains('active')) closeFullscreen();
+    });
+
+    // ── Fullscreen coin dropdown (compact) ──
+    const fsCoinBtn = document.getElementById('fsCoinBtn');
+    const fsCoinDD = document.getElementById('fsCoinDropdown');
+    const fsCoinSearch = document.getElementById('fsCoinSearch');
+    const fsCoinList = document.getElementById('fsCoinList');
+
+    function renderFsCoinList(q) {
+        const query = (q || '').toLowerCase().trim();
+        const coins = (typeof COINS !== 'undefined') ? COINS : [];
+        const icons = (typeof ICONS !== 'undefined') ? ICONS : {};
+        const currentId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : '';
+        const filtered = coins.filter(c =>
+            !query || c.name.toLowerCase().includes(query) || c.symbol.toLowerCase().includes(query)
+        );
+        fsCoinList.innerHTML = filtered.map(c => `
+            <div class="fs-coin-opt ${c.id === currentId ? 'selected' : ''}" data-coinid="${c.id}">
+                <img src="${icons[c.id] || ''}" alt="" onerror="this.style.display='none'">
+                <div>
+                    <div class="fs-coin-opt-name">${c.name}</div>
+                    <div class="fs-coin-opt-sym">${c.symbol}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    fsCoinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = fsCoinDD.classList.toggle('open');
+        if (isOpen) {
+            fsCoinSearch.value = '';
+            renderFsCoinList('');
+            setTimeout(() => fsCoinSearch.focus(), 50);
+        }
+    });
+
+    fsCoinSearch.addEventListener('input', () => renderFsCoinList(fsCoinSearch.value));
+    fsCoinSearch.addEventListener('click', (e) => e.stopPropagation());
+    fsCoinDD.addEventListener('click', (e) => e.stopPropagation());
+
+    fsCoinList.addEventListener('click', (e) => {
+        const opt = e.target.closest('.fs-coin-opt');
+        if (!opt) return;
+        const coinId = opt.dataset.coinid;
+        const coins = (typeof COINS !== 'undefined') ? COINS : [];
+        const coin = coins.find(c => c.id === coinId);
+        if (!coin) return;
+        // Use main app selectCoin if available
+        if (typeof selectedCoin !== 'undefined') {
+            // Trigger main coin selection
+            const selIcon = document.getElementById('selectedCoinIcon');
+            const selName = document.getElementById('selectedCoinName');
+            const icons = (typeof ICONS !== 'undefined') ? ICONS : {};
+            selectedCoin = coin;
+            if (selIcon) selIcon.src = icons[coin.id] || '';
+            if (selName) selName.textContent = `${coin.name} (${coin.symbol})`;
+            // Sync page 2
+            const icon2 = document.getElementById('selectedCoinIcon2');
+            const name2 = document.getElementById('selectedCoinName2');
+            if (icon2) icon2.src = icons[coin.id] || '';
+            if (name2) name2.textContent = `${coin.name} (${coin.symbol})`;
+            // Update main chart
+            if (typeof updateCurrentPrice === 'function') updateCurrentPrice();
+        }
+        fsCoinDD.classList.remove('open');
+        syncFsCoin();
+        loadFsChart();
+    });
+
+    // Close dropdown on outside click
+    document.addEventListener('click', (e) => {
+        if (fsCoinDD && !fsCoinDD.contains(e.target) && e.target !== fsCoinBtn && !fsCoinBtn.contains(e.target)) {
+            fsCoinDD.classList.remove('open');
+        }
+    });
+
+    // Period buttons
+    window._periodSyncing = false;
+    document.querySelectorAll('.fs-period-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.fs-period-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            fsCurrentDays = parseFloat(btn.dataset.fsDays) || 1;
+            loadFsChart();
+            // Синхронизируем маленький график (без обратного эха)
+            if (!window._periodSyncing) {
+                window._periodSyncing = true;
+                const smallBtn = document.querySelector(`.period-btn[data-period="${fsCurrentDays}"]`);
+                if (smallBtn) smallBtn.click();
+                window._periodSyncing = false;
+            }
+        });
+    });
+
+    // Scan toggle
+    fsScanBtn.addEventListener('click', () => {
+        fsScannerActive = !fsScannerActive;
+        fsScanBtn.classList.toggle('active', fsScannerActive);
+        fsScanBtn.textContent = fsScannerActive ? (currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен') : 'Scan';
+        fsScannerFrame.classList.toggle('active', fsScannerActive);
+        if (fsScannerActive) {
+            runFsScan();
+        } else {
+            clearFsMarkers();
+            fsPatternsPanel.classList.remove('active');
+        }
+        // Синхронизируем маленький
+        const _scanBtn = document.getElementById('scanBtnApp');
+        if (_scanBtn) {
+            window.smallScanActive = fsScannerActive;
+            _scanBtn.classList.toggle('scan-active', fsScannerActive);
+            _scanBtn.textContent = fsScannerActive ? (currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен') : 'Scan';
+            if (!fsScannerActive) { try { if (typeof lwSeries !== 'undefined' && lwSeries) lwSeries.setMarkers([]); } catch {} }
+        }
+    });
+
+    // ── Fullscreen filter dropdown ──
+    const fsFilterBtn = document.getElementById('fsFilterBtn');
+    const fsFilterDD = document.getElementById('fsFilterDropdown');
+
+    fsFilterBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fsFilterDD.classList.toggle('open');
+    });
+    fsFilterDD.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', (e) => {
+        if (fsFilterDD && !fsFilterDD.contains(e.target) && e.target !== fsFilterBtn) {
+            fsFilterDD.classList.remove('open');
+        }
+    });
+    document.getElementById('fsPfAll').addEventListener('click', () => {
+        fsFilterDD.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = true);
+        if (fsScannerActive) runFsScan();
+    });
+    document.getElementById('fsPfNone').addEventListener('click', () => {
+        fsFilterDD.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
+        if (fsScannerActive) runFsScan();
+    });
+    fsFilterDD.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => { if (fsScannerActive) runFsScan(); });
+    });
+
+    // Listen for coin change from main app
+    const coinNameEl = document.getElementById('selectedCoinName');
+    if (coinNameEl) {
+        new MutationObserver(() => {
+            if (fsOverlay.classList.contains('active')) {
+                syncFsCoin();
+                loadFsChart();
+            }
+        }).observe(coinNameEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    // Resize
+    window.addEventListener('resize', () => {
+        if (fsChart && fsOverlay.classList.contains('active') && fsChartEl.offsetWidth > 0) {
+            fsChart.applyOptions({ width: fsChartEl.offsetWidth, height: fsChartEl.offsetHeight });
+        }
+    });
+})();
 </script>
 
 </body>

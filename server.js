@@ -159,7 +159,7 @@ app.get('/api/indicators', (req, res) => {
 app.get('/api/ticker', (req, res) => {
     const { symbols } = req.query;
     withCache(`ticker:${symbols}`, TTL.TICKER, () =>
-        proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(symbols)}`),
+        proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${symbols}`),
     res);
 });
 
