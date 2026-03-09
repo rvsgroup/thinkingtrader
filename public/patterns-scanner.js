@@ -333,8 +333,8 @@ const PatternScanner = (function() {
 
     function getDoubleParams(interval) {
         if (interval === '1h') return { minGap: 25, maxGap: 60,  minRetrace: 0.04, maxRetrace: 0.12, radius: 20 };
-        if (interval === '4h') return { minGap: 20, maxGap: 110, minRetrace: 0.12, maxRetrace: 0.15, radius: 10 };
-        if (interval === '1d') return { minGap: 20, maxGap: 45,  minRetrace: 0.15, maxRetrace: 0.25, radius: 10 };
+        if (interval === '4h') return { minGap: 20, maxGap: 110, minRetrace: 0.12, maxRetrace: 0.30, radius: 5 };
+        if (interval === '1d') return { minGap: 20, maxGap: 60,  minRetrace: 0.10, maxRetrace: 0.35, radius: 10 };
         if (interval === '1w') return { minGap: 35, maxGap: 50,  minRetrace: 0.15, maxRetrace: 0.60, radius: 7  };
         return { minGap: 25, maxGap: 60, minRetrace: 0.15, maxRetrace: 0.25, radius: 10 };
     }
@@ -366,7 +366,7 @@ const PatternScanner = (function() {
     function detectDoublePatterns(candles, days) {
         const interval   = getIntervalFromDays(days);
         const params     = getDoubleParams(interval);
-        const tolerance  = 0.010;
+        const tolerance  = 0.020;
         const minRetrace = 0.03;
         const radius     = params.radius;
         const { tops, bottoms } = findLocalExtremes(candles, radius);
@@ -374,31 +374,27 @@ const PatternScanner = (function() {
 
         console.log(`[Scanner] interval=${interval} radius=${radius} minGap=${params.minGap} maxGap=${params.maxGap} tolerance=${tolerance} tops=${tops.length} bottoms=${bottoms.length}`);
 
-        // Double Top
-        const usedTopIdx = new Set();
-        for (let a = 0; a < tops.length; a++) {
-            if (usedTopIdx.has(tops[a])) continue;
+        // Double Top — цепочка: вторая вершина паттерна становится первой для следующего
+        // Ищем ближайшую подходящую пару в пределах maxGap, пропуская промежуточные мелкие
+        for (let a = 0; a < tops.length - 1; a++) {
             for (let b = a + 1; b < tops.length; b++) {
                 const i1 = tops[a], i2 = tops[b];
                 const gap = i2 - i1;
-                if (gap < params.minGap || gap > params.maxGap) { console.log(`[DT] i1=${i1} i2=${i2} SKIP gap=${gap} (min=${params.minGap} max=${params.maxGap})`); continue; }
+                if (gap < params.minGap) continue;
+                if (gap > params.maxGap) break;
                 const h1 = candles[i1].high, h2 = candles[i2].high;
                 const tolDiff = Math.abs(h1 - h2) / Math.max(h1, h2);
-                if (tolDiff > tolerance) { console.log(`[DT] i1=${i1} i2=${i2} SKIP tol=${(tolDiff*100).toFixed(2)}% h1=${h1} h2=${h2}`); continue; }
+                if (tolDiff > tolerance) continue;
                 const level   = Math.max(h1, h2);
                 let minBetween = Infinity;
                 let breached = false;
                 for (let k = i1 + 1; k < i2; k++) {
                     if (candles[k].low < minBetween) minBetween = candles[k].low;
-                    if (candles[k].high > level * (1 + tolerance)) { breached = true; console.log(`[DT] i1=${i1} i2=${i2} SKIP breached at k=${k} high=${candles[k].high} level=${level}`); break; }
+                    if (candles[k].high > level * (1 + tolerance)) { breached = true; break; }
                 }
                 if (breached) continue;
                 const retrace = (level - minBetween) / level;
-                if (retrace < minRetrace) { console.log(`[DT] i1=${i1} i2=${i2} SKIP retrace=${(retrace*100).toFixed(2)}% < min=${(minRetrace*100)}%`); continue; }
-                // Проверяем пересечение по времени с уже найденными паттернами
-                const overlapsTop = patterns.some(p => p.type === 'double_top' &&
-                    !(candles[i2].time < p.time1 || candles[i1].time > p.time2));
-                if (overlapsTop) { usedTopIdx.add(i1); break; }
+                if (retrace < minRetrace) continue;
                 patterns.push({
                     type: 'double_top', typeEn: 'Double Top',
                     group: 'double', direction: 'bearish',
@@ -406,19 +402,18 @@ const PatternScanner = (function() {
                     level, price1: h1, price2: h2,
                     retrace: (retrace * 100).toFixed(1)
                 });
-                usedTopIdx.add(i1); usedTopIdx.add(i2);
+                a = b - 1;  // следующая итерация: a станет b → вершина b = новый time1
                 break;
             }
         }
 
-        // Double Bottom
-        const usedBotIdx = new Set();
-        for (let a = 0; a < bottoms.length; a++) {
-            if (usedBotIdx.has(bottoms[a])) continue;
+        // Double Bottom — цепочка: второе дно паттерна становится первым для следующего
+        for (let a = 0; a < bottoms.length - 1; a++) {
             for (let b = a + 1; b < bottoms.length; b++) {
                 const i1 = bottoms[a], i2 = bottoms[b];
                 const gap = i2 - i1;
-                if (gap < params.minGap || gap > params.maxGap) continue;
+                if (gap < params.minGap) continue;
+                if (gap > params.maxGap) break;
                 const l1 = candles[i1].low, l2 = candles[i2].low;
                 if (Math.abs(l1 - l2) / Math.min(l1, l2) > tolerance) continue;
                 const level   = Math.min(l1, l2);
@@ -431,10 +426,6 @@ const PatternScanner = (function() {
                 if (breached) continue;
                 const retrace = (maxBetween - level) / level;
                 if (retrace < minRetrace) continue;
-                // Проверяем пересечение по времени с уже найденными паттернами
-                const overlapsBot = patterns.some(p => p.type === 'double_bottom' &&
-                    !(candles[i2].time < p.time1 || candles[i1].time > p.time2));
-                if (overlapsBot) { usedBotIdx.add(i1); break; }
                 patterns.push({
                     type: 'double_bottom', typeEn: 'Double Bottom',
                     group: 'double', direction: 'bullish',
@@ -442,12 +433,116 @@ const PatternScanner = (function() {
                     level, price1: l1, price2: l2,
                     retrace: (retrace * 100).toFixed(1)
                 });
-                usedBotIdx.add(i1); usedBotIdx.add(i2);
+                a = b - 1;
                 break;
             }
         }
 
         return patterns;
+    }
+
+    // ═══════════════════════════════════════════
+    // FORMING (REAL-TIME) DOUBLE PATTERNS
+    // ═══════════════════════════════════════════
+
+    function detectFormingPatterns(candles, days, confirmedPatterns) {
+        if (candles.length < 5) return [];
+        const interval   = getIntervalFromDays(days);
+        const params     = getDoubleParams(interval);
+        const tolerance  = 0.020;
+        const minRetrace = 0.03;
+        const radius     = params.radius;
+        const { tops, bottoms } = findLocalExtremes(candles, radius);
+        const forming = [];
+
+        const last = candles[candles.length - 1];
+        const lastIdx = candles.length - 1;
+
+        // ── Forming Double Top ──
+        // Ищем подтверждённую вершину, от которой был откат,
+        // и текущая цена подходит к её уровню
+        for (let a = tops.length - 1; a >= 0; a--) {
+            const i1 = tops[a];
+            const h1 = candles[i1].high;
+            const gap = lastIdx - i1;
+
+            if (gap < params.minGap) continue;
+            if (gap > params.maxGap) break;
+
+            // Откат между вершиной и текущей позицией
+            let minBetween = Infinity;
+            let breached = false;
+            for (let k = i1 + 1; k < lastIdx; k++) {
+                if (candles[k].low < minBetween) minBetween = candles[k].low;
+                if (candles[k].high > h1 * (1 + tolerance)) { breached = true; break; }
+            }
+            if (breached) continue;
+
+            const retrace = (h1 - minBetween) / h1;
+            if (retrace < minRetrace) continue;
+
+            // Текущая цена входит в зону tolerance от вершины
+            if (last.high >= h1 * (1 - tolerance)) {
+                // Пробила вверх — паттерн исчезает
+                if (last.high > h1 * (1 + tolerance)) continue;
+
+                forming.push({
+                    type: 'forming_double_top',
+                    typeEn: 'Forming Double Top',
+                    typeRu: 'Формируется дв. вершина',
+                    group: 'double', direction: 'bearish',
+                    time1: candles[i1].time,
+                    time2: last.time,
+                    level: h1,
+                    price1: h1,
+                    price2: last.high,
+                    retrace: (retrace * 100).toFixed(1)
+                });
+                break;
+            }
+        }
+
+        // ── Forming Double Bottom ──
+        for (let a = bottoms.length - 1; a >= 0; a--) {
+            const i1 = bottoms[a];
+            const l1 = candles[i1].low;
+            const gap = lastIdx - i1;
+
+            if (gap < params.minGap) continue;
+            if (gap > params.maxGap) break;
+
+            let maxBetween = 0;
+            let breached = false;
+            for (let k = i1 + 1; k < lastIdx; k++) {
+                if (candles[k].high > maxBetween) maxBetween = candles[k].high;
+                if (candles[k].low < l1 * (1 - tolerance)) { breached = true; break; }
+            }
+            if (breached) continue;
+
+            const retrace = (maxBetween - l1) / l1;
+            if (retrace < minRetrace) continue;
+
+            if (last.low <= l1 * (1 + tolerance)) {
+                // Пробила вниз — паттерн исчезает
+                if (last.low < l1 * (1 - tolerance)) continue;
+
+                forming.push({
+                    type: 'forming_double_bottom',
+                    typeEn: 'Forming Double Bottom',
+                    typeRu: 'Формируется дв. дно',
+                    group: 'double', direction: 'bullish',
+                    time1: candles[i1].time,
+                    time2: last.time,
+                    level: l1,
+                    price1: l1,
+                    price2: last.low,
+                    retrace: (retrace * 100).toFixed(1)
+                });
+                break;
+            }
+        }
+
+        return forming;
     }
 
     // ═══════════════════════════════════════════
@@ -487,6 +582,11 @@ const PatternScanner = (function() {
         /** Scan for double top / double bottom patterns */
         scanDouble(candles, days) {
             return detectDoublePatterns(candles, days);
+        },
+
+        /** Scan for forming (real-time) double patterns */
+        scanForming(candles, days, confirmedPatterns) {
+            return detectFormingPatterns(candles, days, confirmedPatterns || []);
         },
 
         /** Get human-readable group names */

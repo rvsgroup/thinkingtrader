@@ -14811,9 +14811,7 @@
         });
         let fsRangeChangeTimer = null;
         fsChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-            if (!fsScannerActive) return;
-            clearTimeout(fsRangeChangeTimer);
-            fsRangeChangeTimer = setTimeout(() => runFsScan(), 200);
+            // Паттерны фиксированы — не пересканируем при скролле/зуме
         });
 
         // OHLC legend on crosshair move
@@ -14980,15 +14978,12 @@
 
     function runFsScan() {
         if (!fsCandleData.length || !fsChart || !fsCandleSeries) return;
-        const visibleRange = fsChart.timeScale().getVisibleLogicalRange();
-        if (!visibleRange) return;
 
-        const from = Math.max(0, Math.floor(visibleRange.from));
-        const to = Math.min(fsCandleData.length - 1, Math.ceil(visibleRange.to));
-        const visibleCandles = fsCandleData.slice(from, to + 1);
-        if (visibleCandles.length < 3) return;
+        // Сканируем ВСЕ загруженные свечи — паттерны фиксированы, не зависят от скролла
+        const allCandles = fsCandleData;
+        if (allCandles.length < 3) return;
 
-        const allPatterns = PatternScanner.scan(visibleCandles);
+        const allPatterns = PatternScanner.scan(allCandles);
 
         // Filter by enabled checkboxes
         const enabledNames = getEnabledFilters();
@@ -15013,10 +15008,17 @@
         };
 
         const doublePatterns = (doubleEnabled.top || doubleEnabled.bottom)
-            ? PatternScanner.scanDouble(visibleCandles, fsCurrentDays)
+            ? PatternScanner.scanDouble(allCandles, fsCurrentDays)
+            : [];
+
+        // ── Формирующиеся паттерны в реальном времени ──
+        const formingPatterns = (doubleEnabled.top || doubleEnabled.bottom)
+            ? PatternScanner.scanForming(allCandles, fsCurrentDays, doublePatterns)
             : [];
 
         const doubleMarkers = [];
+
+        // Подтверждённые паттерны
         doublePatterns.forEach(p => {
             if (p.type === 'double_top'    && !doubleEnabled.top)    return;
             if (p.type === 'double_bottom' && !doubleEnabled.bottom) return;
@@ -15041,14 +15043,63 @@
                 : (isTop ? `Двойная вершина ↓ откат ${p.retrace}%` : `Двойное дно ↑ откат ${p.retrace}%`);
 
             doubleMarkers.push(
-                { time: p.time1, position: isTop ? 'aboveBar' : 'belowBar', color, shape: 'circle',                        text: '' },
-                { time: p.time2, position: isTop ? 'aboveBar' : 'belowBar', color, shape: isTop ? 'arrowDown' : 'arrowUp', text: markerText }
+                { time: p.time1, position: isTop ? 'aboveBar' : 'belowBar', color, shape: 'circle', text: '' },
+                { time: p.time2, position: isTop ? 'aboveBar' : 'belowBar', color, shape: 'circle', text: markerText }
             );
         });
 
-        // Объединяем все маркеры и устанавливаем за один вызов
-        const allMarkers = [...candleMarkers, ...doubleMarkers];
-        allMarkers.sort((a, b) => a.time - b.time);
+        // Формирующиеся паттерны (пунктир + label на шкале цены)
+        formingPatterns.forEach(p => {
+            if (p.type === 'forming_double_top'    && !doubleEnabled.top)    return;
+            if (p.type === 'forming_double_bottom' && !doubleEnabled.bottom) return;
+
+            const isTop = p.type === 'forming_double_top';
+            const color = isTop ? 'rgba(239,68,68,0.55)' : 'rgba(16,185,129,0.55)';
+            const solidColor = isTop ? '#EF4444' : '#10B981';
+
+            const labelText = currentLang === 'en'
+                ? (isTop ? '⏳ Forming DT' : '⏳ Forming DB')
+                : (isTop ? '⏳ Форм. вершина' : '⏳ Форм. дно');
+
+            const ls = fsChart.addLineSeries({
+                color, lineWidth: 2, lineStyle: 3,
+                crosshairMarkerVisible: false,
+                lastValueVisible: true,
+                priceLineVisible: false,
+                priceScaleId: 'right',
+                title: labelText,
+            });
+            ls.setData([
+                { time: p.time1, value: p.level },
+                { time: p.time2, value: p.level },
+            ]);
+            fsDoubleLines.push(ls);
+
+            // Маркеры — только кружки без текста
+            doubleMarkers.push(
+                { time: p.time1, position: isTop ? 'aboveBar' : 'belowBar', color: solidColor, shape: 'circle', text: '' },
+                { time: p.time2, position: isTop ? 'aboveBar' : 'belowBar', color: solidColor, shape: 'circle', text: '' }
+            );
+        });
+
+        // Объединяем все маркеры и дедуплицируем по time
+        // Lightweight Charts показывает только один маркер на свечу,
+        // поэтому при совпадении time объединяем тексты в один маркер
+        const allRaw = [...candleMarkers, ...doubleMarkers];
+        allRaw.sort((a, b) => a.time - b.time);
+
+        const allMarkers = [];
+        for (const m of allRaw) {
+            const last = allMarkers[allMarkers.length - 1];
+            if (last && last.time === m.time && last.position === m.position) {
+                // Объединяем: берём текст от обоих, приоритет цвета у первого
+                if (m.text) {
+                    last.text = last.text ? last.text + '\n' + m.text : m.text;
+                }
+            } else {
+                allMarkers.push({ ...m });
+            }
+        }
         fsCandleSeries.setMarkers(allMarkers);
 
         // ── Панель статистики ──
@@ -15065,6 +15116,16 @@
             const key = currentLang === 'en'
                 ? (isTop ? 'Double Top' : 'Double Bottom')
                 : (isTop ? 'Двойная вершина' : 'Двойное дно');
+            if (!stats[key]) stats[key] = { count: 0, direction: isTop ? 'bearish' : 'bullish' };
+            stats[key].count++;
+        });
+        formingPatterns.forEach(p => {
+            if (p.type === 'forming_double_top'    && !doubleEnabled.top)    return;
+            if (p.type === 'forming_double_bottom' && !doubleEnabled.bottom) return;
+            const isTop = p.type === 'forming_double_top';
+            const key = currentLang === 'en'
+                ? (isTop ? '⏳ Forming Double Top' : '⏳ Forming Double Bottom')
+                : (isTop ? '⏳ Форм. дв. вершина' : '⏳ Форм. дв. дно');
             if (!stats[key]) stats[key] = { count: 0, direction: isTop ? 'bearish' : 'bullish' };
             stats[key].count++;
         });
