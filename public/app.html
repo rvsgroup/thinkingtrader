@@ -44,6 +44,10 @@
         .slider-wrapper.slide-3 { transform: translateX(-200vw); }
         .slider-wrapper.slide-4 { transform: translateX(-300vw); }
         .slider-wrapper.slide-5 { transform: translateX(-400vw); }
+        @media (max-width: 900px) {
+            #slider-page-5 { overflow-y: auto; height: auto; min-height: 100vh; }
+            .slider-wrapper { height: auto; min-height: 100vh; }
+        }
 
         .slider-page {
             width: 100vw;
@@ -7156,10 +7160,10 @@
 
 
     <!-- Страница 5 — Admin Panel -->
-    <div class="slider-page" id="slider-page-5" style="padding:0;overflow:hidden auto;align-items:stretch">
+    <div class="slider-page" id="slider-page-5" style="padding:0;overflow:hidden auto;align-items:stretch;overflow-y:auto;">
     <style>
     /* Admin panel scoped styles */
-    #admin-wrap { display:grid; grid-template-columns:1fr 420px; width:100%; min-height:100vh; }
+    #admin-wrap { display:grid; grid-template-columns:1fr 640px; width:100%; min-height:100vh; }
     #admin-left {
       padding:32px 40px; border-right:1px solid rgba(255,255,255,0.07);
       display:flex; flex-direction:column; gap:22px;
@@ -7172,6 +7176,25 @@
     }
     #admin-left::-webkit-scrollbar { width:3px; }
     #admin-left::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.07); border-radius:2px; }
+
+    /* ── Mobile ── */
+    @media (max-width: 900px) {
+      #admin-wrap { grid-template-columns:1fr; }
+      #admin-left { padding:20px 16px; height:auto; border-right:none; border-bottom:1px solid rgba(255,255,255,0.07); }
+      #admin-right { position:relative; height:auto; padding:20px 16px; flex-direction:row; gap:12px; overflow-x:auto; justify-content:center; }
+      #admin-phone { width:240px !important; height:520px !important; border-radius:36px !important; flex-shrink:0; }
+      #admin-phone-en { width:240px !important; height:520px !important; border-radius:36px !important; flex-shrink:0; }
+      .adm-stats { grid-template-columns:repeat(3,1fr); }
+    }
+    @media (max-width: 520px) {
+      #admin-right { gap:8px; padding:16px 10px; }
+      #admin-phone { width:185px !important; height:400px !important; border-radius:28px !important; }
+      #admin-phone-en { width:185px !important; height:400px !important; border-radius:28px !important; }
+      #admin-left { padding:14px 12px; gap:14px; }
+      .adm-stats { grid-template-columns:1fr 1fr !important; }
+      .adm-manual-card > div { grid-template-columns:1fr !important; }
+      .adm-card-header { flex-wrap:wrap; gap:6px; }
+    }
     .adm-title { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; color:#475569; letter-spacing:2px; text-transform:uppercase; margin-bottom:10px; }
     .adm-api-row { background:#0F172A; border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:14px 18px; display:flex; flex-direction:column; gap:9px; }
     .adm-api-item { display:flex; align-items:center; justify-content:space-between; }
@@ -7241,7 +7264,7 @@
     .adm-log-line .warn { color:#FBBF24; }
     .adm-log-line .info { color:#6366F1; }
     /* Phone */
-    #admin-phone { width:300px; height:640px; background:#1C1C1E; border-radius:44px; border:1px solid #2A2A2E; position:relative; overflow:hidden; box-shadow:0 40px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.05); flex-shrink:0; }
+    #admin-phone { width:265px; height:580px; background:#1C1C1E; border-radius:44px; border:1px solid #2A2A2E; position:relative; overflow:hidden; box-shadow:0 40px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.05); flex-shrink:0; }
     #admin-phone .dyn-island { position:absolute; top:10px; left:50%; transform:translateX(-50%); width:84px; height:24px; background:#0A0A0F; border-radius:12px; z-index:10; }
     #admin-phone .ph-screen { position:absolute; inset:0; border-radius:44px; overflow:hidden; display:flex; flex-direction:column; background:#17212B; }
     #admin-phone .ph-nav { display:flex; align-items:center; gap:10px; padding:44px 12px 10px; background:#1F2B38; flex-shrink:0; }
@@ -7250,23 +7273,23 @@
     #admin-phone .ph-info { flex:1; }
     #admin-phone .ph-name { font-size:12px; font-weight:600; color:#fff; }
     #admin-phone .ph-subs { font-size:10px; color:#6D8FAD; }
-    #admin-phone .ph-chat { flex:1; overflow-y:auto; padding:10px 8px; display:flex; flex-direction:column; gap:5px; scroll-behavior:smooth; }
-    #admin-phone .ph-chat::-webkit-scrollbar { width:0; }
-    #admin-phone .ph-date { text-align:center; font-size:10px; color:#6D8FAD; background:rgba(35,46,60,0.8); padding:2px 8px; border-radius:7px; align-self:center; }
-    #admin-phone .ph-msg { background:#182533; border-radius:13px 13px 13px 3px; padding:9px 11px; max-width:88%; align-self:flex-start; font-size:11px; line-height:1.5; color:#E8EDF2; white-space:pre-wrap; word-break:break-word; opacity:0; transform:translateY(8px); transition:opacity 0.4s,transform 0.4s; }
-    #admin-phone .ph-msg.visible { opacity:1; transform:translateY(0); }
-    #admin-phone .ph-msg.morning { border-left:2px solid #FBBF24; }
-    #admin-phone .ph-msg.noon { border-left:2px solid #6366F1; }
-    #admin-phone .ph-msg.evening { border-left:2px solid #00E5A0; }
-    #admin-phone .ph-msg.alert { border-left:2px solid #EF4444; }
-    #admin-phone .ph-msg b { font-weight:700; color:#fff; }
-    #admin-phone .ph-msg a { color:#5AADFF; text-decoration:none; }
-    #admin-phone .ph-time { font-size:9px; color:#6D8FAD; text-align:right; margin-top:3px; }
-    #admin-phone .ph-typing { display:flex; align-items:center; gap:4px; padding:9px 12px; background:#182533; border-radius:13px 13px 13px 3px; align-self:flex-start; opacity:0; transition:opacity 0.3s; }
-    #admin-phone .ph-typing.visible { opacity:1; }
-    #admin-phone .ph-typing span { width:6px; height:6px; border-radius:50%; background:#6D8FAD; animation:adm-tdot 1.2s infinite; }
-    #admin-phone .ph-typing span:nth-child(2) { animation-delay:0.2s; }
-    #admin-phone .ph-typing span:nth-child(3) { animation-delay:0.4s; }
+    #admin-phone .ph-chat, #admin-phone-en .ph-chat { flex:1; overflow-y:auto; padding:10px 8px; display:flex; flex-direction:column; gap:5px; scroll-behavior:smooth; }
+    #admin-phone .ph-chat::-webkit-scrollbar, #admin-phone-en .ph-chat::-webkit-scrollbar { width:0; }
+    #admin-phone .ph-date, #admin-phone-en .ph-date { text-align:center; font-size:10px; color:#6D8FAD; background:rgba(35,46,60,0.8); padding:2px 8px; border-radius:7px; align-self:center; }
+    #admin-phone .ph-msg, #admin-phone-en .ph-msg { background:#182533; border-radius:13px 13px 13px 3px; padding:9px 11px; max-width:88%; align-self:flex-start; font-size:11px; line-height:1.5; color:#E8EDF2; white-space:pre-wrap; word-break:break-word; opacity:0; transform:translateY(8px); transition:opacity 0.4s,transform 0.4s; }
+    #admin-phone .ph-msg.visible, #admin-phone-en .ph-msg.visible { opacity:1; transform:translateY(0); }
+    #admin-phone .ph-msg.morning, #admin-phone-en .ph-msg.morning { border-left:2px solid #FBBF24; }
+    #admin-phone .ph-msg.noon, #admin-phone-en .ph-msg.noon { border-left:2px solid #6366F1; }
+    #admin-phone .ph-msg.evening, #admin-phone-en .ph-msg.evening { border-left:2px solid #00E5A0; }
+    #admin-phone .ph-msg.alert, #admin-phone-en .ph-msg.alert { border-left:2px solid #EF4444; }
+    #admin-phone .ph-msg b, #admin-phone-en .ph-msg b { font-weight:700; color:#fff; }
+    #admin-phone .ph-msg a, #admin-phone-en .ph-msg a { color:#5AADFF; text-decoration:none; }
+    #admin-phone .ph-time, #admin-phone-en .ph-time { font-size:9px; color:#6D8FAD; text-align:right; margin-top:3px; }
+    #admin-phone .ph-typing, #admin-phone-en .ph-typing { display:flex; align-items:center; gap:4px; padding:9px 12px; background:#182533; border-radius:13px 13px 13px 3px; align-self:flex-start; opacity:0; transition:opacity 0.3s; }
+    #admin-phone .ph-typing.visible, #admin-phone-en .ph-typing.visible { opacity:1; }
+    #admin-phone .ph-typing span, #admin-phone-en .ph-typing span { width:6px; height:6px; border-radius:50%; background:#6D8FAD; animation:adm-tdot 1.2s infinite; }
+    #admin-phone .ph-typing span:nth-child(2), #admin-phone-en .ph-typing span:nth-child(2) { animation-delay:0.2s; }
+    #admin-phone .ph-typing span:nth-child(3), #admin-phone-en .ph-typing span:nth-child(3) { animation-delay:0.4s; }
     @keyframes adm-tdot { 0%,60%,100%{transform:scale(1);opacity:0.4} 30%{transform:scale(1.3);opacity:1} }
     #admin-phone .ph-homebar { position:absolute; bottom:7px; left:50%; transform:translateX(-50%); width:90px; height:4px; background:rgba(255,255,255,0.2); border-radius:2px; }
     </style>
@@ -7368,10 +7391,26 @@
         <div>
           <div class="adm-title">// ручной пост</div>
           <div class="adm-manual-card">
-            <textarea class="adm-textarea" id="adm-manual-text" placeholder="Текст поста... (HTML: &lt;b&gt;жирный&lt;/b&gt;, &lt;i&gt;курсив&lt;/i&gt;)"></textarea>
-            <div class="adm-paste-zone" id="adm-paste-zone" onclick="admTriggerImg()">
-              <span id="adm-paste-hint">📎 Вставьте скриншот (Cmd+V) или кликните для выбора файла</span>
-              <input type="file" id="adm-img-input" accept="image/*" style="display:none" onchange="admHandleFile(event)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:13px">🇷🇺</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#475569;letter-spacing:1px">РУССКИЙ</span>
+                </div>
+                <textarea class="adm-textarea" id="adm-manual-text" placeholder="Текст поста на русском..." style="min-height:80px;font-size:11px"></textarea>
+                <div class="adm-paste-zone" id="adm-paste-zone" onclick="admTriggerImg()">
+                  <span id="adm-paste-hint">📎 Фото (Cmd+V или файл)</span>
+                  <input type="file" id="adm-img-input" accept="image/*" style="display:none" onchange="admHandleFile(event)">
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="font-size:13px">🇬🇧</span>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#475569;letter-spacing:1px">ENGLISH</span>
+                </div>
+                <textarea class="adm-textarea" id="adm-manual-text-en" placeholder="Post text in English..." style="min-height:80px;font-size:11px"></textarea>
+                <div class="adm-paste-zone" style="cursor:default;opacity:0.4;font-size:10px">↑ Same photos</div>
+              </div>
             </div>
             <input type="datetime-local" class="adm-datetime" id="adm-sched-time">
             <div class="adm-row">
@@ -7390,27 +7429,63 @@
 
       </div>
 
-      <!-- RIGHT: PHONE -->
-      <div id="admin-right">
-        <div id="admin-phone">
-          <div class="dyn-island"></div>
-          <div class="ph-screen">
-            <div class="ph-nav">
-              <span class="ph-back">‹</span>
-              <div class="ph-avatar">TT</div>
-              <div class="ph-info">
-                <div class="ph-name">Thinking Trader</div>
-                <div class="ph-subs">подписчики</div>
-              </div>
-              <span style="color:#6D8FAD;font-size:13px;display:flex;gap:10px">🔍 ⋮</span>
-            </div>
-            <div class="ph-chat" id="adm-ph-chat">
-              <div class="ph-date">Сегодня</div>
-              <div class="ph-typing" id="adm-typing"><span></span><span></span><span></span></div>
-            </div>
+      <!-- RIGHT: TWO PHONES -->
+      <div id="admin-right" style="flex-direction:row;gap:16px;padding:24px 20px">
+
+        <!-- RU -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:13px">🇷🇺</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#475569;letter-spacing:1px">RU</span>
           </div>
-          <div class="ph-homebar"></div>
+          <div id="admin-phone">
+            <div class="dyn-island"></div>
+            <div class="ph-screen">
+              <div class="ph-nav">
+                <span class="ph-back">‹</span>
+                <div class="ph-avatar">TT</div>
+                <div class="ph-info">
+                  <div class="ph-name">Thinking Trader</div>
+                  <div class="ph-subs" id="adm-subs-ru">подписчики</div>
+                </div>
+                <span style="color:#6D8FAD;font-size:11px;display:flex;gap:8px">🔍 ⋮</span>
+              </div>
+              <div class="ph-chat" id="adm-ph-chat">
+                <div class="ph-date">Сегодня</div>
+                <div class="ph-typing" id="adm-typing"><span></span><span></span><span></span></div>
+              </div>
+            </div>
+            <div class="ph-homebar"></div>
+          </div>
         </div>
+
+        <!-- EN -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:13px">🇬🇧</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#475569;letter-spacing:1px">EN</span>
+          </div>
+          <div id="admin-phone-en" style="width:265px;height:580px;background:#1C1C1E;border-radius:40px;border:1px solid #2A2A2E;position:relative;overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.05);flex-shrink:0">
+            <div style="position:absolute;top:10px;left:50%;transform:translateX(-50%);width:84px;height:24px;background:#0A0A0F;border-radius:12px;z-index:10"></div>
+            <div style="position:absolute;inset:0;border-radius:40px;overflow:hidden;display:flex;flex-direction:column;background:#17212B">
+              <div style="display:flex;align-items:center;gap:10px;padding:44px 12px 10px;background:#1F2B38;flex-shrink:0">
+                <span style="color:#5AADFF;font-size:18px">‹</span>
+                <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#6366F1,#8B5CF6);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0">TT</div>
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:600;color:#fff">Thinking Trader EN</div>
+                  <div style="font-size:10px;color:#6D8FAD" id="adm-subs-en">subscribers</div>
+                </div>
+                <span style="color:#6D8FAD;font-size:11px;display:flex;gap:8px">🔍 ⋮</span>
+              </div>
+              <div class="ph-chat" id="adm-ph-chat-en">
+                <div class="ph-date">Today</div>
+                <div class="ph-typing" id="adm-typing-en"><span></span><span></span><span></span></div>
+              </div>
+            </div>
+            <div class="ph-homebar"></div>
+          </div>
+        </div>
+
       </div>
 
     </div>
@@ -14294,6 +14369,7 @@
     const admState = {
       data: { ticker: null, fg: null, news: null, indicators: null },
       posts: ['','',''],
+      postsEn: ['','',''],
       manualImages: [],
       scheduledPosts: [],
       alertEnabled: { btc: true, eth: true },
@@ -14312,10 +14388,10 @@
       el.scrollTop = el.scrollHeight;
     }
 
-    function admAddMessage(html, type) {
-      const chat = document.getElementById('adm-ph-chat');
-      if (!chat) return;
-      const typing = document.getElementById('adm-typing');
+    function admAddMsgToPhone(chatId, typingId, html, type, delay=0) {
+      const chat = document.getElementById(chatId);
+      const typing = document.getElementById(typingId);
+      if (!chat || !typing) return;
       typing.classList.add('visible');
       setTimeout(() => {
         typing.classList.remove('visible');
@@ -14325,7 +14401,12 @@
         chat.insertBefore(msg, typing);
         setTimeout(() => msg.classList.add('visible'), 50);
         chat.scrollTop = chat.scrollHeight;
-      }, 800);
+      }, 800 + delay);
+    }
+
+    function admAddMessage(html, type, htmlEn = null) {
+      admAddMsgToPhone('adm-ph-chat', 'adm-typing', html, type, 0);
+      admAddMsgToPhone('adm-ph-chat-en', 'adm-typing-en', htmlEn || html, type, 300);
     }
 
     // Strip HTML tags for preview
@@ -14387,15 +14468,15 @@
 
     async function admBuildPreviews() {
       if (!admState.data.ticker) return;
-      // Load previews from server
-      for (const [i, type] of [['morning',0],['noon',1],['evening',2]]) {
+      for (const [type, idx] of [['morning',0],['noon',1],['evening',2]]) {
         try {
-          const r = await fetch(`/api/admin/preview/${i}`);
+          const r = await fetch(`/api/admin/preview/${type}`);
           if (r.ok) {
             const d = await r.json();
-            admState.posts[type] = d.text;
-            const el = document.getElementById(`adm-preview-${type}`);
-            if (el) { el.textContent = admStripHtml(d.text).slice(0,200); document.getElementById(`adm-card-${type}`).classList.add('expanded'); }
+            admState.posts[idx] = d.text;
+            admState.postsEn[idx] = d.textEn || d.text;
+            const el = document.getElementById(`adm-preview-${idx}`);
+            if (el) { el.textContent = admStripHtml(d.text).slice(0,200); document.getElementById(`adm-card-${idx}`).classList.add('expanded'); }
           }
         } catch {}
       }
@@ -14407,14 +14488,14 @@
       const orig = btn.textContent;
       btn.textContent = '⏳...'; btn.disabled = true;
       status.textContent = 'ОТПРАВКА'; status.className = 'adm-post-status sending';
-      admLog(`Отправка "${type}"...`);
+      admLog(`Отправка "${type}" в оба канала...`);
       try {
-        const r = await fetch('/api/admin/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type}) });
+        const r = await fetch('/api/admin/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type, channel:'both'}) });
         const d = await r.json();
         if (!d.ok) throw new Error(d.error);
         btn.textContent = '✓'; status.textContent = 'ОТПРАВЛЕН ✓'; status.className = 'adm-post-status sent';
-        admLog(`✅ Пост "${type}" отправлен в канал @thinking_trader`, 'ok');
-        admAddMessage(admState.posts[idx] || `<b>${type} пост отправлен</b>`, type);
+        admLog(`✅ Пост "${type}" → @thinking_trader + @ThinkingTraderEN`, 'ok');
+        admAddMessage(admState.posts[idx] || `<b>${type}</b>`, type, admState.postsEn[idx] || null);
         setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 5000);
       } catch(e) {
         btn.textContent = '❌'; btn.disabled = false;
@@ -14450,6 +14531,7 @@
       const reader = new FileReader();
       reader.onload = ev => admAddImage(ev.target.result);
       reader.readAsDataURL(file);
+      e.target.value = ''; // сброс — позволяет выбрать тот же файл повторно
     }
 
     function admAddImage(src) {
@@ -14496,14 +14578,16 @@
     });
 
     async function admSendNow() {
-      const text = document.getElementById('adm-manual-text').value.trim();
-      if (!text && !admManualImages.length) return admLog('Введите текст или добавьте изображение', 'warn');
+      const textRu = document.getElementById('adm-manual-text').value.trim();
+      const textEn = document.getElementById('adm-manual-text-en')?.value.trim() || '';
+      if (!textRu && !textEn && !admManualImages.length) return admLog('Введите текст или добавьте изображение', 'warn');
 
       if (admManualImages.length > 0) {
-        admLog('Отправка поста с фото...');
+        admLog('Отправка поста с фото в оба канала...');
         try {
           const form = new FormData();
-          if (text) form.append('caption', text);
+          if (textRu) form.append('caption', textRu);
+          if (textEn) form.append('captionEn', textEn);
           for (let i = 0; i < admManualImages.length; i++) {
             const base64 = admManualImages[i];
             const byteStr = atob(base64.split(',')[1]);
@@ -14514,43 +14598,66 @@
           const r = await fetch('/api/admin/send-photo', {method:'POST', body:form});
           const d = await r.json();
           if (!d.ok) throw new Error(d.error);
-          admLog(`✅ Пост с ${admManualImages.length} фото отправлен`, 'ok');
-          admAddMessage(text || '[фото]', 'manual');
+          admLog(`✅ Фото → оба канала`, 'ok');
+          admAddMessage(textRu || '[фото]', 'manual', textEn || null);
           document.getElementById('adm-manual-text').value = '';
+          if (document.getElementById('adm-manual-text-en')) document.getElementById('adm-manual-text-en').value = '';
           admManualImages = []; admRenderImages();
         } catch(e) { admLog('❌ ' + e.message, 'warn'); }
       } else {
-        admLog('Отправка ручного поста...');
+        admLog('Отправка ручного поста в оба канала...');
         try {
-          const r = await fetch('/api/admin/send', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})});
+          const r = await fetch('/api/admin/send', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:textRu, textEn, channel:'both'})});
           const d = await r.json();
           if (!d.ok) throw new Error(d.error);
-          admLog('✅ Пост отправлен в канал', 'ok');
-          admAddMessage(text, 'manual');
+          admLog('✅ Пост → @thinking_trader + @ThinkingTraderEN', 'ok');
+          admAddMessage(textRu, 'manual', textEn || null);
           document.getElementById('adm-manual-text').value = '';
+          if (document.getElementById('adm-manual-text-en')) document.getElementById('adm-manual-text-en').value = '';
         } catch(e) { admLog('❌ ' + e.message, 'warn'); }
       }
     }
 
     function admSchedule() {
-      const text = document.getElementById('adm-manual-text').value.trim();
+      const textRu = document.getElementById('adm-manual-text').value.trim();
+      const textEn = document.getElementById('adm-manual-text-en')?.value.trim() || '';
       const time = document.getElementById('adm-sched-time').value;
-      if (!text || !time) return admLog('Введите текст и время', 'warn');
-      const item = { text, time, images: [...admManualImages], id: Date.now() };
+      if (!textRu && !textEn) return admLog('Введите текст', 'warn');
+      if (!time) return admLog('Укажите время', 'warn');
+      const item = { textRu, textEn, time, images: [...admManualImages], id: Date.now() };
       admState.scheduledPosts.push(item);
       admRenderScheduled();
       const delay = new Date(time) - Date.now();
       if (delay > 0) {
         setTimeout(async () => {
           try {
-            await fetch('/api/admin/send', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})});
-            admLog(`✅ Запланированный пост отправлен`, 'ok');
+            if (item.images.length > 0) {
+              // Send with photos
+              const form = new FormData();
+              if (item.textRu) form.append('caption', item.textRu);
+              if (item.textEn) form.append('captionEn', item.textEn);
+              for (let i = 0; i < item.images.length; i++) {
+                const base64 = item.images[i];
+                const byteStr = atob(base64.split(',')[1]);
+                const arr = new Uint8Array(byteStr.length);
+                for (let j = 0; j < byteStr.length; j++) arr[j] = byteStr.charCodeAt(j);
+                form.append('photos', new Blob([arr], {type:'image/jpeg'}), `photo_${i}.jpg`);
+              }
+              await fetch('/api/admin/send-photo', {method:'POST', body:form});
+            } else {
+              await fetch('/api/admin/send', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text:item.textRu, textEn:item.textEn, channel:'both'})});
+            }
+            const timeStr = new Date(item.time).toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'});
+            admAddMsgToPhone('adm-ph-chat', 'adm-typing', item.textRu, 'manual', 0);
+            admAddMsgToPhone('adm-ph-chat-en', 'adm-typing-en', item.textEn || item.textRu, 'manual', 300);
+            admLog(`✅ Запланированный пост отправлен в оба канала`, 'ok');
           } catch(e) { admLog('❌ ' + e.message, 'warn'); }
           admState.scheduledPosts = admState.scheduledPosts.filter(p => p.id !== item.id);
           admRenderScheduled();
         }, delay);
       }
       document.getElementById('adm-manual-text').value = '';
+      if (document.getElementById('adm-manual-text-en')) document.getElementById('adm-manual-text-en').value = '';
       document.getElementById('adm-sched-time').value = '';
       admManualImages = []; admRenderImages();
       admLog(`⏰ Запланировано на ${new Date(time).toLocaleString('ru')}`, 'ok');
@@ -14561,7 +14668,7 @@
       list.innerHTML = admState.scheduledPosts.map(p => `
         <div class="adm-sched-item">
           <span class="adm-sched-time">${new Date(p.time).toLocaleString('ru',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
-          <span class="adm-sched-text">${p.text.slice(0,40)}</span>
+          <span class="adm-sched-text">${(p.textRu || p.textEn || '').slice(0,40)}</span>
           <button onclick="admCancelSched(${p.id})" style="background:none;border:none;color:#475569;cursor:pointer;font-size:13px;padding:0 3px">×</button>
         </div>`).join('');
     }

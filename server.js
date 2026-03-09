@@ -1,14 +1,20 @@
+require('dotenv').config();
 const express = require('express');
 const path    = require('path');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// Редирект с thinkingtrader.com на www.thinkingtrader.com
+// Редирект: http→https и thinkingtrader.com→www.thinkingtrader.com
 app.use((req, res, next) => {
-    const host = req.headers.host;
+    const host = req.headers.host || '';
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+
     if (host === 'thinkingtrader.com') {
         return res.redirect(301, `https://www.thinkingtrader.com${req.originalUrl}`);
+    }
+    if (proto === 'http' && host !== 'localhost' && !host.startsWith('localhost')) {
+        return res.redirect(301, `https://${host}${req.originalUrl}`);
     }
     next();
 });
@@ -205,23 +211,49 @@ app.get('/api/translate', async (req, res) => {
     }
 });
 
-
 // ══════════════════════════════════════════════════════════════
 // TELEGRAM BOT
 // ══════════════════════════════════════════════════════════════
-require('dotenv').config();
-const TG_TOKEN   = process.env.TG_TOKEN;
-const TG_CHAT_ID = process.env.TG_CHAT_ID;
-const TG_API     = `https://api.telegram.org/bot${TG_TOKEN}`;
+const TG_TOKEN      = process.env.TG_TOKEN;
+const TG_CHAT_ID    = process.env.TG_CHAT_ID;
+const TG_CHAT_ID_EN = process.env.TG_CHAT_ID_EN;
+const TG_API        = `https://api.telegram.org/bot${TG_TOKEN}`;
 
-async function tgSend(text) {
+async function tgSend(text, chatId = TG_CHAT_ID) {
     const r = await fetch(`${TG_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: TG_CHAT_ID, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+        body: JSON.stringify({
+            chat_id: chatId,
+            text,
+            parse_mode: 'HTML',
+            disable_web_page_preview: true,
+        }),
     });
     const data = await r.json();
     if (!data.ok) throw new Error(`Telegram: ${data.description}`);
+    return data;
+}
+
+async function tgSendBoth(textRu, textEn) {
+    const results = await Promise.allSettled([
+        tgSend(textRu, TG_CHAT_ID),
+        TG_CHAT_ID_EN ? tgSend(textEn || textRu, TG_CHAT_ID_EN) : Promise.resolve(),
+    ]);
+    const failed = results.filter(r => r.status === 'rejected');
+    if (failed.length === 2) throw new Error(failed[0].reason.message);
+    if (failed.length === 1) console.warn('⚠️ Один канал не получил пост:', failed[0].reason.message);
+}
+
+async function tgSendPhotoBuffer(buffer, filename, caption) {
+    const { FormData: FD, Blob: BL } = require('node:buffer') && { FormData, Blob };
+    const form = new FormData();
+    form.append('chat_id', TG_CHAT_ID);
+    form.append('photo', new Blob([buffer], { type: 'image/jpeg' }), filename);
+    if (caption) { form.append('caption', caption); form.append('parse_mode', 'HTML'); }
+    const r = await fetch(`${TG_API}/sendPhoto`, { method: 'POST', body: form });
+    const data = await r.json();
+    if (!data.ok) throw new Error(`Telegram photo: ${data.description}`);
     return data;
 }
 
@@ -268,10 +300,35 @@ function fgEmoji(v) {
     return '🤑';
 }
 
-function arrow(pct) { return parseFloat(pct) >= 0 ? '📈' : '📉'; }
-function fmt(price, dec = 0) { return parseFloat(price).toLocaleString('en', { maximumFractionDigits: dec, minimumFractionDigits: dec }); }
-function pctFmt(v) { const n = parseFloat(v); return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
-function todayStr() { return new Date().toLocaleDateString('ru', { day: 'numeric', month: 'long' }); }
+function arrow(pct) {
+    return parseFloat(pct) >= 0 ? '📈' : '📉';
+}
+
+function fmt(price, dec = 0) {
+    return parseFloat(price).toLocaleString('en', { maximumFractionDigits: dec, minimumFractionDigits: dec });
+}
+
+function pctFmt(v) {
+    const n = parseFloat(v);
+    return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+function todayStr() {
+    return new Date().toLocaleDateString('ru', { day: 'numeric', month: 'long' });
+}
+
+function todayStrEn() {
+    return new Date().toLocaleDateString('en', { day: 'numeric', month: 'long' });
+}
+
+function fgLabelEn(v) {
+    const n = parseInt(v);
+    if (n <= 24) return 'Extreme Fear 😱';
+    if (n <= 44) return 'Fear 😨';
+    if (n <= 55) return 'Neutral 😐';
+    if (n <= 74) return 'Greed 😏';
+    return 'Extreme Greed 🤑';
+}
 
 async function fetchAllNews() {
     const allItems = [];
@@ -284,7 +341,7 @@ async function fetchAllNews() {
                     allItems.push({ title: item.title, link: item.link, sentiment, date: item.pubDate, source: data.feed?.title || '' });
                 });
             }
-        } catch (e) {}
+        } catch (e) { /* пропускаем упавший фид */ }
     }));
     return allItems.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
@@ -296,18 +353,22 @@ async function translateTitle(text) {
     } catch { return text; }
 }
 
+// ── Утренний пост 07:00 ────────────────────────────────────────
 async function buildMorningPost() {
     const [tickerRaw, fgRaw, newsItems] = await Promise.all([
         proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent('["BTCUSDT","ETHUSDT","SOLUSDT"]')}`),
         proxyFetch('https://api.alternative.me/fng/?limit=2'),
         fetchAllNews(),
     ]);
+
     const btc = tickerRaw.find(t => t.symbol === 'BTCUSDT');
     const eth = tickerRaw.find(t => t.symbol === 'ETHUSDT');
     const sol = tickerRaw.find(t => t.symbol === 'SOLUSDT');
     const fg  = fgRaw?.data?.[0]?.value || '—';
     const top3 = newsItems.slice(0, 3);
+
     const titles = await Promise.all(top3.map(n => translateTitle(n.title)));
+
     return `☀️ <b>Утренний дайджест · ${todayStr()}</b>
 ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -323,17 +384,50 @@ ${fgEmoji(fg)} <b>Fear &amp; Greed:</b> ${fg} — ${fgLabel(fg)}
 ▫️ ${titles[2] || '—'}
 
 ━━━━━━━━━━━━━━━━━━━━━━
-👉 <a href="https://www.thinkingtrader.com">thinkingtrader.com</a>`;
+👉 thinkingtrader.com`;
 }
 
+// ── Утренний пост EN ──────────────────────────────────────────
+async function buildMorningPostEN() {
+    const [tickerRaw, fgRaw, newsItems] = await Promise.all([
+        proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent('["BTCUSDT","ETHUSDT","SOLUSDT"]')}`),
+        proxyFetch('https://api.alternative.me/fng/?limit=2'),
+        fetchAllNews(),
+    ]);
+    const btc = tickerRaw.find(t => t.symbol === 'BTCUSDT');
+    const eth = tickerRaw.find(t => t.symbol === 'ETHUSDT');
+    const sol = tickerRaw.find(t => t.symbol === 'SOLUSDT');
+    const fg  = fgRaw?.data?.[0]?.value || '—';
+    const top3 = newsItems.slice(0, 3);
+    return `☀️ <b>Morning Digest · ${todayStrEn()}</b>
+━━━━━━━━━━━━━━━━━━━━━━
+
+🟠 <b>BTC</b>   $${fmt(btc.lastPrice)}   ${pctFmt(btc.priceChangePercent)} ${arrow(btc.priceChangePercent)}
+🔷 <b>ETH</b>   $${fmt(eth.lastPrice)}   ${pctFmt(eth.priceChangePercent)} ${arrow(eth.priceChangePercent)}
+🟣 <b>SOL</b>   $${fmt(sol.lastPrice, 2)}   ${pctFmt(sol.priceChangePercent)} ${arrow(sol.priceChangePercent)}
+
+${fgEmoji(fg)} <b>Fear &amp; Greed:</b> ${fg} — ${fgLabelEn(fg)}
+
+📰 <b>Top News</b>
+🔥 ${top3[0]?.title || '—'}
+▪️ ${top3[1]?.title || '—'}
+▫️ ${top3[2]?.title || '—'}
+
+━━━━━━━━━━━━━━━━━━━━━━
+👉 thinkingtrader.com`;
+}
+
+// ── Дневной пост 13:00 ────────────────────────────────────────
 async function buildNoonPost() {
     const newsItems = await fetchAllNews();
     const top1 = newsItems[0];
     const titleRu = top1 ? await translateTitle(top1.title) : '—';
+
     const sample = newsItems.slice(0, 30);
     const bull = Math.round(sample.filter(n => n.sentiment === 'bull').length / (sample.length || 1) * 100);
     const bear = Math.round(sample.filter(n => n.sentiment === 'bear').length / (sample.length || 1) * 100);
     const neut = 100 - bull - bear;
+
     return `📰 <b>Топ новость дня</b>
 
 <b>${titleRu}</b>
@@ -341,17 +435,42 @@ async function buildNoonPost() {
 ━━━━━━━━━━━━━━━━━━━━━━
 <b>Настроение новостей:</b>
 
-🟢 Бычьих      ${textBar(bull)}  ${bull}%
-🔴 Медвежьих   ${textBar(bear)}  ${bear}%
+🟢 Бычьих     ${textBar(bull)}  ${bull}%
+🔴 Медвежьих  ${textBar(bear)}  ${bear}%
 🟡 Нейтральных ${textBar(neut)}  ${neut}%
 
-👉 <a href="https://www.thinkingtrader.com">thinkingtrader.com</a>`;
+👉 thinkingtrader.com`;
 }
 
+// ── Дневной пост EN ──────────────────────────────────────────
+async function buildNoonPostEN() {
+    const newsItems = await fetchAllNews();
+    const top1 = newsItems[0];
+    const sample = newsItems.slice(0, 30);
+    const bull = Math.round(sample.filter(n => n.sentiment === 'bull').length / (sample.length || 1) * 100);
+    const bear = Math.round(sample.filter(n => n.sentiment === 'bear').length / (sample.length || 1) * 100);
+    const neut = 100 - bull - bear;
+    return `📰 <b>Top News of the Day</b>
+
+<b>${top1?.title || '—'}</b>
+
+━━━━━━━━━━━━━━━━━━━━━━
+<b>Market Sentiment:</b>
+
+🟢 Bullish    ${textBar(bull)}  ${bull}%
+🔴 Bearish    ${textBar(bear)}  ${bear}%
+🟡 Neutral    ${textBar(neut)}  ${neut}%
+
+👉 thinkingtrader.com`;
+}
+
+// ── Вечерний пост 19:00 ───────────────────────────────────────
 async function buildEveningPost() {
     const candles = await proxyFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90');
     const closes  = candles.map(k => parseFloat(k[4]));
     const volumes = candles.map(k => parseFloat(k[5]));
+
+    // RSI(14)
     let gains = 0, losses = 0;
     for (let i = closes.length - 14; i < closes.length; i++) {
         const d = closes[i] - closes[i-1];
@@ -360,24 +479,34 @@ async function buildEveningPost() {
     const rsiVal = 100 - (100 / (1 + (gains/14) / (losses/14 || 0.0001)));
     const rsi = rsiVal.toFixed(1);
     const rsiLabel = rsiVal > 70 ? '— перекупленность 🔴' : rsiVal < 30 ? '— перепроданность 🟢' : '— нейтрально 🟡';
+
+    // MACD
     const ema = (arr, n) => arr.slice(-n).reduce((a,b) => a+b, 0) / n;
     const macdVal = parseFloat((ema(closes,12) - ema(closes,26)).toFixed(0));
     const macd = (macdVal >= 0 ? '+' : '') + macdVal;
     const macdLabel = macdVal >= 0 ? '— бычий 🟢' : '— медвежий 🔴';
+
+    // EMA 50/200
     const ema50  = ema(closes, 50);
     const ema200 = closes.length >= 200 ? ema(closes, 200) : ema(closes, closes.length);
     const emaStr = ema50 >= ema200 ? 'выше 200 🟢' : 'ниже 200 🔴';
+
+    // BB Width
     const slice = closes.slice(-20);
     const mean  = slice.reduce((a,b) => a+b, 0) / 20;
     const stddev = Math.sqrt(slice.reduce((s,v) => s+(v-mean)**2, 0) / 20);
     const bb = ((stddev * 4) / mean).toFixed(4);
+
+    // Volume
     const volNow = volumes[volumes.length-1];
     const volAvg = volumes.slice(-20).reduce((a,b) => a+b, 0) / 20;
     const volDiff = ((volNow - volAvg) / volAvg * 100);
     const vol = (volDiff >= 0 ? '+' : '') + volDiff.toFixed(1) + '%';
     const volLabel = volDiff >= 0 ? '— выше среднего 🟢' : '— ниже среднего 🔴';
+
+    // Sentiment индикаторов
     let bullSig = 0, bearSig = 0;
-    if (rsiVal > 50) bullSig++; else bearSig++;
+    if (rsiVal > 50) bullSig++; else if (rsiVal < 50) bearSig++;
     if (macdVal >= 0) bullSig++; else bearSig++;
     if (ema50 >= ema200) bullSig++; else bearSig++;
     if (volDiff >= 0) bullSig++; else bearSig++;
@@ -385,6 +514,7 @@ async function buildEveningPost() {
     const indBull = Math.round(bullSig / total * 100);
     const indBear = Math.round(bearSig / total * 100);
     const indNeut = 100 - indBull - indBear;
+
     return `📊 <b>Технический срез · BTC · ${todayStr()}</b>
 ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -397,48 +527,107 @@ async function buildEveningPost() {
 ━━━━━━━━━━━━━━━━━━━━━━
 <b>Настроение индикаторов:</b>
 
-🟢 Бычьих      ${textBar(indBull)}  ${indBull}%
-🔴 Медвежьих   ${textBar(indBear)}  ${indBear}%
+🟢 Бычьих     ${textBar(indBull)}  ${indBull}%
+🔴 Медвежьих  ${textBar(indBear)}  ${indBear}%
 🟡 Нейтральных ${textBar(indNeut)}  ${indNeut}%
 
-👉 <a href="https://www.thinkingtrader.com">thinkingtrader.com</a>`;
+👉 thinkingtrader.com`;
 }
 
-// ── История постов ─────────────────────────────────────────────
+// ── Вечерний пост EN ─────────────────────────────────────────
+async function buildEveningPostEN() {
+    const candles = await proxyFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90');
+    const closes  = candles.map(k => parseFloat(k[4]));
+    const volumes = candles.map(k => parseFloat(k[5]));
+    let gains = 0, losses = 0;
+    for (let i = closes.length - 14; i < closes.length; i++) {
+        const d = closes[i] - closes[i-1];
+        if (d > 0) gains += d; else losses += Math.abs(d);
+    }
+    const rsiVal = 100 - (100 / (1 + (gains/14) / (losses/14 || 0.0001)));
+    const rsi = rsiVal.toFixed(1);
+    const rsiLabel = rsiVal > 70 ? '— overbought 🔴' : rsiVal < 30 ? '— oversold 🟢' : '— neutral 🟡';
+    const ema = (arr, n) => arr.slice(-n).reduce((a,b) => a+b, 0) / n;
+    const macdVal = parseFloat((ema(closes,12) - ema(closes,26)).toFixed(0));
+    const macd = (macdVal >= 0 ? '+' : '') + macdVal;
+    const macdLabel = macdVal >= 0 ? '— bullish 🟢' : '— bearish 🔴';
+    const ema50 = ema(closes, 50);
+    const ema200 = closes.length >= 200 ? ema(closes, 200) : ema(closes, closes.length);
+    const emaStr = ema50 >= ema200 ? 'above 200 🟢' : 'below 200 🔴';
+    const slice = closes.slice(-20);
+    const mean  = slice.reduce((a,b) => a+b, 0) / 20;
+    const stddev = Math.sqrt(slice.reduce((s,v) => s+(v-mean)**2, 0) / 20);
+    const bb = ((stddev * 4) / mean).toFixed(4);
+    const volNow = volumes[volumes.length-1];
+    const volAvg = volumes.slice(-20).reduce((a,b) => a+b, 0) / 20;
+    const volDiff = ((volNow - volAvg) / volAvg * 100);
+    const vol = (volDiff >= 0 ? '+' : '') + volDiff.toFixed(1) + '%';
+    const volLabel = volDiff >= 0 ? '— above average 🟢' : '— below average 🔴';
+    let bullSig = 0, bearSig = 0;
+    if (rsiVal > 50) bullSig++; else if (rsiVal < 50) bearSig++;
+    if (macdVal >= 0) bullSig++; else bearSig++;
+    if (ema50 >= ema200) bullSig++; else bearSig++;
+    if (volDiff >= 0) bullSig++; else bearSig++;
+    const total = bullSig + bearSig || 1;
+    const indBull = Math.round(bullSig / total * 100);
+    const indBear = Math.round(bearSig / total * 100);
+    const indNeut = 100 - indBull - indBear;
+    return `📊 <b>Technical Overview · BTC · ${todayStrEn()}</b>
+━━━━━━━━━━━━━━━━━━━━━━
+
+<b>RSI (14)</b>    ${rsi}   ${rsiLabel}
+<b>MACD</b>       ${macd}   ${macdLabel}
+<b>BB Width</b>   ${bb}   — squeeze 🟡
+<b>EMA 50/200</b>  ${emaStr}
+<b>Volume 24h</b>  ${vol}   ${volLabel}
+
+━━━━━━━━━━━━━━━━━━━━━━
+<b>Indicator Sentiment:</b>
+
+🟢 Bullish    ${textBar(indBull)}  ${indBull}%
+🔴 Bearish    ${textBar(indBear)}  ${indBear}%
+🟡 Neutral    ${textBar(indNeut)}  ${indNeut}%
+
+👉 thinkingtrader.com`;
+}
+
+// ── История отправленных постов ───────────────────────────────
 const postHistory = [];
 function logPost(type, text) {
     postHistory.unshift({ type, text: text.slice(0, 100), time: new Date().toISOString() });
     if (postHistory.length > 50) postHistory.pop();
 }
 
-// ── Автопостинг по расписанию ──────────────────────────────────
-function scheduleDaily(hour, minute, fn, label) {
+// ── CRON — автопостинг ────────────────────────────────────────
+function scheduleDaily(hour, minute, fn, label, fnEn = null) {
     function schedule() {
         const now = new Date();
         const next = new Date();
         next.setHours(hour, minute, 0, 0);
         if (next <= now) next.setDate(next.getDate() + 1);
         const delay = next - now;
-        console.log(`⏰ ${label} через ${Math.round(delay/60000)} мин`);
+        console.log(`⏰ ${label} запланирован через ${Math.round(delay/60000)} мин`);
         setTimeout(async () => {
             try {
+                console.log(`📤 Отправка: ${label}`);
                 const text = await fn();
-                await tgSend(text);
+                const textEn = fnEn ? await fnEn() : null;
+                await tgSendBoth(text, textEn);
                 logPost(label, text);
-                console.log(`✅ ${label} отправлен`);
+                console.log(`✅ ${label} отправлен (RU + EN)`);
             } catch (e) {
-                console.error(`❌ ${label}:`, e.message);
+                console.error(`❌ ${label} ошибка:`, e.message);
             }
-            schedule();
+            schedule(); // планируем на следующий день
         }, delay);
     }
     schedule();
 }
 
-// ── Алерты каждые 5 минут ─────────────────────────────────────
+// ── CRON — алерты каждые 5 минут ─────────────────────────────
 const alertPrices = { BTCUSDT: [], ETHUSDT: [] };
 const alertLastSent = { BTCUSDT: 0, ETHUSDT: 0 };
-const alertSettings = { BTCUSDT: 3, ETHUSDT: 5 };
+const alertSettings = { BTCUSDT: 3, ETHUSDT: 5 }; // пороги %
 
 async function checkPriceAlerts() {
     try {
@@ -449,60 +638,78 @@ async function checkPriceAlerts() {
             const price = parseFloat(ticker.lastPrice);
             alertPrices[sym].push({ price, time: now });
             alertPrices[sym] = alertPrices[sym].filter(p => now - p.time < 3600000);
+
             if (alertPrices[sym].length < 2) continue;
             const oldest = alertPrices[sym][0];
             const change = ((price - oldest.price) / oldest.price) * 100;
             const threshold = alertSettings[sym] || 3;
+
             if (Math.abs(change) >= threshold && now - alertLastSent[sym] > 7200000) {
                 alertLastSent[sym] = now;
-                const coin  = sym.replace('USDT','');
-                const emoji = coin === 'BTC' ? '🟠' : '🔷';
-                const dir   = change > 0 ? '🚀 Резкий рост' : '🔴 Резкое падение';
-                const sign  = change > 0 ? '+' : '';
+                const coin    = sym.replace('USDT','');
+                const emoji   = coin === 'BTC' ? '🟠' : '🔷';
+                const dir     = change > 0 ? '🚀 Резкий рост' : '🔴 Резкое падение';
+                const sign    = change > 0 ? '+' : '';
+
+                // Последняя новость
                 let newsLine = '';
                 try {
                     const news = await fetchAllNews();
                     if (news[0]) {
                         const titleRu = await translateTitle(news[0].title);
-                        newsLine = `\n\n📰 <b>Последняя новость:</b>\n<i>${titleRu}</i>`;
+                        newsLine = `\n\n📰 <b>Последняя новость:</b>\n<i>${titleRu}</i>\n<code>${news[0].source}</code>`;
                     }
                 } catch {}
-                const text = `⚡️ <b>${coin} АЛЕРТ</b>\n\n${dir} за 1 час\n${emoji} <b>$${fmt(price)}</b>   <b>${sign}${change.toFixed(2)}%</b>${newsLine}\n\n👉 <a href="https://www.thinkingtrader.com">thinkingtrader.com</a>`;
-                await tgSend(text);
+
+                const text = `⚡️ <b>${coin} АЛЕРТ</b>\n\n${dir} за 1 час\n${emoji} <b>$${fmt(price)}</b>   <b>${sign}${change.toFixed(2)}%</b>${newsLine}\n\n👉 thinkingtrader.com`;
+                const dirEn = change > 0 ? '🚀 Sharp Rise' : '🔴 Sharp Drop';
+                const textEn = `⚡️ <b>${coin} ALERT</b>\n\n${dirEn} in 1 hour\n${emoji} <b>$${fmt(price)}</b>   <b>${sign}${change.toFixed(2)}%</b>${newsLine ? `\n\n📰 <b>Latest News:</b>\n<i>${newsItems[0]?.title || ''}</i>` : ''}\n\n👉 thinkingtrader.com`;
+                await tgSendBoth(text, textEn);
                 logPost('alert', text);
                 console.log(`⚡️ Алерт ${coin} ${sign}${change.toFixed(2)}%`);
             }
         }
-    } catch (e) { console.error('Алерт ошибка:', e.message); }
+    } catch (e) {
+        console.error('Алерт ошибка:', e.message);
+    }
 }
 
-// ── Admin API ──────────────────────────────────────────────────
+// ── Admin API ─────────────────────────────────────────────────
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 app.use(express.json());
 
+// Отправить пост вручную
 app.post('/api/admin/send', async (req, res) => {
-    const { type, text } = req.body;
+    const { type, text, textEn, channel } = req.body; // channel: 'ru'|'en'|'both' (default 'both')
     try {
-        let postText = text;
-        if (!postText) {
-            if (type === 'morning') postText = await buildMorningPost();
-            else if (type === 'noon') postText = await buildNoonPost();
-            else if (type === 'evening') postText = await buildEveningPost();
+        let postRu = text;
+        let postEn = textEn;
+        if (!postRu) {
+            if (type === 'morning')      { postRu = await buildMorningPost(); postEn = await buildMorningPostEN(); }
+            else if (type === 'noon')    { postRu = await buildNoonPost();    postEn = await buildNoonPostEN(); }
+            else if (type === 'evening') { postRu = await buildEveningPost(); postEn = await buildEveningPostEN(); }
             else return res.status(400).json({ error: 'type or text required' });
         }
-        await tgSend(postText);
-        logPost(type || 'manual', postText);
+        const ch = channel || 'both';
+        if (ch === 'ru')   await tgSend(postRu, TG_CHAT_ID);
+        else if (ch === 'en' && TG_CHAT_ID_EN) await tgSend(postEn || postRu, TG_CHAT_ID_EN);
+        else               await tgSendBoth(postRu, postEn);
+        logPost(type || 'manual', postRu);
         res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
+// Отправить пост с фото
 app.post('/api/admin/send-photo', upload.array('photos', 10), async (req, res) => {
     const { caption } = req.body;
     const files = req.files;
     if (!files || files.length === 0) return res.status(400).json({ error: 'no photos' });
     try {
         if (files.length === 1) {
+            // Одно фото — sendPhoto
             const form = new FormData();
             form.append('chat_id', TG_CHAT_ID);
             form.append('photo', new Blob([files[0].buffer], { type: files[0].mimetype }), files[0].originalname);
@@ -511,34 +718,57 @@ app.post('/api/admin/send-photo', upload.array('photos', 10), async (req, res) =
             const data = await r.json();
             if (!data.ok) throw new Error(`Telegram: ${data.description}`);
         } else {
+            // Несколько фото — sendMediaGroup
             const mediaGroup = files.map((f, i) => ({
-                type: 'photo', media: `attach://photo${i}`,
+                type: 'photo',
+                media: `attach://photo${i}`,
                 ...(i === 0 && caption ? { caption, parse_mode: 'HTML' } : {}),
             }));
             const form = new FormData();
             form.append('chat_id', TG_CHAT_ID);
             form.append('media', JSON.stringify(mediaGroup));
-            files.forEach((f, i) => form.append(`photo${i}`, new Blob([f.buffer], { type: f.mimetype }), f.originalname));
+            files.forEach((f, i) => {
+                form.append(`photo${i}`, new Blob([f.buffer], { type: f.mimetype }), f.originalname);
+            });
             const r = await fetch(`${TG_API}/sendMediaGroup`, { method: 'POST', body: form });
             const data = await r.json();
             if (!data.ok) throw new Error(`Telegram: ${data.description}`);
         }
+        // Also send to EN channel if available
+        if (TG_CHAT_ID_EN) {
+            try {
+                if (files.length === 1) {
+                    const form2 = new FormData();
+                    form2.append('chat_id', TG_CHAT_ID_EN);
+                    form2.append('photo', new Blob([files[0].buffer], { type: files[0].mimetype }), files[0].originalname);
+                    const captionEn = req.body.captionEn || caption;
+                    if (captionEn) { form2.append('caption', captionEn); form2.append('parse_mode', 'HTML'); }
+                    await fetch(`${TG_API}/sendPhoto`, { method: 'POST', body: form2 });
+                }
+            } catch(e) { console.warn('EN photo send failed:', e.message); }
+        }
         logPost('manual-photo', caption || '[фото]');
         res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
+// Предпросмотр поста (без отправки)
 app.get('/api/admin/preview/:type', async (req, res) => {
     try {
-        let text;
-        if (req.params.type === 'morning') text = await buildMorningPost();
-        else if (req.params.type === 'noon') text = await buildNoonPost();
-        else if (req.params.type === 'evening') text = await buildEveningPost();
+        let text, textEn;
+        if (req.params.type === 'morning')      { text = await buildMorningPost(); textEn = await buildMorningPostEN(); }
+        else if (req.params.type === 'noon')    { text = await buildNoonPost();    textEn = await buildNoonPostEN(); }
+        else if (req.params.type === 'evening') { text = await buildEveningPost(); textEn = await buildEveningPostEN(); }
         else return res.status(400).json({ error: 'unknown type' });
-        res.json({ ok: true, text });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+        res.json({ ok: true, text, textEn });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
+// Настройки алертов
 app.post('/api/admin/alerts', (req, res) => {
     const { btc, eth } = req.body;
     if (btc > 0) alertSettings.BTCUSDT = btc;
@@ -546,22 +776,35 @@ app.post('/api/admin/alerts', (req, res) => {
     res.json({ ok: true, settings: alertSettings });
 });
 
+// История постов
 app.get('/api/admin/history', (req, res) => {
     res.json({ ok: true, history: postHistory });
 });
 
+// Статус бота
 app.get('/api/admin/status', (req, res) => {
-    res.json({ ok: true, bot: '@ThinkingTraderBot', channel: TG_CHAT_ID, alertSettings, historyCount: postHistory.length });
+    res.json({
+        ok: true,
+        bot: `@ThinkingTraderBot`,
+        channelRu: TG_CHAT_ID,
+        channelEn: TG_CHAT_ID_EN || null,
+        alertSettings,
+        historyCount: postHistory.length,
+    });
 });
+
 // ── Запуск ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
     console.log(`✅ Thinking Trader server running on http://localhost:${PORT}`);
     console.log(`📦 Cache: prices 30s · charts 5m · news 15m · feargreed 30m · translate 24h`);
 
-    scheduleDaily(7,  0, buildMorningPost, '☀️ Утренний дайджест');
-    scheduleDaily(13, 0, buildNoonPost,    '📰 Дневной срез');
-    scheduleDaily(19, 0, buildEveningPost, '📊 Вечерний срез');
+    // Автопостинг по расписанию
+    scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
+    scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
+    scheduleDaily(19, 0, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
+
+    // Алерты каждые 5 минут
     setInterval(checkPriceAlerts, 5 * 60 * 1000);
-    checkPriceAlerts();
+    checkPriceAlerts(); // сразу при старте
     console.log(`🤖 Telegram bot активен · алерты каждые 5 мин`);
 });

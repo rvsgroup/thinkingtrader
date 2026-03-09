@@ -52,7 +52,7 @@ body {
 }
 
 /* ── Layout ── */
-.page { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 420px; min-height: 100vh; gap: 0; }
+.page { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 700px; min-height: 100vh; gap: 0; }
 
 /* ── Left panel ── */
 .left {
@@ -177,9 +177,9 @@ body {
 }
 
 .phone {
-  width: 320px; height: 680px;
+  width: 290px; height: 620px;
   background: #1C1C1E;
-  border-radius: 44px;
+  border-radius: 40px;
   border: 1px solid #2A2A2E;
   position: relative; overflow: hidden;
   box-shadow: 0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
@@ -568,10 +568,31 @@ body {
     <div>
       <div class="section-title">// ручной пост</div>
       <div class="manual-card">
-        <textarea class="manual-textarea" id="manual-text" placeholder="Текст поста..."></textarea>
-        <div class="paste-zone" id="paste-zone" onclick="triggerImagePaste()">
-          <span id="paste-hint">📎 Вставьте скриншот (Cmd+V) или кликните для выбора файла</span>
-          <input type="file" id="img-file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+        <!-- Two columns: RU | EN -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <!-- RU -->
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:13px">🇷🇺</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:var(--text4);letter-spacing:1px">РУССКИЙ</span>
+            </div>
+            <textarea class="manual-textarea" id="manual-text" placeholder="Текст поста на русском..." style="min-height:90px;font-size:12px"></textarea>
+            <div class="paste-zone" id="paste-zone" onclick="triggerImagePaste()">
+              <span id="paste-hint">📎 Фото (Cmd+V или файл)</span>
+              <input type="file" id="img-file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+            </div>
+          </div>
+          <!-- EN -->
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:13px">🇬🇧</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:var(--text4);letter-spacing:1px">ENGLISH</span>
+            </div>
+            <textarea class="manual-textarea" id="manual-text-en" placeholder="Post text in English..." style="min-height:90px;font-size:12px"></textarea>
+            <div class="paste-zone" id="paste-zone-en" style="cursor:default;opacity:0.4">
+              <span>↑ Те же фото</span>
+            </div>
+          </div>
         </div>
         <input type="datetime-local" class="datetime-input" id="schedule-time">
         <div class="manual-row">
@@ -590,38 +611,63 @@ body {
 
   </div>
 
-  <!-- ═══ RIGHT: PHONE ═══ -->
-  <div class="right">
-    <div class="phone">
-      <div class="dynamic-island"></div>
+  <!-- ═══ RIGHT: TWO PHONES ═══ -->
+  <div class="right" style="gap:20px;flex-direction:row;align-items:center;justify-content:center;padding:32px 24px">
 
-      <div class="phone-screen">
-        <!-- Telegram nav -->
-        <div class="tg-nav">
-          <span class="tg-back">‹</span>
-          <div class="tg-avatar">TT</div>
-          <div class="tg-info">
-            <div class="tg-name">Thinking Trader</div>
-            <div class="tg-members" id="tg-members">1 подписчик</div>
-          </div>
-          <div class="tg-icons">
-            <span>🔍</span>
-            <span>⋮</span>
-          </div>
-        </div>
-
-        <!-- Chat -->
-        <div class="tg-chat" id="tg-chat">
-          <div class="tg-date">Сегодня</div>
-          <!-- messages appear here -->
-          <div class="typing" id="typing">
-            <span></span><span></span><span></span>
-          </div>
-        </div>
+    <!-- RU Phone -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">
+        <span style="font-size:14px">🇷🇺</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--text4);letter-spacing:1px">RU КАНАЛ</span>
       </div>
-
-      <div class="home-bar"></div>
+      <div class="phone">
+        <div class="dynamic-island"></div>
+        <div class="phone-screen">
+          <div class="tg-nav">
+            <span class="tg-back">‹</span>
+            <div class="tg-avatar">TT</div>
+            <div class="tg-info">
+              <div class="tg-name">Thinking Trader</div>
+              <div class="tg-members" id="tg-members">1 подписчик</div>
+            </div>
+            <div class="tg-icons"><span>🔍</span><span>⋮</span></div>
+          </div>
+          <div class="tg-chat" id="tg-chat">
+            <div class="tg-date">Сегодня</div>
+            <div class="typing" id="typing"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+        <div class="home-bar"></div>
+      </div>
     </div>
+
+    <!-- EN Phone -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">
+        <span style="font-size:14px">🇬🇧</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--text4);letter-spacing:1px">EN CHANNEL</span>
+      </div>
+      <div class="phone">
+        <div class="dynamic-island"></div>
+        <div class="phone-screen">
+          <div class="tg-nav">
+            <span class="tg-back">‹</span>
+            <div class="tg-avatar" style="background:linear-gradient(135deg,#6366F1,#8B5CF6)">TT</div>
+            <div class="tg-info">
+              <div class="tg-name">Thinking Trader EN</div>
+              <div class="tg-members" id="tg-members-en">1 subscriber</div>
+            </div>
+            <div class="tg-icons"><span>🔍</span><span>⋮</span></div>
+          </div>
+          <div class="tg-chat" id="tg-chat-en">
+            <div class="tg-date">Today</div>
+            <div class="typing" id="typing-en"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+        <div class="home-bar"></div>
+      </div>
+    </div>
+
   </div>
 
 </div>
@@ -634,6 +680,7 @@ const state = {
   data: { ticker: null, fg: null, news: null, indicators: null },
   posts: ['', '', ''],
   postsHtml: ['', '', ''],
+  postsHtmlEn: ['', '', ''],
   queue: [],
   running: false,
   postIndex: 0,
@@ -1066,6 +1113,67 @@ EMA 50/200  ${ema.padEnd(8)} ${emaLabel}
     `👉 ${link}`,
   ].join('\n');
 
+  // ─── EN posts (original titles, EN labels) ───
+  const todayEn = new Date().toLocaleDateString('en', {day:'numeric', month:'long'});
+  const fgLabelEn = v => {
+    const n=parseInt(v);
+    if(n<=24) return 'Extreme Fear 😱';
+    if(n<=44) return 'Fear 😨';
+    if(n<=55) return 'Neutral 😐';
+    if(n<=74) return 'Greed 😏';
+    return 'Extreme Greed 🤑';
+  };
+  const getOrigTitle = n => n.title || n.titleRu || '—';
+
+  state.postsHtmlEn[0] = [
+    `<b style="color:#fff;font-size:13px">☀️ Morning Digest · ${todayEn}</b>`,
+    sep,
+    `🟠 <b>BTC</b>   $${fmt(btc.lastPrice)}   <span style="${pctStyle(btcPct)}">${pct(btc.priceChangePercent)} ${arrow(btc.priceChangePercent)}</span>`,
+    `🔷 <b>ETH</b>   $${fmt(eth.lastPrice)}   <span style="${pctStyle(ethPct)}">${pct(eth.priceChangePercent)} ${arrow(eth.priceChangePercent)}</span>`,
+    `🟣 <b>SOL</b>   $${fmt(sol.lastPrice,2)}   <span style="${pctStyle(solPct)}">${pct(sol.priceChangePercent)} ${arrow(sol.priceChangePercent)}</span>`,
+    '',
+    `${fgEmoji(fg)} <b>Fear &amp; Greed:</b> ${fg} — ${fgLabelEn(fg)}`,
+    '',
+    `<b>📰 Top News</b>`,
+    `🔥 ${top3[0] ? getOrigTitle(top3[0]) : '—'}`,
+    `▪️ ${top3[1] ? getOrigTitle(top3[1]) : '—'}`,
+    `▫️ ${top3[2] ? getOrigTitle(top3[2]) : '—'}`,
+    sep,
+    `👉 ${link}`,
+  ].join('\n');
+
+  state.postsHtmlEn[1] = [
+    `<b style="color:#fff;font-size:13px">📰 Top News of the Day</b>`,
+    '',
+    top1 ? `<b style="color:#fff;font-size:13px">${getOrigTitle(top1)}</b>` : '—',
+    sep,
+    `<b>Market Sentiment:</b>`,
+    '',
+    htmlBar(bull, '#10B981', 'Bullish',  '🟢'),
+    htmlBar(bear, '#EF4444', 'Bearish',  '🔴'),
+    htmlBar(neut, '#FBBF24', 'Neutral',  '🟡'),
+    '',
+    `👉 ${link}`,
+  ].join('\n');
+
+  state.postsHtmlEn[2] = [
+    `<b style="color:#fff;font-size:13px">📊 Technical Overview · BTC · ${todayEn}</b>`,
+    '',
+    ind('RSI (14)',    rsi,  rsiLabel),
+    ind('MACD',       macd, macdLabel),
+    ind('BB Width',   bb,   '— squeeze 🟡'),
+    ind('EMA 50/200', ema,  emaLabel),
+    ind('Volume 24h', vol,  '— above average 🟢'),
+    sep,
+    `<b>Indicator Sentiment:</b>`,
+    '',
+    htmlBar(indBull, '#10B981', 'Bullish',  '🟢'),
+    htmlBar(indBear, '#EF4444', 'Bearish',  '🔴'),
+    htmlBar(indNeut, '#FBBF24', 'Neutral',  '🟡'),
+    '',
+    `👉 ${link}`,
+  ].join('\n');
+
   // Обновляем превью карточек
   ['0','1','2'].forEach(i => {
     document.getElementById(`preview-${i}`).textContent = state.posts[i];
@@ -1153,7 +1261,7 @@ function sendPost(i) {
     typing.classList.remove('visible');
 
     // Add message to chat
-    addMessage(state.postsHtml[i] || state.posts[i], POST_TYPES[i], POST_TIMES[i], true);
+    addMessage(state.postsHtml[i] || state.posts[i], POST_TYPES[i], POST_TIMES[i], true, state.postsHtmlEn[i] || null);
 
     // Card: sent
     card.classList.remove('sending');
@@ -1216,21 +1324,36 @@ function renderMsgHtml(text) {
   return html;
 }
 
-function addMessage(text, type, time, isHtml) {
-  const chat = document.getElementById('tg-chat');
-  const typing = document.getElementById('typing');
+function addMsgToPhone(chatId, typingId, html, type, time, delay=0) {
+  const chat = document.getElementById(chatId);
+  const typing = document.getElementById(typingId);
+  if (!chat || !typing) return;
+  typing.classList.add('visible');
+  setTimeout(() => {
+    typing.classList.remove('visible');
+    const msg = document.createElement('div');
+    msg.className = `tg-msg ${type}`;
+    msg.innerHTML = html + `<div class="tg-msg-time">${time} ✓✓</div>`;
+    chat.insertBefore(msg, typing);
+    setTimeout(() => msg.classList.add('visible'), 50);
+    chat.scrollTop = chat.scrollHeight;
+  }, 600 + delay);
+}
 
-  const msg = document.createElement('div');
-  msg.className = `tg-msg ${type}`;
-  msg.innerHTML = (isHtml ? text : renderMsgHtml(text)) + `<div class="tg-msg-time">${time} ✓✓</div>`;
+function addMessage(text, type, time, isHtml, htmlEn = null) {
+  const htmlRu = isHtml ? text : renderMsgHtml(text);
+  const htmlEnFinal = htmlEn || htmlRu;
 
-  chat.insertBefore(msg, typing);
-  setTimeout(() => msg.classList.add('visible'), 50);
-  chat.scrollTop = chat.scrollHeight;
+  // RU phone
+  addMsgToPhone('tg-chat', 'typing', htmlRu, type, time, 0);
+  // EN phone — slight delay for visual effect
+  addMsgToPhone('tg-chat-en', 'typing-en', htmlEnFinal, type, time, 300);
 
-  // Update subscriber count
+  // Update subscriber counts
   const cur = parseInt(document.getElementById('tg-members').textContent) || 1;
   document.getElementById('tg-members').textContent = `${cur + Math.floor(Math.random()*3)} подписчик${cur > 1 ? 'а':''}`;
+  const curEn = parseInt(document.getElementById('tg-members-en').textContent) || 1;
+  document.getElementById('tg-members-en').textContent = `${curEn + Math.floor(Math.random()*5)} subscriber${curEn > 1 ? 's':''}`;
 }
 
 function escapeHtml(text) {
@@ -1272,6 +1395,9 @@ function resetSimulation() {
   msgs.forEach(m => m.remove());
 
   document.getElementById('tg-members').textContent = '1 подписчик';
+  document.getElementById('tg-members-en').textContent = '1 subscriber';
+  const chatEn = document.getElementById('tg-chat-en');
+  chatEn.innerHTML = '<div class="tg-date">Today</div><div class="typing" id="typing-en"><span></span><span></span><span></span></div>';
 
   log('Сброс выполнен', 'warn');
 }
@@ -1550,45 +1676,62 @@ document.addEventListener('paste', (e) => {
   }
 });
 
+function addManualToPhone(chatId, typingId, textContent, time, images, delay=0) {
+  const chat = document.getElementById(chatId);
+  const typing = document.getElementById(typingId);
+  if (!chat || !typing) return;
+  if (!textContent && !images.length) return;
+  typing.classList.add('visible');
+  setTimeout(() => {
+    typing.classList.remove('visible');
+    const msg = document.createElement('div');
+    msg.className = 'tg-msg manual';
+    msg.style.borderLeft = '2px solid #8B5CF6';
+    if (images.length > 0) {
+      const imgsHtml = images.map(src =>
+        `<img src="${src}" style="width:${images.length > 1 ? 'calc(50% - 2px)' : '100%'};border-radius:6px;display:inline-block;object-fit:cover;margin:1px">`
+      ).join('');
+      msg.innerHTML = (textContent ? `<div style="margin-bottom:6px">${textContent}</div>` : '')
+        + `<div style="display:flex;flex-wrap:wrap;gap:2px">${imgsHtml}</div>`
+        + `<div class="tg-msg-time">${time} ✓✓</div>`;
+    } else {
+      msg.innerHTML = textContent + `<div class="tg-msg-time">${time} ✓✓</div>`;
+    }
+    chat.insertBefore(msg, typing);
+    setTimeout(() => msg.classList.add('visible'), 50);
+    chat.scrollTop = chat.scrollHeight;
+  }, 700 + delay);
+}
+
 function sendManualNow() {
-  const text = document.getElementById('manual-text').value.trim();
-  if (!text && !manualImage) { log('Пост пустой', 'warn'); return; }
+  const textRu = document.getElementById('manual-text').value.trim();
+  const textEn = document.getElementById('manual-text-en').value.trim();
+  if (!textRu && !textEn && !manualImages.length) { log('Пост пустой', 'warn'); return; }
 
   log('Отправка ручного поста...', 'info');
   const time = new Date().toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'});
 
-  if (manualImages.length > 0) {
-    const chat = document.getElementById('tg-chat');
-    const typing = document.getElementById('typing');
-    const msg = document.createElement('div');
-    msg.className = 'tg-msg manual';
-    msg.style.borderLeft = '2px solid #8B5CF6';
-    const imgsHtml = manualImages.map((src, i) =>
-      `<img src="${src}" style="width:${manualImages.length > 1 ? 'calc(50% - 2px)' : '100%'};border-radius:6px;display:inline-block;object-fit:cover;margin:1px">`
-    ).join('');
-    msg.innerHTML = (text ? `<div style="margin-bottom:6px">${text}</div>` : '')
-      + `<div style="display:flex;flex-wrap:wrap;gap:2px">${imgsHtml}</div>`
-      + `<div class="tg-msg-time">${time} ✓✓</div>`;
-    chat.insertBefore(msg, typing);
-    setTimeout(() => msg.classList.add('visible'), 50);
-    chat.scrollTop = chat.scrollHeight;
-  } else {
-    addMessage(text, 'manual', time, false);
-  }
+  // RU phone
+  if (textRu || manualImages.length) addManualToPhone('tg-chat', 'typing', textRu, time, manualImages, 0);
+  // EN phone
+  if (textEn || manualImages.length) addManualToPhone('tg-chat-en', 'typing-en', textEn || textRu, time, manualImages, 300);
 
   log('✓ Ручной пост отправлен в симулятор', 'ok');
-  // Спрашиваем отправить ли в реальный канал
-  if (confirm('Отправить этот пост в Telegram канал?')) {
-    const textVal = document.getElementById('manual-text').value.trim();
-    sendManualToTelegram(textVal, [...manualImages]);
+
+  if (confirm('Отправить этот пост в Telegram каналы?')) {
+    if (textRu || manualImages.length) sendManualToTelegram(textRu, [...manualImages]);
+    // EN channel sending would go here when EN channel is set up
+    if (textEn) log('EN канал: настройте TG_CHAT_ID_EN для отправки', 'info');
   }
   document.getElementById('manual-text').value = '';
+  document.getElementById('manual-text-en').value = '';
   manualImages = [];
   renderImagePreviews();
 }
 
 function scheduleManual() {
   const text = document.getElementById('manual-text').value.trim();
+  const textEn = document.getElementById('manual-text-en').value.trim();
   const timeVal = document.getElementById('schedule-time').value;
   if (!text) { log('Текст поста пустой', 'warn'); return; }
   if (!timeVal) { log('Укажите время отправки', 'warn'); return; }
@@ -1599,7 +1742,7 @@ function scheduleManual() {
   if (delay <= 0) { log('Время уже прошло', 'warn'); return; }
 
   const id = Date.now();
-  const item = { id, text, images: [...manualImages], sendAt };
+  const item = { id, text, textEn, images: [...manualImages], sendAt };
   scheduled.push(item);
   renderScheduled();
 
@@ -1623,7 +1766,8 @@ function scheduleManual() {
       setTimeout(() => msg.classList.add('visible'), 50);
       chat.scrollTop = chat.scrollHeight;
     } else {
-      addMessage(text, 'manual', time, false);
+      if (savedItem.text) addManualToPhone('tg-chat', 'typing', savedItem.text, time, [], 0);
+      if (savedItem.textEn || savedItem.text) addManualToPhone('tg-chat-en', 'typing-en', savedItem.textEn || savedItem.text, time, [], 300);
     }
     const idx = scheduled.findIndex(s => s.id === id);
     if (idx !== -1) scheduled.splice(idx, 1);
@@ -1632,6 +1776,7 @@ function scheduleManual() {
 
   log(`Пост запланирован на ${sendAt.toLocaleString('ru')}`, 'ok');
   document.getElementById('manual-text').value = '';
+  document.getElementById('manual-text-en').value = '';
   manualImages = [];
   renderImagePreviews();
 }
