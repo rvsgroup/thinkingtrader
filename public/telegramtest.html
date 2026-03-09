@@ -1,0 +1,1679 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thinking Trader · Telegram Bot Test</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #070B14;
+  --bg2:      #0D1424;
+  --bg3:      #111827;
+  --panel:    #0F172A;
+  --border:   rgba(255,255,255,0.07);
+  --green:    #00E5A0;
+  --green2:   #10B981;
+  --indigo:   #6366F1;
+  --violet:   #8B5CF6;
+  --amber:    #FBBF24;
+  --red:      #EF4444;
+  --text:     #F1F5F9;
+  --text2:    #CBD5E1;
+  --text3:    #94A3B8;
+  --text4:    #475569;
+  --tg-bg:    #17212B;
+  --tg-msg:   #182533;
+  --tg-sent:  #2B5278;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Background ── */
+.bg-mesh {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 60% at -10% 50%, rgba(99,102,241,0.12) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 70% at 110% 30%, rgba(0,229,160,0.08) 0%, transparent 60%);
+}
+.bg-grid {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ── Layout ── */
+.page { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 420px; min-height: 100vh; gap: 0; }
+
+/* ── Left panel ── */
+.left {
+  padding: 40px 48px;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 28px;
+}
+
+.header { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+.logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;box-shadow:0 0 12px var(--green)} 50%{opacity:0.6;box-shadow:0 0 4px var(--green)} }
+.logo-text { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 16px; color: var(--text); }
+.logo-text span { color: var(--green); }
+.badge-test { padding: 3px 10px; border-radius: 100px; border: 1px solid rgba(251,191,36,0.4); color: var(--amber); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+
+.section-title {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
+  color: var(--text4); letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+/* ── Status bar ── */
+.status-bar {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 20px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+}
+.stat { display: flex; flex-direction: column; gap: 4px; }
+.stat-label { font-size: 10px; color: var(--text4); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; }
+.stat-value { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.stat-value.green { color: var(--green); }
+.stat-value.amber { color: var(--amber); }
+.stat-value.text { color: var(--text2); }
+
+/* ── API status ── */
+.api-row {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.api-item { display: flex; align-items: center; justify-content: space-between; }
+.api-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text3); }
+.api-status { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.dot-status { width: 6px; height: 6px; border-radius: 50%; }
+.dot-status.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot-status.loading { background: var(--amber); animation: blink 1s infinite; }
+.dot-status.err { background: var(--red); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.api-val { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text2); }
+
+/* ── Post queue ── */
+.queue { display: flex; flex-direction: column; gap: 10px; }
+
+.post-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 20px;
+  cursor: pointer; transition: all 0.3s; position: relative; overflow: hidden;
+}
+.post-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+.post-card.morning::before { background: var(--amber); }
+.post-card.noon::before { background: var(--indigo); }
+.post-card.evening::before { background: var(--green); }
+.post-card.sent { border-color: rgba(0,229,160,0.2); background: rgba(0,229,160,0.04); }
+.post-card.sending { border-color: rgba(99,102,241,0.4); animation: sending-pulse 0.5s ease; }
+@keyframes sending-pulse { 0%{transform:scale(1)} 50%{transform:scale(1.01)} 100%{transform:scale(1)} }
+
+.post-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.post-time { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; }
+.post-time.morning { color: var(--amber); }
+.post-time.noon { color: var(--indigo); }
+.post-time.evening { color: var(--green); }
+.post-label { font-size: 12px; color: var(--text3); }
+.post-status { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px; }
+.post-status.waiting { background: rgba(71,85,105,0.3); color: var(--text4); }
+.post-status.sending { background: rgba(99,102,241,0.2); color: var(--indigo); }
+.post-status.sent { background: rgba(0,229,160,0.15); color: var(--green); }
+
+.post-preview {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text4);
+  line-height: 1.6; white-space: pre-wrap;
+  max-height: 0; overflow: hidden; transition: max-height 0.4s ease;
+}
+.post-card.expanded .post-preview { max-height: 300px; }
+.post-card:not(.sent):not(.sending) .post-preview { color: var(--text3); }
+
+/* ── Countdown ── */
+.countdown-bar {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 20px;
+}
+.countdown-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.countdown-label { font-size: 13px; color: var(--text3); }
+.countdown-num { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; color: var(--indigo); }
+.progress-track { height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--indigo), var(--violet)); border-radius: 2px; transition: width 1s linear; }
+
+/* ── Control buttons ── */
+.controls { display: flex; gap: 10px; }
+.btn {
+  flex: 1; padding: 12px; border-radius: 10px; border: none;
+  font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-start {
+  background: linear-gradient(135deg, var(--indigo), var(--violet));
+  color: white;
+}
+.btn-start:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.4); }
+.btn-reset {
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  color: var(--text3);
+}
+.btn-reset:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+/* ── Right: Phone ── */
+.right {
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 32px; position: sticky; top: 0; height: 100vh;
+}
+
+.phone {
+  width: 320px; height: 680px;
+  background: #1C1C1E;
+  border-radius: 44px;
+  border: 1px solid #2A2A2E;
+  position: relative; overflow: hidden;
+  box-shadow: 0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+/* Dynamic island */
+.dynamic-island {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  width: 90px; height: 26px; background: #0A0A0F;
+  border-radius: 13px; z-index: 100;
+}
+
+/* Phone screen */
+.phone-screen {
+  position: absolute; inset: 0;
+  background: var(--tg-bg);
+  border-radius: 44px;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+/* Telegram navbar */
+.tg-nav {
+  background: #232E3C; padding: 50px 14px 10px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  flex-shrink: 0;
+}
+.tg-back { color: #5AADFF; font-size: 18px; cursor: pointer; }
+.tg-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: linear-gradient(135deg, #00E5A0, #6366F1);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: white; flex-shrink: 0;
+}
+.tg-info { flex: 1; }
+.tg-name { font-size: 13px; font-weight: 600; color: #fff; }
+.tg-members { font-size: 11px; color: #6D8FAD; }
+.tg-icons { color: #6D8FAD; font-size: 14px; display: flex; gap: 12px; }
+
+/* Chat area */
+.tg-chat {
+  flex: 1; overflow-y: auto; padding: 12px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+  scroll-behavior: smooth;
+}
+.tg-chat::-webkit-scrollbar { width: 0; }
+
+/* Date separator */
+.tg-date {
+  text-align: center; font-size: 11px; color: #6D8FAD;
+  background: rgba(35,46,60,0.8); padding: 3px 10px; border-radius: 8px;
+  align-self: center; margin: 4px 0;
+}
+
+/* Message bubble */
+.tg-msg {
+  background: var(--tg-msg);
+  border-radius: 14px 14px 14px 4px;
+  padding: 10px 12px;
+  max-width: 88%;
+  align-self: flex-start;
+  font-size: 12px; line-height: 1.55;
+  color: #E8EDF2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0; transform: translateY(10px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  position: relative;
+}
+.tg-msg.visible { opacity: 1; transform: translateY(0); }
+
+.tg-msg-time {
+  font-size: 10px; color: #6D8FAD;
+  text-align: right; margin-top: 4px;
+}
+
+/* Message type accents */
+.tg-msg.morning { border-left: 2px solid var(--amber); }
+.tg-msg.noon    { border-left: 2px solid var(--indigo); }
+.tg-msg.evening { border-left: 2px solid var(--green); }
+
+/* Typing indicator */
+.typing {
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 14px; background: var(--tg-msg);
+  border-radius: 14px 14px 14px 4px; align-self: flex-start;
+  opacity: 0; transition: opacity 0.3s;
+}
+.typing.visible { opacity: 1; }
+.typing span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #6D8FAD; animation: typing-dot 1.2s infinite;
+}
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-dot { 0%,60%,100%{transform:scale(1);opacity:0.4} 30%{transform:scale(1.3);opacity:1} }
+
+/* Home indicator */
+.home-bar {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  width: 100px; height: 4px; background: rgba(255,255,255,0.25); border-radius: 2px;
+}
+
+/* Log */
+.log-panel {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; max-height: 120px; overflow-y: auto;
+}
+.log-panel::-webkit-scrollbar { width: 3px; }
+.log-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.log-line {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: var(--text4); line-height: 1.8;
+}
+.log-line .ts { color: var(--text4); }
+.log-line .ok { color: var(--green); }
+.log-line .info { color: var(--indigo); }
+.log-line .warn { color: var(--amber); }
+
+
+/* ── Alert section ── */
+.alert-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 20px;
+}
+.alert-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.alert-coin { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; color: var(--text2); width: 36px; }
+.alert-input {
+  flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 12px; color: var(--text); font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; outline: none; transition: border-color 0.2s;
+}
+.alert-input:focus { border-color: var(--indigo); }
+.alert-unit { font-size: 11px; color: var(--text4); }
+.alert-toggle {
+  width: 36px; height: 20px; border-radius: 10px; border: none; cursor: pointer;
+  background: rgba(255,255,255,0.1); position: relative; transition: background 0.3s; flex-shrink: 0;
+}
+.alert-toggle.on { background: var(--green2); }
+.alert-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%; background: white;
+  transition: transform 0.3s;
+}
+.alert-toggle.on::after { transform: translateX(16px); }
+.alert-status-row { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.alert-last { font-size: 10px; color: var(--text4); font-family: 'JetBrains Mono', monospace; }
+
+/* ── Manual post ── */
+.manual-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px;
+}
+.manual-textarea {
+  width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; color: var(--text); font-family: 'DM Sans', sans-serif;
+  font-size: 13px; line-height: 1.5; outline: none; resize: vertical; min-height: 80px;
+  transition: border-color 0.2s;
+}
+.manual-textarea:focus { border-color: var(--indigo); }
+.paste-zone {
+  border: 1.5px dashed rgba(99,102,241,0.3); border-radius: 8px;
+  padding: 12px; text-align: center; cursor: pointer; transition: all 0.2s;
+  font-size: 12px; color: var(--text4); position: relative; overflow: hidden;
+}
+.paste-zone:hover { border-color: var(--indigo); color: var(--text3); background: rgba(99,102,241,0.05); }
+.paste-zone.has-image { border-color: var(--green2); border-style: solid; padding: 0; }
+.paste-zone img { width: 100%; border-radius: 6px; display: block; max-height: 120px; object-fit: cover; }
+.paste-zone .remove-img {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px;
+  background: rgba(0,0,0,0.7); border-radius: 50%; border: none; color: white;
+  font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.datetime-input {
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 12px; color: var(--text); font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; outline: none; width: 100%; transition: border-color 0.2s;
+  color-scheme: dark;
+}
+.datetime-input:focus { border-color: var(--indigo); }
+.manual-row { display: flex; gap: 8px; }
+.btn-send-now {
+  flex: 1; padding: 10px; border-radius: 8px; border: none;
+  background: linear-gradient(135deg, var(--green2), #059669);
+  color: white; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-send-now:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(16,185,129,0.4); }
+.btn-schedule {
+  flex: 1; padding: 10px; border-radius: 8px;
+  background: transparent; border: 1px solid var(--indigo);
+  color: var(--indigo); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-schedule:hover { background: rgba(99,102,241,0.1); }
+.scheduled-list { display: flex; flex-direction: column; gap: 6px; }
+.scheduled-item {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 8px; padding: 8px 12px;
+}
+.scheduled-time { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--indigo); }
+.scheduled-text { font-size: 11px; color: var(--text3); flex: 1; margin: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-cancel-sched { background: none; border: none; color: var(--text4); cursor: pointer; font-size: 14px; padding: 0 4px; }
+.btn-cancel-sched:hover { color: var(--red); }
+
+/* ── Tooltip texts ── */
+.tg-msg b { font-weight: 700; color: #fff; }
+.tg-msg .bull { color: #10B981; }
+.tg-msg .bear { color: #EF4444; }
+.tg-msg .neut { color: #FBBF24; }
+.tg-msg .dim  { color: #6D8FAD; }
+.tg-msg a     { color: #5AADFF; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="bg-mesh"></div>
+<div class="bg-grid"></div>
+
+<div class="page">
+
+  <!-- ═══ LEFT PANEL ═══ -->
+  <div class="left">
+
+    <div>
+      <div class="header">
+        <div class="logo-dot"></div>
+        <div class="logo-text">Thinking<span>Trader</span> · Bot</div>
+        <div class="badge-test" style="border-color:rgba(0,229,160,0.4);color:var(--green)">ADMIN PANEL</div>
+      </div>
+    </div>
+
+    <!-- API Status -->
+    <div>
+      <div class="section-title">// API статус</div>
+      <div class="api-row">
+        <div class="api-item">
+          <span class="api-name">/api/ticker</span>
+          <span class="api-status">
+            <span class="dot-status loading" id="dot-ticker"></span>
+            <span class="api-val" id="val-ticker">загрузка...</span>
+          </span>
+        </div>
+        <div class="api-item">
+          <span class="api-name">/api/feargreed</span>
+          <span class="api-status">
+            <span class="dot-status loading" id="dot-fg"></span>
+            <span class="api-val" id="val-fg">загрузка...</span>
+          </span>
+        </div>
+        <div class="api-item">
+          <span class="api-name">/api/news</span>
+          <span class="api-status">
+            <span class="dot-status loading" id="dot-news"></span>
+            <span class="api-val" id="val-news">загрузка...</span>
+          </span>
+        </div>
+        <div class="api-item">
+          <span class="api-name">/api/indicators</span>
+          <span class="api-status">
+            <span class="dot-status loading" id="dot-ind"></span>
+            <span class="api-val" id="val-ind">загрузка...</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live stats -->
+    <div>
+      <div class="section-title">// данные в реальном времени</div>
+      <div class="status-bar">
+        <div class="stat">
+          <span class="stat-label">BTC PRICE</span>
+          <span class="stat-value green" id="btc-price">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">FEAR & GREED</span>
+          <span class="stat-value amber" id="fg-value">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">NEWS LOADED</span>
+          <span class="stat-value text" id="news-count">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Post queue -->
+    <div>
+      <div class="section-title">// очередь постов</div>
+      <div class="queue">
+
+        <div class="post-card morning expanded" id="card-0">
+          <div class="post-card-header">
+            <div>
+              <div class="post-time morning">07:00</div>
+              <div class="post-label">☀️ Утренний дайджест</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button onclick="sendToTelegram('morning',0)" id="tg-btn-0" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(0,229,160,0.4);background:rgba(0,229,160,0.08);color:var(--green);font-size:10px;font-weight:700;cursor:pointer;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px">📤 В КАНАЛ</button>
+              <div class="post-status waiting" id="status-0">ОЖИДАНИЕ</div>
+            </div>
+          </div>
+          <div class="post-preview" id="preview-0">Загрузка данных...</div>
+        </div>
+
+        <div class="post-card noon" id="card-1">
+          <div class="post-card-header">
+            <div>
+              <div class="post-time noon">13:00</div>
+              <div class="post-label">📰 Дневной срез</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button onclick="sendToTelegram('noon',1)" id="tg-btn-1" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(0,229,160,0.4);background:rgba(0,229,160,0.08);color:var(--green);font-size:10px;font-weight:700;cursor:pointer;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px">📤 В КАНАЛ</button>
+              <div class="post-status waiting" id="status-1">ОЖИДАНИЕ</div>
+            </div>
+          </div>
+          <div class="post-preview" id="preview-1">Загрузка данных...</div>
+        </div>
+
+        <div class="post-card evening" id="card-2">
+          <div class="post-card-header">
+            <div>
+              <div class="post-time evening">19:00</div>
+              <div class="post-label">📊 Вечер: индикаторы</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button onclick="sendToTelegram('evening',2)" id="tg-btn-2" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(0,229,160,0.4);background:rgba(0,229,160,0.08);color:var(--green);font-size:10px;font-weight:700;cursor:pointer;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px">📤 В КАНАЛ</button>
+              <div class="post-status waiting" id="status-2">ОЖИДАНИЕ</div>
+            </div>
+          </div>
+          <div class="post-preview" id="preview-2">Загрузка данных...</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Countdown -->
+    <div>
+      <div class="section-title">// следующий пост</div>
+      <div class="countdown-bar">
+        <div class="countdown-row">
+          <span class="countdown-label" id="next-label">Нажмите "Запустить"</span>
+          <span class="countdown-num" id="countdown">—</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill" style="width:100%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn btn-start" id="btn-start" onclick="startSimulation()">▶ Запустить симуляцию</button>
+      <button class="btn btn-reset" onclick="resetSimulation()">↺ Сброс</button>
+    </div>
+
+    <!-- Alerts -->
+    <div>
+      <div class="section-title">// алерты цены</div>
+      <div class="alert-card">
+        <div class="alert-row">
+          <span class="alert-coin">🟠 BTC</span>
+          <input class="alert-input" id="btc-threshold" type="number" value="3" min="0.5" max="20" step="0.5">
+          <span class="alert-unit">% за 1ч</span>
+          <button class="alert-toggle on" id="btc-toggle" onclick="toggleAlert('btc')"></button>
+        </div>
+        <div class="alert-row" style="margin-bottom:0">
+          <span class="alert-coin">🔷 ETH</span>
+          <input class="alert-input" id="eth-threshold" type="number" value="5" min="0.5" max="20" step="0.5">
+          <span class="alert-unit">% за 1ч</span>
+          <button class="alert-toggle on" id="eth-toggle" onclick="toggleAlert('eth')"></button>
+        </div>
+        <div class="alert-status-row" style="margin-top:10px">
+          <span class="alert-last" id="alert-last">Мониторинг не запущен</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="alert-last" id="alert-count" style="color:var(--green)"></span>
+            <button onclick="saveAlertSettings()" style="padding:4px 12px;border-radius:6px;border:1px solid var(--green2);background:rgba(16,185,129,0.1);color:var(--green2);font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif" id="btn-save-alerts">Сохранить</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual post -->
+    <div>
+      <div class="section-title">// ручной пост</div>
+      <div class="manual-card">
+        <textarea class="manual-textarea" id="manual-text" placeholder="Текст поста..."></textarea>
+        <div class="paste-zone" id="paste-zone" onclick="triggerImagePaste()">
+          <span id="paste-hint">📎 Вставьте скриншот (Cmd+V) или кликните для выбора файла</span>
+          <input type="file" id="img-file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+        </div>
+        <input type="datetime-local" class="datetime-input" id="schedule-time">
+        <div class="manual-row">
+          <button class="btn-send-now" onclick="sendManualNow()">▶ Отправить сейчас</button>
+          <button class="btn-schedule" onclick="scheduleManual()">🕐 Запланировать</button>
+        </div>
+        <div class="scheduled-list" id="scheduled-list"></div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div>
+      <div class="section-title">// лог</div>
+      <div class="log-panel" id="log"></div>
+    </div>
+
+  </div>
+
+  <!-- ═══ RIGHT: PHONE ═══ -->
+  <div class="right">
+    <div class="phone">
+      <div class="dynamic-island"></div>
+
+      <div class="phone-screen">
+        <!-- Telegram nav -->
+        <div class="tg-nav">
+          <span class="tg-back">‹</span>
+          <div class="tg-avatar">TT</div>
+          <div class="tg-info">
+            <div class="tg-name">Thinking Trader</div>
+            <div class="tg-members" id="tg-members">1 подписчик</div>
+          </div>
+          <div class="tg-icons">
+            <span>🔍</span>
+            <span>⋮</span>
+          </div>
+        </div>
+
+        <!-- Chat -->
+        <div class="tg-chat" id="tg-chat">
+          <div class="tg-date">Сегодня</div>
+          <!-- messages appear here -->
+          <div class="typing" id="typing">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="home-bar"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+const state = {
+  data: { ticker: null, fg: null, news: null, indicators: null },
+  posts: ['', '', ''],
+  postsHtml: ['', '', ''],
+  queue: [],
+  running: false,
+  postIndex: 0,
+  timer: null,
+  countdown: 5,
+  total: 5
+};
+
+const now = () => new Date().toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+// ═══════════════════════════════════════════════════════
+// LOG
+// ═══════════════════════════════════════════════════════
+function log(msg, type = 'info') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="ts">[${now()}]</span> <span class="${type}">${msg}</span>`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════
+// FETCH DATA
+// ═══════════════════════════════════════════════════════
+async function loadData() {
+  log('Загрузка данных с API...', 'info');
+
+  // Ticker (BTC, ETH, SOL)
+  try {
+    const r = await fetch('/api/ticker?symbols=' + encodeURIComponent('["BTCUSDT","ETHUSDT","SOLUSDT"]'));
+    if (r.ok) {
+      state.data.ticker = await r.json();
+      const btc = state.data.ticker.find(t => t.symbol === 'BTCUSDT');
+      document.getElementById('dot-ticker').className = 'dot-status ok';
+      document.getElementById('val-ticker').textContent = btc ? `$${parseFloat(btc.lastPrice).toLocaleString('en', {maximumFractionDigits:0})}` : 'ok';
+      document.getElementById('btc-price').textContent = btc ? `$${parseFloat(btc.lastPrice).toLocaleString('en', {maximumFractionDigits:0})}` : '—';
+      log('Ticker загружен ✓', 'ok');
+    }
+  } catch(e) {
+    document.getElementById('dot-ticker').className = 'dot-status err';
+    document.getElementById('val-ticker').textContent = 'ошибка';
+    log('Ticker: ошибка загрузки — ' + e.message, 'warn');
+  }
+
+  // Fear & Greed
+  try {
+    const r = await fetch('/api/feargreed');
+    if (r.ok) {
+      state.data.fg = await r.json();
+      const val = state.data.fg?.data?.[0]?.value || '—';
+      document.getElementById('dot-fg').className = 'dot-status ok';
+      document.getElementById('val-fg').textContent = val;
+      document.getElementById('fg-value').textContent = val;
+      log(`Fear & Greed загружен: ${val} ✓`, 'ok');
+    }
+  } catch(e) {
+    document.getElementById('dot-fg').className = 'dot-status err';
+    document.getElementById('val-fg').textContent = 'ошибка';
+    log('Fear & Greed: ошибка загрузки — ' + e.message, 'warn');
+  }
+
+  // News — те же 6 RSS что на сайте
+  await loadRealNews();
+
+  // Indicators (BTC)
+  try {
+    const r = await fetch('/api/indicators?symbol=BTCUSDT');
+    if (r.ok) {
+      state.data.indicators = await r.json();
+      document.getElementById('dot-ind').className = 'dot-status ok';
+      document.getElementById('val-ind').textContent = 'ok';
+      log('Индикаторы загружены ✓', 'ok');
+    }
+  } catch(e) {
+    document.getElementById('dot-ind').className = 'dot-status err';
+    document.getElementById('val-ind').textContent = 'ошибка';
+    log('Индикаторы: ошибка загрузки — ' + e.message, 'warn');
+  }
+
+  buildPosts();
+}
+
+// ═══════════════════════════════════════════════════════
+// MOCK DATA (если сервер недоступен)
+// ═══════════════════════════════════════════════════════
+
+
+
+// ── Те же 6 RSS что на сайте ──────────────────────────
+const RSS_FEEDS = [
+  { name:'CoinDesk',      url:'https://www.coindesk.com/arc/outboundfeeds/rss/' },
+  { name:'Cointelegraph', url:'https://cointelegraph.com/rss' },
+  { name:'Decrypt',       url:'https://decrypt.co/feed' },
+  { name:'The Block',     url:'https://www.theblock.co/rss.xml' },
+  { name:'AMB Crypto',    url:'https://ambcrypto.com/feed/' },
+  { name:'CryptoSlate',   url:'https://cryptoslate.com/feed/' },
+];
+
+// Та же логика сентимента что в app.html
+const BULL_KW = ['surge','rally','bull','soar','gain','rise','ath','record','adoption','etf','approve','launch','upgrade','buy'];
+const BEAR_KW = ['crash','drop','fall','hack','exploit','ban','lawsuit','sec','penalty','bear','liquidat','outflow','scam','fraud','warning','risk'];
+
+function classifySentiment(text) {
+  const t = text.toLowerCase();
+  let b = 0, br = 0;
+  BULL_KW.forEach(w => { if (t.includes(w)) b++; });
+  BEAR_KW.forEach(w => { if (t.includes(w)) br++; });
+  return b > br ? 'bull' : br > b ? 'bear' : 'neutral';
+}
+
+// Перевод через /api/translate (тот же что на сайте)
+const _trCache = {};
+async function translateTitle(text) {
+  if (!text || /[а-яёА-ЯЁ]{4,}/.test(text)) return text; // уже русский
+  if (_trCache[text]) return _trCache[text];
+  try {
+    const r = await fetch(`/api/translate?text=${encodeURIComponent(text.slice(0,400))}`, { signal: AbortSignal.timeout(6000) });
+    const d = await r.json();
+    const result = d?.translation || d?.responseData?.translatedText;
+    if (result && result !== text && !result.includes('INVALID')) {
+      _trCache[text] = result;
+      return result;
+    }
+  } catch(e) {}
+  return text;
+}
+function cleanHTML(html) {
+  const d = document.createElement('div');
+  d.innerHTML = html || '';
+  return d.textContent.replace(/\s+/g, ' ').trim();
+}
+async function fetchOneFeed(feed) {
+  try {
+    const r = await fetch(`/api/news?url=${encodeURIComponent(feed.url)}`, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return [];
+    const d = await r.json();
+    if (d.status !== 'ok' || !d.items) return [];
+    return d.items.map(item => ({
+      title:     cleanHTML(item.title),
+      link:      item.link,
+      source:    feed.name,
+      date:      item.pubDate,
+      sentiment: classifySentiment(cleanHTML(item.title)),
+    }));
+  } catch(e) { return []; }
+}
+async function loadRealNews() {
+  log('Загрузка новостей из 6 RSS-лент...', 'info');
+  const results = await Promise.allSettled(RSS_FEEDS.map(fetchOneFeed));
+  let items = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+  // Дедупликация
+  const seen = new Set();
+  items = items.filter(n => {
+    const key = n.title.slice(0,60).toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+  items.sort((a,b) => new Date(b.date) - new Date(a.date));
+  if (items.length === 0) {
+    document.getElementById('dot-news').className = 'dot-status err';
+    document.getElementById('val-news').textContent = 'ошибка';
+    log('Новости: все RSS не ответили', 'warn');
+    return;
+  }
+  state.data.news = { items };
+  const loaded = results.filter(r => r.status==='fulfilled' && r.value.length>0).length;
+  document.getElementById('dot-news').className = 'dot-status ok';
+  document.getElementById('val-news').textContent = `${items.length} шт`;
+  document.getElementById('news-count').textContent = `${items.length}`;
+  log(`Новости: ${items.length} шт из ${loaded}/6 источников ✓`, 'ok');
+
+  // Переводим заголовки топ-10 для постов
+  log('Перевод заголовков...', 'info');
+  const toTranslate = items.slice(0, 10);
+  const translated = await Promise.all(toTranslate.map(n => translateTitle(n.title)));
+  translated.forEach((t, i) => { items[i].titleRu = t; });
+  log('Перевод завершён ✓', 'ok');
+}
+
+// ═══════════════════════════════════════════════════════
+// BUILD POSTS
+// ═══════════════════════════════════════════════════════
+function fmt(price, decimals=0) {
+  return parseFloat(price).toLocaleString('en', {maximumFractionDigits:decimals});
+}
+function pct(v) {
+  const n = parseFloat(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+function arrow(v) { return parseFloat(v) >= 0 ? '📈' : '📉'; }
+function fgEmoji(v) {
+  v = parseInt(v);
+  if (v <= 25) return '😱';
+  if (v <= 45) return '😨';
+  if (v <= 55) return '😐';
+  if (v <= 75) return '😏';
+  return '🤑';
+}
+function fgLabel(v) {
+  v = parseInt(v);
+  if (v <= 25) return 'Экстремальный страх';
+  if (v <= 45) return 'Страх';
+  if (v <= 55) return 'Нейтрально';
+  if (v <= 75) return 'Жадность';
+  return 'Экстремальная жадность';
+}
+function todayStr() {
+  return new Date().toLocaleDateString('ru', { day:'numeric', month:'long' });
+}
+
+function buildPosts() {
+  const t = state.data.ticker || [];
+  const btc = t.find(x => x.symbol === 'BTCUSDT');
+  const eth = t.find(x => x.symbol === 'ETHUSDT');
+  const sol = t.find(x => x.symbol === 'SOLUSDT');
+
+  // Не строим посты пока тикер не загружен
+  if (!btc || !eth || !sol) {
+    ['0','1','2'].forEach(i => {
+      document.getElementById(`preview-${i}`).textContent = '⏳ Ожидание данных с API...';
+    });
+    log('Посты не построены — тикер ещё не загружен', 'warn');
+    return;
+  }
+  const fg  = state.data.fg?.data?.[0]?.value || '—';
+  const news = (state.data.news?.items || []).sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+  const top3 = news.slice(0, 3);
+  const top1 = news[0];
+  const getTitle = n => n.titleRu || n.title;
+
+  // ─── Sentiment из реальных данных (та же логика что на сайте) ───
+  const sample = news.slice(0, 30);
+  const bullCount = sample.filter(n => n.sentiment === 'bull').length;
+  const bearCount = sample.filter(n => n.sentiment === 'bear').length;
+  const neutCount = sample.length - bullCount - bearCount;
+  const total = sample.length || 1;
+  const bull = Math.round((bullCount / total) * 100);
+  const bear = Math.round((bearCount / total) * 100);
+  const neut = 100 - bull - bear;
+
+  function bar(pct) {
+    const filled = Math.round(pct / 10);
+    return '█'.repeat(filled) + '░'.repeat(10 - filled);
+  }
+  function barHtml(pct, color) {
+    const w = Math.round(pct * 1.4);
+    return `<span style="display:inline-block;background:${color};height:8px;width:${w}px;border-radius:2px;vertical-align:middle;margin:0 4px"></span><b style="color:${color}">${pct}%</b>`;
+  }
+
+  // ─── POST 0: Утренний ───
+  state.posts[0] =
+`☀️ Утренний дайджест · ${todayStr()}
+━━━━━━━━━━━━━━━━━━━━━━
+
+🟠 BTC   $${fmt(btc.lastPrice)}   ${pct(btc.priceChangePercent)} ${arrow(btc.priceChangePercent)}
+🔷 ETH   $${fmt(eth.lastPrice)}   ${pct(eth.priceChangePercent)} ${arrow(eth.priceChangePercent)}
+🟣 SOL   $${fmt(sol.lastPrice,2)}   ${pct(sol.priceChangePercent)} ${arrow(sol.priceChangePercent)}
+
+${fgEmoji(fg)} Fear & Greed: ${fg} — ${fgLabel(fg)}
+
+📰 Топ новости
+🔥 ${getTitle(top3[0]||{titleRu:'—',title:'—'})}
+▪️ ${getTitle(top3[1]||{titleRu:'—',title:'—'})}
+▫️ ${getTitle(top3[2]||{titleRu:'—',title:'—'})}
+
+━━━━━━━━━━━━━━━━━━━━━━
+👉 thinkingtrader.com`;
+
+  // ─── POST 1: Дневной ───
+  state.posts[1] =
+`📰 Топ новость дня
+
+${top1 ? getTitle(top1) : 'Нет данных'}
+
+───────────────
+Настроение новостей:
+
+🟢 Бычьих     ${bar(bull)}  ${bull}%
+🔴 Медвежьих  ${bar(bear)}  ${bear}%
+🟡 Нейтральных ${bar(neut)}  ${neut}%
+
+👉 thinkingtrader.com`;
+
+  // ─── POST 2: Вечер индикаторы — всё из реальных свечей ───
+  let rsi = '—', macd = '—', ema = '—', vol = '—', bb = '—';
+  let rsiVal = 50, macdVal = 0, emaSignal = 1; // для подсчёта настроения
+  const candles = state.data.indicators;
+
+  if (Array.isArray(candles) && candles.length >= 26) {
+    const closes  = candles.map(k => parseFloat(k[4]));
+    const highs   = candles.map(k => parseFloat(k[2]));
+    const lows    = candles.map(k => parseFloat(k[3]));
+    const volumes = candles.map(k => parseFloat(k[5]));
+
+    // RSI(14)
+    rsiVal = calcRSI(closes, 14);
+    rsi = rsiVal.toFixed(1);
+
+    // MACD (EMA12 - EMA26)
+    macdVal = parseFloat(calcMACDHist(closes));
+    macd = (macdVal >= 0 ? '+' : '') + macdVal;
+
+    // EMA 50 vs 200
+    const ema50v  = closes.slice(-50).reduce((a,b)=>a+b,0) / Math.min(50, closes.length);
+    const ema200v = closes.length >= 200
+      ? closes.slice(-200).reduce((a,b)=>a+b,0)/200
+      : closes.reduce((a,b)=>a+b,0)/closes.length;
+    emaSignal = ema50v >= ema200v ? 1 : -1;
+    ema = ema50v >= ema200v ? 'выше 200' : 'ниже 200';
+
+    // Bollinger Band Width = (Upper - Lower) / Middle
+    const period = 20;
+    const slice  = closes.slice(-period);
+    const mean   = slice.reduce((a,b)=>a+b,0) / period;
+    const stddev = Math.sqrt(slice.reduce((s,v)=>s+(v-mean)**2,0)/period);
+    bb = ((stddev * 4) / mean).toFixed(4);
+
+    // Объём: текущий vs среднее за 20 дней
+    const volNow = volumes[volumes.length - 1];
+    const volAvg = volumes.slice(-20).reduce((a,b)=>a+b,0) / 20;
+    const volDiff = ((volNow - volAvg) / volAvg * 100);
+    vol = (volDiff >= 0 ? '+' : '') + volDiff.toFixed(1) + '%';
+
+  } else {
+    log('Недостаточно свечей для расчёта индикаторов (нужно 26+)', 'warn');
+  }
+
+  const rsiLabel  = rsiVal > 70 ? '— перекупленность 🔴' : rsiVal < 30 ? '— перепроданность 🟢' : '— нейтрально 🟡';
+  const macdLabel = macdVal >= 0 ? '— бычий 🟢' : '— медвежий 🔴';
+  const emaLabel  = emaSignal >= 0 ? '🟢' : '🔴';
+
+  // Настроение индикаторов — из реальных значений
+  const signals = [
+    rsiVal > 50 ? 'bull' : rsiVal < 45 ? 'bear' : 'neut',
+    macdVal > 0 ? 'bull' : macdVal < 0 ? 'bear' : 'neut',
+    emaSignal > 0 ? 'bull' : 'bear',
+    parseFloat(bb) < 0.05 ? 'neut' : parseFloat(bb) > 0.15 ? 'bear' : 'neut',
+    parseFloat(vol) > 10 ? 'bull' : parseFloat(vol) < -10 ? 'bear' : 'neut',
+  ];
+  const indBullC = signals.filter(s=>s==='bull').length;
+  const indBearC = signals.filter(s=>s==='bear').length;
+  const indNeutC = signals.filter(s=>s==='neut').length;
+  const indTotal = signals.length;
+  const indBull  = Math.round(indBullC / indTotal * 100);
+  const indBear  = Math.round(indBearC / indTotal * 100);
+  const indNeut  = 100 - indBull - indBear;
+
+  state.posts[2] =
+`📊 Технический срез · BTC · 19:00
+
+RSI (14)    ${rsi.padEnd(6)} ${rsiLabel}
+MACD        ${String(macd).padEnd(6)} ${macdLabel}
+BB Width    ${String(bb).padEnd(6)} — сжатие 🟡
+EMA 50/200  ${ema.padEnd(8)} ${emaLabel}
+Объём 24ч   ${vol.padEnd(6)} — выше среднего 🟢
+
+───────────────
+Настроение индикаторов:
+
+🟢 Бычьих     ${bar(indBull)}  ${indBull}%
+🔴 Медвежьих  ${bar(indBear)}  ${indBear}%
+🟡 Нейтральных ${bar(indNeut)}  ${indNeut}%
+
+👉 thinkingtrader.com`;
+
+  // ─── HTML версии для телефона — строим напрямую ───
+  const sep = '<span style="display:block;border-top:1px solid rgba(255,255,255,0.1);margin:6px 0"></span>';
+  const link = '<a href="https://thinkingtrader.com" style="color:#5AADFF">thinkingtrader.com</a>';
+  const ind = (name, val, label) => `<b style="color:#CBD5E1">${name}</b>   ${val}   ${label}`;
+
+  function htmlBar(pct, color, label, emoji) {
+    const w = Math.max(4, Math.round(pct * 1.3));
+    return `${emoji} <span style="color:#94A3B8;font-size:10px">${label}</span> `
+      + `<span style="display:inline-block;background:${color};height:9px;width:${w}px;border-radius:3px;vertical-align:middle;margin:0 6px"></span>`
+      + `<b style="color:${color}">${pct}%</b>`;
+  }
+
+  const btcPct = parseFloat(btc.priceChangePercent);
+  const ethPct = parseFloat(eth.priceChangePercent);
+  const solPct = parseFloat(sol.priceChangePercent);
+  const pctStyle = v => v >= 0 ? 'color:#10B981' : 'color:#EF4444';
+
+  state.postsHtml[0] = [
+    `<b style="color:#fff;font-size:13px">☀️ Утренний дайджест · ${todayStr()}</b>`,
+    sep,
+    `🟠 <b>BTC</b>   $${fmt(btc.lastPrice)}   <span style="${pctStyle(btcPct)}">${pct(btc.priceChangePercent)} ${arrow(btc.priceChangePercent)}</span>`,
+    `🔷 <b>ETH</b>   $${fmt(eth.lastPrice)}   <span style="${pctStyle(ethPct)}">${pct(eth.priceChangePercent)} ${arrow(eth.priceChangePercent)}</span>`,
+    `🟣 <b>SOL</b>   $${fmt(sol.lastPrice,2)}   <span style="${pctStyle(solPct)}">${pct(sol.priceChangePercent)} ${arrow(sol.priceChangePercent)}</span>`,
+    '',
+    `${fgEmoji(fg)} <b>Fear &amp; Greed:</b> ${fg} — ${fgLabel(fg)}`,
+    '',
+    `<b>📰 Топ новости</b>`,
+    `🔥 ${top3[0] ? getTitle(top3[0]) : '—'}`,
+    `▪️ ${top3[1] ? getTitle(top3[1]) : '—'}`,
+    `▫️ ${top3[2] ? getTitle(top3[2]) : '—'}`,
+    sep,
+    `👉 ${link}`,
+  ].join('\n');
+
+  state.postsHtml[1] = [
+    `<b style="color:#fff;font-size:13px">📰 Топ новость дня</b>`,
+    '',
+    top1 ? `<b style="color:#fff;font-size:13px">${getTitle(top1)}</b>` : '—',
+    sep,
+    `<b>Настроение новостей:</b>`,
+    '',
+    htmlBar(bull, '#10B981', 'Бычьих',      '🟢'),
+    htmlBar(bear, '#EF4444', 'Медвежьих',   '🔴'),
+    htmlBar(neut, '#FBBF24', 'Нейтральных', '🟡'),
+    '',
+    `👉 ${link}`,
+  ].join('\n');
+
+  state.postsHtml[2] = [
+    `<b style="color:#fff;font-size:13px">📊 Технический срез · BTC · 19:00</b>`,
+    '',
+    ind('RSI (14)',   rsi,         rsiLabel),
+    ind('MACD',      macd,        macdLabel),
+    ind('BB Width',  bb,          '— сжатие 🟡'),
+    ind('EMA 50/200',ema,         emaLabel),
+    ind('Объём 24ч', vol,         '— выше среднего 🟢'),
+    sep,
+    `<b>Настроение индикаторов:</b>`,
+    '',
+    htmlBar(indBull, '#10B981', 'Бычьих',      '🟢'),
+    htmlBar(indBear, '#EF4444', 'Медвежьих',   '🔴'),
+    htmlBar(indNeut, '#FBBF24', 'Нейтральных', '🟡'),
+    '',
+    `👉 ${link}`,
+  ].join('\n');
+
+  // Обновляем превью карточек
+  ['0','1','2'].forEach(i => {
+    document.getElementById(`preview-${i}`).textContent = state.posts[i];
+  });
+
+  log('Все посты сформированы ✓', 'ok');
+}
+
+// ─── RSI ───
+function calcRSI(closes, period=14) {
+  let gains=0, losses=0;
+  for(let i=closes.length-period; i<closes.length; i++){
+    const diff = closes[i] - closes[i-1];
+    if(diff>0) gains+=diff; else losses+=Math.abs(diff);
+  }
+  const rs = (gains/period) / (losses/period || 0.0001);
+  return 100 - (100/(1+rs));
+}
+// ─── MACD histogram simplified ───
+function calcMACDHist(closes) {
+  const ema = (arr, n) => arr.slice(-n).reduce((a,b)=>a+b,0)/n;
+  const fast = ema(closes, 12), slow = ema(closes, 26);
+  return (fast - slow).toFixed(0);
+}
+
+// ═══════════════════════════════════════════════════════
+// SIMULATION
+// ═══════════════════════════════════════════════════════
+const POST_TYPES = ['morning','noon','evening'];
+const POST_LABELS = ['Утренний дайджест','Дневной срез','Вечер: индикаторы'];
+const POST_TIMES  = ['07:00','13:00','19:00'];
+
+function startSimulation() {
+  if (state.running) return;
+  if (!state.posts[0]) { log('Данные ещё загружаются...', 'warn'); return; }
+  state.running = true;
+  state.postIndex = 0;
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-start').textContent = '⏳ Симуляция...';
+  log('Симуляция запущена', 'info');
+  startAlertMonitor();
+  scheduleNext();
+}
+
+function scheduleNext() {
+  if (state.postIndex >= 3) {
+    finishSimulation(); return;
+  }
+  state.countdown = state.total;
+  updateCountdown();
+  state.timer = setInterval(() => {
+    state.countdown--;
+    updateCountdown();
+    if (state.countdown <= 0) {
+      clearInterval(state.timer);
+      sendPost(state.postIndex);
+    }
+  }, 1000);
+}
+
+function updateCountdown() {
+  const i = state.postIndex;
+  if (i >= 3) return;
+  document.getElementById('countdown').textContent = state.countdown + 'с';
+  document.getElementById('next-label').textContent = `→ ${POST_LABELS[i]}`;
+  const pct = (state.countdown / state.total) * 100;
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+function sendPost(i) {
+  const card = document.getElementById(`card-${i}`);
+  const statusEl = document.getElementById(`status-${i}`);
+
+  // Card: sending
+  card.classList.add('sending');
+  statusEl.textContent = 'ОТПРАВКА';
+  statusEl.className = 'post-status sending';
+  log(`Отправка: ${POST_LABELS[i]}...`, 'info');
+
+  // Show typing in phone
+  const typing = document.getElementById('typing');
+  typing.classList.add('visible');
+
+  setTimeout(() => {
+    typing.classList.remove('visible');
+
+    // Add message to chat
+    addMessage(state.postsHtml[i] || state.posts[i], POST_TYPES[i], POST_TIMES[i], true);
+
+    // Card: sent
+    card.classList.remove('sending');
+    card.classList.add('sent');
+    card.classList.add('expanded');
+    statusEl.textContent = 'ОТПРАВЛЕН ✓';
+    statusEl.className = 'post-status sent';
+
+    log(`✓ ${POST_LABELS[i]} отправлен`, 'ok');
+
+    state.postIndex++;
+    setTimeout(scheduleNext, 800);
+  }, 1500);
+}
+
+function renderMsgHtml(text) {
+  // Сначала escapeHtml
+  let html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Цветные прогресс-бары — заменяем строки с барами на HTML
+  html = html.replace(
+    /🟢 Бычьих\s+(█+░*)\s+(\d+)%/g,
+    (_, bar, pct) => {
+      const w = Math.round(parseInt(pct));
+      return `🟢 <span style="color:#94A3B8;font-size:10px">Бычьих</span> <span style="display:inline-block;background:#10B981;height:8px;width:${w*1.4}px;border-radius:2px;vertical-align:middle"></span> <b style="color:#10B981">${pct}%</b>`;
+    }
+  );
+  html = html.replace(
+    /🔴 Медвежьих\s+(█+░*)\s+(\d+)%/g,
+    (_, bar, pct) => {
+      const w = Math.round(parseInt(pct));
+      return `🔴 <span style="color:#94A3B8;font-size:10px">Медвежьих</span> <span style="display:inline-block;background:#EF4444;height:8px;width:${w*1.4}px;border-radius:2px;vertical-align:middle"></span> <b style="color:#EF4444">${pct}%</b>`;
+    }
+  );
+  html = html.replace(
+    /🟡 Нейтральных\s+(█+░*)\s+(\d+)%/g,
+    (_, bar, pct) => {
+      const w = Math.round(parseInt(pct));
+      return `🟡 <span style="color:#94A3B8;font-size:10px">Нейтральных</span> <span style="display:inline-block;background:#FBBF24;height:8px;width:${w*1.4}px;border-radius:2px;vertical-align:middle"></span> <b style="color:#FBBF24">${pct}%</b>`;
+    }
+  );
+
+  // Жирные заголовки строк индикаторов
+  html = html.replace(/(RSI \(\d+\)|MACD|BB Width|EMA \d+\/\d+|Объём 24ч)/g,
+    '<b style="color:#CBD5E1">$1</b>');
+
+  // Разделители
+  html = html.replace(/━━━━━━━━━━━━━━━━━━━━━━/g,
+    '<span style="display:block;border-top:1px solid rgba(255,255,255,0.08);margin:6px 0"></span>');
+  html = html.replace(/───────────────/g,
+    '<span style="display:block;border-top:1px solid rgba(255,255,255,0.08);margin:6px 0"></span>');
+
+  // Первая строка заголовка жирная
+  html = html.replace(/^([^\n]+)/, '<b style="color:#fff;font-size:13px">$1</b>');
+
+  // Ссылка
+  html = html.replace(/👉 (thinkingtrader\.com)/g,
+    '👉 <a href="https://thinkingtrader.com" style="color:#5AADFF">$1</a>');
+
+  return html;
+}
+
+function addMessage(text, type, time, isHtml) {
+  const chat = document.getElementById('tg-chat');
+  const typing = document.getElementById('typing');
+
+  const msg = document.createElement('div');
+  msg.className = `tg-msg ${type}`;
+  msg.innerHTML = (isHtml ? text : renderMsgHtml(text)) + `<div class="tg-msg-time">${time} ✓✓</div>`;
+
+  chat.insertBefore(msg, typing);
+  setTimeout(() => msg.classList.add('visible'), 50);
+  chat.scrollTop = chat.scrollHeight;
+
+  // Update subscriber count
+  const cur = parseInt(document.getElementById('tg-members').textContent) || 1;
+  document.getElementById('tg-members').textContent = `${cur + Math.floor(Math.random()*3)} подписчик${cur > 1 ? 'а':''}`;
+}
+
+function escapeHtml(text) {
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function finishSimulation() {
+  state.running = false;
+  document.getElementById('countdown').textContent = '✓';
+  document.getElementById('next-label').textContent = 'Все посты отправлены';
+  document.getElementById('progress-fill').style.width = '100%';
+  document.getElementById('btn-start').textContent = '✓ Готово';
+  log('Симуляция завершена. Все 3 поста отправлены ✓', 'ok');
+}
+
+function resetSimulation() {
+  clearInterval(state.timer);
+  state.running = false;
+  state.postIndex = 0;
+
+  ['0','1','2'].forEach(i => {
+    const card = document.getElementById(`card-${i}`);
+    card.classList.remove('sent','sending','expanded');
+    if (i === '0') card.classList.add('expanded');
+    const statusEl = document.getElementById(`status-${i}`);
+    statusEl.textContent = 'ОЖИДАНИЕ';
+    statusEl.className = 'post-status waiting';
+  });
+
+  document.getElementById('countdown').textContent = '—';
+  document.getElementById('next-label').textContent = 'Нажмите "Запустить"';
+  document.getElementById('progress-fill').style.width = '100%';
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-start').textContent = '▶ Запустить симуляцию';
+
+  // Clear chat
+  const chat = document.getElementById('tg-chat');
+  const msgs = chat.querySelectorAll('.tg-msg');
+  msgs.forEach(m => m.remove());
+
+  document.getElementById('tg-members').textContent = '1 подписчик';
+
+  log('Сброс выполнен', 'warn');
+}
+
+
+
+// ═══════════════════════════════════════════════════════
+// ОТПРАВКА В TELEGRAM
+// ═══════════════════════════════════════════════════════
+async function sendToTelegram(type, cardIndex) {
+  const btn = document.getElementById(`tg-btn-${cardIndex}`);
+  const statusEl = document.getElementById(`status-${cardIndex}`);
+  const card = document.getElementById(`card-${cardIndex}`);
+
+  btn.textContent = '⏳ ОТПРАВКА...';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  statusEl.textContent = 'ОТПРАВКА';
+  statusEl.className = 'post-status sending';
+  log(`Отправка "${type}" в Telegram канал...`, 'info');
+
+  try {
+    const r = await fetch(`/api/admin/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || 'Ошибка сервера');
+
+    btn.textContent = '✓ ОТПРАВЛЕН';
+    btn.style.borderColor = 'rgba(0,229,160,0.8)';
+    btn.style.background = 'rgba(0,229,160,0.15)';
+    btn.style.opacity = '1';
+    statusEl.textContent = 'ОТПРАВЛЕН ✓';
+    statusEl.className = 'post-status sent';
+    card.classList.add('sent');
+    log(`✅ Пост "${type}" успешно отправлен в канал @thinking_trader`, 'ok');
+
+    // Сбросить кнопку через 5 сек
+    setTimeout(() => {
+      btn.textContent = '📤 В КАНАЛ';
+      btn.disabled = false;
+      btn.style.borderColor = 'rgba(0,229,160,0.4)';
+      btn.style.background = 'rgba(0,229,160,0.08)';
+      statusEl.textContent = 'ОТПРАВЛЕН ✓';
+    }, 5000);
+
+  } catch(e) {
+    btn.textContent = '❌ ОШИБКА';
+    btn.style.borderColor = 'rgba(239,68,68,0.5)';
+    btn.style.background = 'rgba(239,68,68,0.08)';
+    btn.style.color = 'var(--red)';
+    btn.style.opacity = '1';
+    btn.disabled = false;
+    statusEl.textContent = 'ОШИБКА';
+    statusEl.className = 'post-status';
+    statusEl.style.color = 'var(--red)';
+    log(`❌ Ошибка отправки: ${e.message}`, 'warn');
+
+    setTimeout(() => {
+      btn.textContent = '📤 В КАНАЛ';
+      btn.style.borderColor = 'rgba(0,229,160,0.4)';
+      btn.style.background = 'rgba(0,229,160,0.08)';
+      btn.style.color = 'var(--green)';
+    }, 4000);
+  }
+}
+
+// Отправить ручной пост в Telegram (с картинками или без)
+async function sendManualToTelegram(text, images) {
+  try {
+    if (images && images.length > 0) {
+      // Конвертируем base64 в файлы и отправляем через multipart
+      const form = new FormData();
+      if (text) form.append('caption', text);
+      for (let i = 0; i < images.length; i++) {
+        const base64 = images[i];
+        const byteStr = atob(base64.split(',')[1]);
+        const arr = new Uint8Array(byteStr.length);
+        for (let j = 0; j < byteStr.length; j++) arr[j] = byteStr.charCodeAt(j);
+        const blob = new Blob([arr], { type: 'image/jpeg' });
+        form.append('photos', blob, `photo_${i}.jpg`);
+      }
+      const r = await fetch('/api/admin/send-photo', { method: 'POST', body: form });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || 'Ошибка');
+      log(`✅ Пост с ${images.length} фото отправлен в канал`, 'ok');
+    } else {
+      const r = await fetch('/api/admin/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || 'Ошибка');
+      log('✅ Ручной пост отправлен в канал', 'ok');
+    }
+    return true;
+  } catch(e) {
+    log(`❌ Ошибка отправки: ${e.message}`, 'warn');
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// АЛЕРТЫ
+// ═══════════════════════════════════════════════════════
+const alertState = {
+  btc: { enabled: true, prices: [], lastAlert: 0 },
+  eth: { enabled: true, prices: [], lastAlert: 0 },
+};
+let alertTimer = null;
+let alertsCount = 0;
+
+function saveAlertSettings() {
+  const btcVal = parseFloat(document.getElementById('btc-threshold').value);
+  const ethVal = parseFloat(document.getElementById('eth-threshold').value);
+  if (isNaN(btcVal) || isNaN(ethVal) || btcVal <= 0 || ethVal <= 0) {
+    log('Некорректные значения порогов', 'warn'); return;
+  }
+  log(`Настройки сохранены: BTC ${btcVal}%, ETH ${ethVal}%`, 'ok');
+  const btn = document.getElementById('btn-save-alerts');
+  btn.textContent = '✓ Сохранено';
+  btn.style.borderColor = 'var(--green)';
+  btn.style.color = 'var(--green)';
+  setTimeout(() => { btn.textContent = 'Сохранить'; btn.style.borderColor = 'var(--green2)'; btn.style.color = 'var(--green2)'; }, 2000);
+}
+
+function toggleAlert(coin) {
+  alertState[coin].enabled = !alertState[coin].enabled;
+  const btn = document.getElementById(coin + '-toggle');
+  btn.classList.toggle('on', alertState[coin].enabled);
+  log(`Алерт ${coin.toUpperCase()} ${alertState[coin].enabled ? 'включён' : 'выключён'}`, 'info');
+}
+
+async function checkAlerts() {
+  try {
+    const r = await fetch('/api/ticker?symbols=' + encodeURIComponent('["BTCUSDT","ETHUSDT"]'));
+    if (!r.ok) return;
+    const tickers = await r.json();
+    const now = Date.now();
+
+    for (const coin of ['btc', 'eth']) {
+      if (!alertState[coin].enabled) continue;
+      const symbol = coin === 'btc' ? 'BTCUSDT' : 'ETHUSDT';
+      const ticker = tickers.find(t => t.symbol === symbol);
+      if (!ticker) continue;
+
+      const price = parseFloat(ticker.lastPrice);
+      const threshold = parseFloat(document.getElementById(coin + '-threshold').value) || 3;
+
+      // Накапливаем и фильтруем — только последний час
+      alertState[coin].prices.push({ price, time: now });
+      alertState[coin].prices = alertState[coin].prices.filter(p => now - p.time < 3600000);
+      const prices = alertState[coin].prices;
+
+      // Проверяем изменение от старейшей точки до текущей
+      if (prices.length > 1) {
+        const oldest = prices[0];
+        const change = ((price - oldest.price) / oldest.price) * 100;
+        const absChange = Math.abs(change);
+
+        // Не спамим — не чаще раза в 2 часа на монету
+        if (absChange >= threshold && now - alertState[coin].lastAlert > 7200000) {
+          alertState[coin].lastAlert = now;
+          alertsCount++;
+          document.getElementById('alert-count').textContent = `${alertsCount} алертов отправлено`;
+          fireAlert(coin.toUpperCase(), price, change);
+        }
+      }
+    }
+
+    document.getElementById('alert-last').textContent =
+      'Обновлено: ' + new Date().toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+  } catch(e) {
+    log('Алерт: ошибка проверки — ' + e.message, 'warn');
+  }
+}
+
+function fireAlert(coin, price, change) {
+  const dir = change > 0 ? '🚀 Резкий рост' : '🔴 Резкое падение';
+  const emoji = coin === 'BTC' ? '🟠' : '🔷';
+  const sign = change > 0 ? '+' : '';
+
+  // Последняя новость из уже загруженных данных
+  const news = (state.data.news?.items || []).sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+  const latestNews = news[0];
+  const newsTitle = latestNews ? (latestNews.titleRu || latestNews.title) : null;
+  const newsSource = latestNews?.source || '';
+
+  const newsLineHtml = newsTitle
+    ? `\n\n📰 <span style="color:#94A3B8;font-size:11px">Последняя новость:</span>\n<i style="color:#CBD5E1">${newsTitle}</i>\n<span style="color:#475569;font-size:10px">${newsSource}</span>`
+    : '';
+
+  const alertHtml = `<b style="color:#fff">⚡️ ${coin} АЛЕРТ</b>\n\n${dir} за 1 час\n${emoji} <b>$${parseFloat(price).toLocaleString('en', {maximumFractionDigits:0})}</b>   <span style="color:${change>0?'#10B981':'#EF4444'}">${sign}${change.toFixed(2)}%</span>${newsLineHtml}\n\n👉 <a href="https://thinkingtrader.com" style="color:#5AADFF">thinkingtrader.com</a>`;
+
+  log(`⚡️ АЛЕРТ: ${coin} ${sign}${change.toFixed(2)}%${newsTitle ? ' — новость: ' + newsTitle.slice(0,40) + '…' : ''}`, 'ok');
+  addMessage(alertHtml, 'alert', new Date().toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'}), true);
+}
+
+// Запускаем мониторинг вместе с симуляцией
+function startAlertMonitor() {
+  if (alertTimer) return;
+  checkAlerts(); // сразу
+  alertTimer = setInterval(checkAlerts, 5 * 60 * 1000); // каждые 5 минут
+  log('Мониторинг алертов запущен (каждые 5 мин)', 'info');
+}
+
+// ═══════════════════════════════════════════════════════
+// РУЧНОЙ ПОСТ
+// ═══════════════════════════════════════════════════════
+let manualImages = []; // массив base64
+const scheduled = [];
+
+function triggerImagePaste() {
+  document.getElementById('img-file-input').click();
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) processImageFile(file);
+}
+
+function processImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    manualImages.push(e.target.result);
+    renderImagePreviews();
+    log(`Картинка ${manualImages.length} добавлена ✓`, 'ok');
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderImagePreviews() {
+  const zone = document.getElementById('paste-zone');
+  if (manualImages.length === 0) {
+    zone.classList.remove('has-image');
+    zone.innerHTML = '<span id="paste-hint">📎 Вставьте скриншот (Cmd+V) или кликните для выбора файла</span><input type="file" id="img-file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">';
+    return;
+  }
+  zone.classList.add('has-image');
+  zone.style.padding = '8px';
+  zone.style.cursor = 'default';
+  const imgs = manualImages.map((src, i) =>
+    `<div style="position:relative;display:inline-block;margin:3px">
+      <img src="${src}" style="height:80px;border-radius:6px;display:block;object-fit:cover">
+      <button onclick="removeImage(event,${i})" style="position:absolute;top:2px;right:2px;width:18px;height:18px;background:rgba(0,0,0,0.75);border:none;border-radius:50%;color:white;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">×</button>
+    </div>`
+  ).join('');
+  zone.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+    ${imgs}
+    <div onclick="triggerImagePaste()" style="width:40px;height:80px;border:1.5px dashed rgba(99,102,241,0.4);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#6366F1;font-size:20px;cursor:pointer;flex-shrink:0">+</div>
+  </div>
+  <input type="file" id="img-file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">`;
+}
+
+function removeImage(e, idx) {
+  e.stopPropagation();
+  manualImages.splice(idx, 1);
+  renderImagePreviews();
+}
+
+// Вставка из буфера обмена Cmd+V
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      processImageFile(file);
+      log('Скриншот вставлен из буфера ✓', 'ok');
+      break;
+    }
+  }
+});
+
+function sendManualNow() {
+  const text = document.getElementById('manual-text').value.trim();
+  if (!text && !manualImage) { log('Пост пустой', 'warn'); return; }
+
+  log('Отправка ручного поста...', 'info');
+  const time = new Date().toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'});
+
+  if (manualImages.length > 0) {
+    const chat = document.getElementById('tg-chat');
+    const typing = document.getElementById('typing');
+    const msg = document.createElement('div');
+    msg.className = 'tg-msg manual';
+    msg.style.borderLeft = '2px solid #8B5CF6';
+    const imgsHtml = manualImages.map((src, i) =>
+      `<img src="${src}" style="width:${manualImages.length > 1 ? 'calc(50% - 2px)' : '100%'};border-radius:6px;display:inline-block;object-fit:cover;margin:1px">`
+    ).join('');
+    msg.innerHTML = (text ? `<div style="margin-bottom:6px">${text}</div>` : '')
+      + `<div style="display:flex;flex-wrap:wrap;gap:2px">${imgsHtml}</div>`
+      + `<div class="tg-msg-time">${time} ✓✓</div>`;
+    chat.insertBefore(msg, typing);
+    setTimeout(() => msg.classList.add('visible'), 50);
+    chat.scrollTop = chat.scrollHeight;
+  } else {
+    addMessage(text, 'manual', time, false);
+  }
+
+  log('✓ Ручной пост отправлен в симулятор', 'ok');
+  // Спрашиваем отправить ли в реальный канал
+  if (confirm('Отправить этот пост в Telegram канал?')) {
+    const textVal = document.getElementById('manual-text').value.trim();
+    sendManualToTelegram(textVal, [...manualImages]);
+  }
+  document.getElementById('manual-text').value = '';
+  manualImages = [];
+  renderImagePreviews();
+}
+
+function scheduleManual() {
+  const text = document.getElementById('manual-text').value.trim();
+  const timeVal = document.getElementById('schedule-time').value;
+  if (!text) { log('Текст поста пустой', 'warn'); return; }
+  if (!timeVal) { log('Укажите время отправки', 'warn'); return; }
+
+  const sendAt = new Date(timeVal);
+  const now = new Date();
+  const delay = sendAt - now;
+  if (delay <= 0) { log('Время уже прошло', 'warn'); return; }
+
+  const id = Date.now();
+  const item = { id, text, images: [...manualImages], sendAt };
+  scheduled.push(item);
+  renderScheduled();
+
+  item.timer = setTimeout(() => {
+    log(`⏰ Запланированный пост отправлен: ${sendAt.toLocaleTimeString('ru')}`, 'ok');
+    const time = sendAt.toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'});
+    const savedItem = scheduled.find(s => s.id === id);
+    if (savedItem && savedItem.images && savedItem.images.length > 0) {
+      const chat = document.getElementById('tg-chat');
+      const typing = document.getElementById('typing');
+      const msg = document.createElement('div');
+      msg.className = 'tg-msg manual';
+      msg.style.borderLeft = '2px solid #8B5CF6';
+      const imgsHtml = savedItem.images.map(src =>
+        `<img src="${src}" style="width:${savedItem.images.length > 1 ? 'calc(50% - 2px)' : '100%'};border-radius:6px;display:inline-block;object-fit:cover;margin:1px">`
+      ).join('');
+      msg.innerHTML = (savedItem.text ? `<div style="margin-bottom:6px">${savedItem.text}</div>` : '')
+        + `<div style="display:flex;flex-wrap:wrap;gap:2px">${imgsHtml}</div>`
+        + `<div class="tg-msg-time">${time} ✓✓</div>`;
+      chat.insertBefore(msg, typing);
+      setTimeout(() => msg.classList.add('visible'), 50);
+      chat.scrollTop = chat.scrollHeight;
+    } else {
+      addMessage(text, 'manual', time, false);
+    }
+    const idx = scheduled.findIndex(s => s.id === id);
+    if (idx !== -1) scheduled.splice(idx, 1);
+    renderScheduled();
+  }, delay);
+
+  log(`Пост запланирован на ${sendAt.toLocaleString('ru')}`, 'ok');
+  document.getElementById('manual-text').value = '';
+  manualImages = [];
+  renderImagePreviews();
+}
+
+function cancelScheduled(id) {
+  const idx = scheduled.findIndex(s => s.id === id);
+  if (idx === -1) return;
+  clearTimeout(scheduled[idx].timer);
+  scheduled.splice(idx, 1);
+  renderScheduled();
+  log('Запланированный пост отменён', 'warn');
+}
+
+function renderScheduled() {
+  const list = document.getElementById('scheduled-list');
+  list.innerHTML = scheduled.map(s => `
+    <div class="scheduled-item">
+      <span class="scheduled-time">${new Date(s.sendAt).toLocaleString('ru', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+      <span class="scheduled-text">${s.text.slice(0,40)}${s.text.length>40?'…':''}</span>
+      <button class="btn-cancel-sched" onclick="cancelScheduled(${s.id})">×</button>
+    </div>
+  `).join('');
+}
+
+// Добавляем стиль для alert сообщения
+const alertStyle = document.createElement('style');
+alertStyle.textContent = '.tg-msg.alert { border-left: 2px solid #FBBF24; } .tg-msg.manual { border-left: 2px solid #8B5CF6; }';
+document.head.appendChild(alertStyle);
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  log('Инициализация Thinking Trader Bot...', 'info');
+  log('Загружаем реальные данные...', 'info');
+  // Устанавливаем дефолтное время для отложенного поста (+1 час)
+  const defTime = new Date(Date.now() + 3600000);
+  defTime.setSeconds(0,0);
+  document.getElementById('schedule-time').value = defTime.toISOString().slice(0,16);
+  loadData();
+  startAlertMonitor();
+});
+</script>
+</body>
+</html>

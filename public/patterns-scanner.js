@@ -324,6 +324,7 @@ const PatternScanner = (function() {
     // ═══════════════════════════════════════════
 
     function getIntervalFromDays(days) {
+        if (days <= 0.04) return '1h';
         if (days <= 0.17) return '4h';
         if (days <= 1)    return '1d';
         if (days <= 7)    return '1w';
@@ -331,7 +332,8 @@ const PatternScanner = (function() {
     }
 
     function getDoubleParams(interval) {
-        if (interval === '4h') return { minGap: 40, maxGap: 110, minRetrace: 0.12, maxRetrace: 0.15, radius: 15 };
+        if (interval === '1h') return { minGap: 25, maxGap: 60,  minRetrace: 0.04, maxRetrace: 0.12, radius: 20 };
+        if (interval === '4h') return { minGap: 20, maxGap: 110, minRetrace: 0.12, maxRetrace: 0.15, radius: 10 };
         if (interval === '1d') return { minGap: 20, maxGap: 45,  minRetrace: 0.15, maxRetrace: 0.25, radius: 10 };
         if (interval === '1w') return { minGap: 35, maxGap: 50,  minRetrace: 0.15, maxRetrace: 0.60, radius: 7  };
         return { minGap: 25, maxGap: 60, minRetrace: 0.15, maxRetrace: 0.25, radius: 10 };
@@ -340,10 +342,20 @@ const PatternScanner = (function() {
     function findLocalExtremes(candles, radius) {
         const tops = [], bottoms = [];
         for (let i = radius; i < candles.length - radius; i++) {
+            const c = candles[i];
+            const fullRange = c.high - c.low;
             let isTop = true, isBottom = true;
             for (let j = 1; j <= radius; j++) {
-                if (candles[i].high <= candles[i-j].high || candles[i].high <= candles[i+j].high) isTop = false;
-                if (candles[i].low  >= candles[i-j].low  || candles[i].low  >= candles[i+j].low)  isBottom = false;
+                if (c.high <= candles[i-j].high || c.high <= candles[i+j].high) isTop = false;
+                if (c.low  >= candles[i-j].low  || c.low  >= candles[i+j].low)  isBottom = false;
+            }
+            if (isTop && fullRange > 0) {
+                const upperWick = c.high - Math.max(c.open, c.close);
+                if (upperWick / fullRange > 0.90) isTop = false;
+            }
+            if (isBottom && fullRange > 0) {
+                const lowerWick = Math.min(c.open, c.close) - c.low;
+                if (lowerWick / fullRange > 0.90) isBottom = false;
             }
             if (isTop)    tops.push(i);
             if (isBottom) bottoms.push(i);
@@ -354,25 +366,39 @@ const PatternScanner = (function() {
     function detectDoublePatterns(candles, days) {
         const interval   = getIntervalFromDays(days);
         const params     = getDoubleParams(interval);
-        const tolerance  = 0.015;
+        const tolerance  = 0.010;
         const minRetrace = 0.03;
         const radius     = params.radius;
         const { tops, bottoms } = findLocalExtremes(candles, radius);
         const patterns = [];
 
+        console.log(`[Scanner] interval=${interval} radius=${radius} minGap=${params.minGap} maxGap=${params.maxGap} tolerance=${tolerance} tops=${tops.length} bottoms=${bottoms.length}`);
+
         // Double Top
+        const usedTopIdx = new Set();
         for (let a = 0; a < tops.length; a++) {
+            if (usedTopIdx.has(tops[a])) continue;
             for (let b = a + 1; b < tops.length; b++) {
                 const i1 = tops[a], i2 = tops[b];
                 const gap = i2 - i1;
-                if (gap < params.minGap || gap > params.maxGap) continue;
+                if (gap < params.minGap || gap > params.maxGap) { console.log(`[DT] i1=${i1} i2=${i2} SKIP gap=${gap} (min=${params.minGap} max=${params.maxGap})`); continue; }
                 const h1 = candles[i1].high, h2 = candles[i2].high;
-                if (Math.abs(h1 - h2) / Math.max(h1, h2) > tolerance) continue;
-                let minBetween = Infinity;
-                for (let k = i1 + 1; k < i2; k++) if (candles[k].low < minBetween) minBetween = candles[k].low;
+                const tolDiff = Math.abs(h1 - h2) / Math.max(h1, h2);
+                if (tolDiff > tolerance) { console.log(`[DT] i1=${i1} i2=${i2} SKIP tol=${(tolDiff*100).toFixed(2)}% h1=${h1} h2=${h2}`); continue; }
                 const level   = Math.max(h1, h2);
+                let minBetween = Infinity;
+                let breached = false;
+                for (let k = i1 + 1; k < i2; k++) {
+                    if (candles[k].low < minBetween) minBetween = candles[k].low;
+                    if (candles[k].high > level * (1 + tolerance)) { breached = true; console.log(`[DT] i1=${i1} i2=${i2} SKIP breached at k=${k} high=${candles[k].high} level=${level}`); break; }
+                }
+                if (breached) continue;
                 const retrace = (level - minBetween) / level;
-                if (retrace < minRetrace) continue;
+                if (retrace < minRetrace) { console.log(`[DT] i1=${i1} i2=${i2} SKIP retrace=${(retrace*100).toFixed(2)}% < min=${(minRetrace*100)}%`); continue; }
+                // Проверяем пересечение по времени с уже найденными паттернами
+                const overlapsTop = patterns.some(p => p.type === 'double_top' &&
+                    !(candles[i2].time < p.time1 || candles[i1].time > p.time2));
+                if (overlapsTop) { usedTopIdx.add(i1); break; }
                 patterns.push({
                     type: 'double_top', typeEn: 'Double Top',
                     group: 'double', direction: 'bearish',
@@ -380,23 +406,35 @@ const PatternScanner = (function() {
                     level, price1: h1, price2: h2,
                     retrace: (retrace * 100).toFixed(1)
                 });
+                usedTopIdx.add(i1); usedTopIdx.add(i2);
                 break;
             }
         }
 
         // Double Bottom
+        const usedBotIdx = new Set();
         for (let a = 0; a < bottoms.length; a++) {
+            if (usedBotIdx.has(bottoms[a])) continue;
             for (let b = a + 1; b < bottoms.length; b++) {
                 const i1 = bottoms[a], i2 = bottoms[b];
                 const gap = i2 - i1;
                 if (gap < params.minGap || gap > params.maxGap) continue;
                 const l1 = candles[i1].low, l2 = candles[i2].low;
                 if (Math.abs(l1 - l2) / Math.min(l1, l2) > tolerance) continue;
-                let maxBetween = 0;
-                for (let k = i1 + 1; k < i2; k++) if (candles[k].high > maxBetween) maxBetween = candles[k].high;
                 const level   = Math.min(l1, l2);
+                let maxBetween = 0;
+                let breached = false;
+                for (let k = i1 + 1; k < i2; k++) {
+                    if (candles[k].high > maxBetween) maxBetween = candles[k].high;
+                    if (candles[k].low < level * (1 - tolerance)) { breached = true; break; }
+                }
+                if (breached) continue;
                 const retrace = (maxBetween - level) / level;
                 if (retrace < minRetrace) continue;
+                // Проверяем пересечение по времени с уже найденными паттернами
+                const overlapsBot = patterns.some(p => p.type === 'double_bottom' &&
+                    !(candles[i2].time < p.time1 || candles[i1].time > p.time2));
+                if (overlapsBot) { usedBotIdx.add(i1); break; }
                 patterns.push({
                     type: 'double_bottom', typeEn: 'Double Bottom',
                     group: 'double', direction: 'bullish',
@@ -404,6 +442,7 @@ const PatternScanner = (function() {
                     level, price1: l1, price2: l2,
                     retrace: (retrace * 100).toFixed(1)
                 });
+                usedBotIdx.add(i1); usedBotIdx.add(i2);
                 break;
             }
         }
