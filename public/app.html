@@ -1024,7 +1024,7 @@
         .chart-coin-bar {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
             flex-wrap: wrap;
         }
 
@@ -1664,13 +1664,15 @@
         .coin-select-trigger {
             display: flex;
             align-items: center;
-            gap: 8px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            padding: 6px 10px 6px 8px;
+            gap: 7px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 9px;
+            padding: 0 10px 0 7px;
+            height: 36px;
             color: white;
             font-size: 13px;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
             white-space: nowrap;
@@ -1678,21 +1680,21 @@
         }
 
         .coin-select-trigger:hover {
-            border-color: #4F46E5;
-            background: rgba(79, 70, 229, 0.1);
+            border-color: rgba(99,102,241,0.4);
+            background: rgba(99,102,241,0.08);
         }
 
         .coin-select-trigger img {
-            width: 22px;
-            height: 22px;
+            width: 20px;
+            height: 20px;
             border-radius: 50%;
             object-fit: cover;
         }
 
         .coin-select-trigger .arrow {
-            margin-left: 4px;
-            color: #64748B;
-            font-size: 10px;
+            margin-left: 2px;
+            color: #475569;
+            font-size: 9px;
             transition: transform 0.2s;
         }
 
@@ -1884,53 +1886,140 @@
         }
 
         .current-price {
-            color: #4F46E5;
+            color: white;
             font-weight: 600;
-            background: rgba(79, 70, 229, 0.1);
-            padding: 6px 10px;
-            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 0 12px;
+            height: 36px;
+            border-radius: 9px;
             font-size: 14px;
             white-space: nowrap;
+            display: flex;
+            align-items: center;
         }
 
         .price-change-badge {
-            padding: 6px 10px;
-            border-radius: 8px;
+            padding: 0 10px;
+            height: 36px;
+            border-radius: 9px;
             font-size: 12px;
             font-weight: 700;
             white-space: nowrap;
             display: none;
+            align-items: center;
+            font-family: 'JetBrains Mono', monospace;
+            border: 1px solid transparent;
         }
 
         .price-change-badge.positive {
-            background: rgba(16, 185, 129, 0.15);
+            background: rgba(16,185,129,0.08);
+            border-color: rgba(16,185,129,0.2);
             color: #10B981;
-            display: block;
+            display: flex;
         }
 
         .price-change-badge.negative {
-            background: rgba(239, 68, 68, 0.15);
+            background: rgba(239,68,68,0.08);
+            border-color: rgba(239,68,68,0.2);
             color: #EF4444;
-            display: block;
+            display: flex;
         }
 
+
+
+        /* ══ HELP BUTTON ══ */
+        .alert-help-btn {
+            width: 36px; height: 36px;
+            border-radius: 9px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: #475569;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+            font-family: inherit;
+        }
+        .alert-help-btn:hover { border-color: rgba(255,255,255,0.15); color: #94A3B8; }
+
+        .alert-help-panel {
+            display: none;
+            position: absolute;
+            bottom: calc(100% + 12px);
+            right: 0;
+            width: 240px;
+            background: #111827;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 14px;
+            z-index: 10001;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+        }
+        .alert-help-panel.open { display: block; }
+        .alert-help-arrow {
+            position: absolute;
+            bottom: -5px; right: 8px;
+            width: 10px; height: 10px;
+            background: #111827;
+            border-right: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            transform: rotate(45deg);
+        }
+        .alert-help-title {
+            font-size: 12px; font-weight: 700; color: white;
+            margin-bottom: 10px;
+        }
+        .alert-help-steps { display: flex; flex-direction: column; gap: 8px; }
+        .alert-help-step {
+            display: flex; gap: 8px; align-items: flex-start;
+            font-size: 11px; color: #94A3B8; line-height: 1.4;
+        }
+        .alert-help-num {
+            flex-shrink: 0;
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: rgba(99,102,241,0.2);
+            color: #818CF8;
+            font-size: 9px; font-weight: 700;
+            display: flex; align-items: center; justify-content: center;
+            margin-top: 1px;
+        }
+        .alert-help-step b { color: #CBD5E1; font-weight: 600; }
+        .alert-help-note {
+            margin-top: 10px; padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            font-size: 10px; color: #334155;
+        }
+        @media (max-width: 768px) {
+            .alert-help-panel {
+                position: fixed;
+                bottom: 80px;
+                right: 16px;
+                left: 16px;
+                width: auto;
+            }
+            .alert-help-arrow { display: none; }
+        }
 
         /* ══ ALERT BELL ══ */
         .alert-bell-btn {
             position: relative;
             width: 36px; height: 36px;
-            border-radius: 8px;
-            border: 1px solid rgba(99,102,241,0.35);
-            background: rgba(99,102,241,0.1);
-            color: #818CF8;
-            font-size: 16px;
+            border-radius: 9px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: #64748B;
             cursor: pointer;
             display: flex; align-items: center; justify-content: center;
             transition: all 0.2s;
             flex-shrink: 0;
         }
-        .alert-bell-btn:hover { background: rgba(99,102,241,0.2); border-color: #6366F1; }
-        .alert-bell-btn.has-alerts { border-color: #F59E0B; background: rgba(245,158,11,0.15); color: #F59E0B; }
+        .alert-bell-btn:hover { background: rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.3); color: #818CF8; }
+        .alert-bell-btn.has-alerts { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.1); color: #818CF8; }
         .alert-bell-count {
             position: absolute; top: -4px; right: -4px;
             background: #EF4444; color: white;
@@ -5489,7 +5578,7 @@
                     </div>
                     <span class="current-price" id="currentPrice">—</span>
                     <span class="price-change-badge" id="priceChangeBadge"></span>
-                    <div style="position:relative">
+                    <div style="position:relative;display:flex;align-items:center;gap:6px">
                     <button class="alert-bell-btn" id="alertBellBtn" onclick="alertTogglePanel()" title="Ценовые алерты">
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
@@ -5497,6 +5586,33 @@
                         </svg>
                         <span class="alert-bell-count" id="alertBellCount" style="display:none">0</span>
                     </button>
+                    <button class="alert-help-btn" id="alertHelpBtn" onclick="alertToggleHelp(event)" title="Как получать уведомления">?</button>
+                <!-- Help tooltip -->
+                <div style="position:relative">
+                    <div class="alert-help-panel" id="alertHelpPanel">
+                        <div class="alert-help-arrow"></div>
+                        <div class="alert-help-title">📲 Уведомления на телефон</div>
+                        <div class="alert-help-steps">
+                            <div class="alert-help-step">
+                                <span class="alert-help-num">1</span>
+                                <span>Откройте <b>thinkingtrader.com</b> в Safari на iPhone</span>
+                            </div>
+                            <div class="alert-help-step">
+                                <span class="alert-help-num">2</span>
+                                <span>Нажмите <b>«Поделиться»</b> <span style="opacity:0.6">⎋</span> внизу браузера</span>
+                            </div>
+                            <div class="alert-help-step">
+                                <span class="alert-help-num">3</span>
+                                <span>Выберите <b>«На экран домой»</b></span>
+                            </div>
+                            <div class="alert-help-step">
+                                <span class="alert-help-num">4</span>
+                                <span>Откройте сайт с иконки — и разрешите уведомления</span>
+                            </div>
+                        </div>
+                        <div class="alert-help-note">Работает на iOS 16.4+ и всех Android</div>
+                    </div>
+                </div>
                 <!-- Alert Panel -->
                 <div class="alert-panel" id="alertPanel" onclick="event.stopPropagation()">
                     <div class="alert-panel-header">
@@ -13067,10 +13183,12 @@
         });
         setInterval(loadTicker, 60 * 1000);
 
-        // Автообновление графика каждую минуту
-        setInterval(async () => {
+        // Автообновление графика каждые 15 секунд
+        function startPriceRefresh() {
+          setInterval(async () => {
             try {
-                const binanceSymbol = BINANCE_SYMBOLS[selectedCoin.id] || 'BTCUSDT';
+                if (typeof selectedCoin === 'undefined' || !selectedCoin) return;
+                const binanceSymbol = (typeof BINANCE_SYMBOLS !== 'undefined' && BINANCE_SYMBOLS[selectedCoin.id]) || (selectedCoin.symbol ? selectedCoin.symbol + 'USDT' : 'BTCUSDT');
                 const r = await fetch(`/api/price?symbol=${binanceSymbol}`);
                 if (!r.ok) return;
                 const d = await r.json();
@@ -13105,8 +13223,14 @@
                 if (typeof alertUpdateCoinInfo === 'function' && typeof selectedCoin !== 'undefined') {
                     alertUpdateCoinInfo(selectedCoin.symbol || selectedCoin.id, price);
                 }
-            } catch(e) {}
-        }, 15 * 1000);
+            } catch(e) { console.warn('Price refresh error:', e); }
+          }, 15 * 1000);
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startPriceRefresh);
+        } else {
+            startPriceRefresh();
+        }
 
         // ── Мини-тикер полоска ──────────────────────────────
         // 20 монет, 5 слотов, ротация каждые 8 сек со сдвигом
@@ -13810,6 +13934,22 @@
             alertSave(list);
             alertRefreshUI();
         }
+
+        function alertToggleHelp(e) {
+            e.stopPropagation();
+            const panel = document.getElementById('alertHelpPanel');
+            panel.classList.toggle('open');
+            // close alert panel if open
+            document.getElementById('alertPanel')?.classList.remove('open');
+        }
+        // Close help on outside click
+        document.addEventListener('click', (e) => {
+            const panel = document.getElementById('alertHelpPanel');
+            const btn = document.getElementById('alertHelpBtn');
+            if (panel && panel.classList.contains('open') && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+                panel.classList.remove('open');
+            }
+        });
 
         function alertRefreshUI() {
             const list = alertLoad();
