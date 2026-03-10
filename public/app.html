@@ -1914,6 +1914,170 @@
             display: block;
         }
 
+
+        /* ══ ALERT BELL ══ */
+        .alert-bell-btn {
+            position: relative;
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            border: 1px solid rgba(99,102,241,0.35);
+            background: rgba(99,102,241,0.1);
+            color: #818CF8;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .alert-bell-btn:hover { background: rgba(99,102,241,0.2); border-color: #6366F1; }
+        .alert-bell-btn.has-alerts { border-color: #F59E0B; background: rgba(245,158,11,0.15); color: #F59E0B; }
+        .alert-bell-count {
+            position: absolute; top: -4px; right: -4px;
+            background: #EF4444; color: white;
+            font-size: 9px; font-weight: 700;
+            width: 14px; height: 14px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ══ ALERT PANEL ══ */
+        .alert-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: min(320px, calc(100vw - 24px));
+            max-height: 90vh;
+            overflow-y: auto;
+            background: #111827;
+            border: 1px solid rgba(99,102,241,0.35);
+            border-radius: 16px;
+            z-index: 10000;
+            display: none;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+        .alert-panel.open { display: flex; }
+        @media (min-width: 768px) {
+            .alert-panel {
+                position: absolute;
+                top: unset;
+                bottom: calc(100% + 10px);
+                left: 50%;
+                transform: translateX(-50%);
+                width: 300px;
+                max-height: unset;
+                overflow-y: visible;
+            }
+        }
+        .alert-panel-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 16px 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .alert-panel-title { font-size: 13px; font-weight: 700; color: white; }
+        .alert-panel-close { background: none; border: none; color: #475569; font-size: 16px; cursor: pointer; padding: 0 2px; }
+        .alert-panel-close:hover { color: #94A3B8; }
+        .alert-coin-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 16px 6px;
+        }
+        .alert-coin-name { font-size: 13px; font-weight: 700; color: #CBD5E1; font-family: 'JetBrains Mono', monospace; }
+        .alert-coin-price { font-size: 16px; font-weight: 700; color: #818CF8; }
+
+        /* Tabs */
+        .alert-tabs {
+            display: flex;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 0 16px;
+        }
+        .alert-tab {
+            background: none; border: none; cursor: pointer;
+            padding: 8px 10px; font-size: 12px; font-weight: 600;
+            color: #475569; border-bottom: 2px solid transparent;
+            transition: all 0.2s; margin-bottom: -1px;
+        }
+        .alert-tab.active { color: white; border-bottom-color: white; }
+
+        /* Tab contents */
+        .alert-tab-content { padding: 14px 16px 0; }
+        .alert-input-row {
+            display: flex; align-items: center; gap: 6px;
+            background: rgba(255,255,255,0.04);
+            border: 1.5px solid rgba(99,102,241,0.4);
+            border-radius: 9px; padding: 0 12px; height: 44px;
+        }
+        .alert-input-prefix { color: #475569; font-size: 14px; }
+        .alert-price-input {
+            flex: 1; background: none; border: none; outline: none;
+            color: white; font-size: 16px; font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .alert-price-input::placeholder { color: #334155; }
+        .alert-input-suffix { color: #475569; font-size: 11px; }
+        .alert-hint { font-size: 10px; color: #475569; margin-top: 6px; min-height: 16px; }
+
+        /* Pct tab */
+        .alert-pct-display {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 9px; padding: 10px 14px; margin-bottom: 12px;
+        }
+        .alert-pct-arrow { font-size: 18px; font-weight: 700; min-width: 20px; }
+        .alert-pct-value { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: white; min-width: 60px; }
+        .alert-pct-price { font-size: 12px; color: #64748B; margin-left: auto; font-family: 'JetBrains Mono', monospace; }
+        .alert-slider {
+            width: 100%; height: 6px; cursor: pointer;
+            -webkit-appearance: none; appearance: none;
+            background: #1E293B; border-radius: 3px; outline: none;
+        }
+        .alert-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 20px; height: 20px;
+            border-radius: 50%; background: white; cursor: pointer;
+            border: 3px solid #6366F1; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+        .alert-slider-labels {
+            display: flex; justify-content: space-between;
+            font-size: 10px; color: #334155; margin-top: 6px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Add button */
+        .alert-add-btn {
+            margin: 14px 16px 0;
+            padding: 11px; border-radius: 9px; border: none;
+            background: #6366F1; color: white;
+            font-size: 12px; font-weight: 700; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .alert-add-btn:hover { background: #4F46E5; transform: translateY(-1px); }
+
+        /* List */
+        .alert-list-header {
+            padding: 12px 16px 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px; font-weight: 600;
+            color: #334155; letter-spacing: 1.5px;
+        }
+        .alert-list { display: flex; flex-direction: column; gap: 5px; padding: 0 16px 14px; max-height: 160px; overflow-y: auto; }
+        .alert-list::-webkit-scrollbar { width: 3px; }
+        .alert-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); }
+        .alert-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 10px; border-radius: 7px;
+            font-size: 11px;
+        }
+        .alert-item.up { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); }
+        .alert-item.down { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); }
+        .alert-item-arrow { font-size: 13px; font-weight: 700; flex-shrink: 0; }
+        .alert-item.up .alert-item-arrow { color: #10B981; }
+        .alert-item.down .alert-item-arrow { color: #EF4444; }
+        .alert-item-text { flex: 1; color: #CBD5E1; font-family: 'JetBrains Mono', monospace; }
+        .alert-item-del { background: none; border: none; color: #334155; font-size: 16px; cursor: pointer; padding: 0; line-height: 1; }
+        .alert-item-del:hover { color: #EF4444; }
+        .alert-empty { text-align: center; color: #334155; font-size: 11px; padding: 10px 0; }
+
         .actions { display: flex; gap: 8px; }
 
         .btn-icon {
@@ -5325,7 +5489,59 @@
                     </div>
                     <span class="current-price" id="currentPrice">—</span>
                     <span class="price-change-badge" id="priceChangeBadge"></span>
-                </div>
+                    <div style="position:relative">
+                    <button class="alert-bell-btn" id="alertBellBtn" onclick="alertTogglePanel()" title="Ценовые алерты">
+                        🔔
+                        <span class="alert-bell-count" id="alertBellCount" style="display:none">0</span>
+                    </button>
+                <!-- Alert Panel -->
+                <div class="alert-panel" id="alertPanel" onclick="event.stopPropagation()">
+                    <div class="alert-panel-header">
+                        <span class="alert-panel-title">🔔 Оповещение цены</span>
+                        <button class="alert-panel-close" onclick="alertTogglePanel()">✕</button>
+                    </div>
+                    <div class="alert-coin-row">
+                        <span class="alert-coin-name" id="alertCoinName">BTCUSDT</span>
+                        <span class="alert-coin-price" id="alertCoinPrice">—</span>
+                    </div>
+                    <!-- Tabs -->
+                    <div class="alert-tabs">
+                        <button class="alert-tab active" id="alertTabPrice" onclick="alertSwitchTab('price')">Цена</button>
+                        <button class="alert-tab" id="alertTabPct" onclick="alertSwitchTab('pct')">Изменение цены (%)</button>
+                    </div>
+
+                    <!-- Tab: Цена -->
+                    <div class="alert-tab-content" id="alertContentPrice">
+                        <div class="alert-input-row">
+                            <span class="alert-input-prefix">$</span>
+                            <input class="alert-price-input" id="alertPriceInput" type="number" placeholder="0.00" step="any">
+                            <span class="alert-input-suffix">USDT</span>
+                        </div>
+                        <div class="alert-hint" id="alertPriceHint"></div>
+                    </div>
+
+                    <!-- Tab: % -->
+                    <div class="alert-tab-content" id="alertContentPct" style="display:none">
+                        <div class="alert-pct-display" id="alertPctDisplay">
+                            <span class="alert-pct-arrow" id="alertPctArrow">→</span>
+                            <span class="alert-pct-value" id="alertPctValue">0%</span>
+                            <span class="alert-pct-price" id="alertPctPrice"></span>
+                        </div>
+                        <input class="alert-slider" id="alertSlider" type="range" min="-25" max="25" value="0" step="0.5" oninput="alertUpdateSlider()">
+                        <div class="alert-slider-labels">
+                            <span>−25%</span><span>0%</span><span>+25%</span>
+                        </div>
+                    </div>
+
+                    <button class="alert-add-btn" onclick="alertAdd()">＋ Добавить алерт</button>
+
+                    <div class="alert-list-header">
+                        АКТИВНЫЕ АЛЕРТЫ <span id="alertCount">0</span> / 10
+                    </div>
+                    <div class="alert-list" id="alertList"></div>
+                </div><!-- /alert-panel -->
+                </div><!-- /alert-relative-wrapper -->
+                </div><!-- /chart-coin-bar -->
             </div>
 
                 <!-- Мини-тикер полоска -->
@@ -9493,7 +9709,7 @@
                 const lastPrice = prices[prices.length - 1][1];
                 if (lastPrice && lastPrice > 0) {
                     currentCoinPrice = lastPrice;
-                    currentPriceSpan.textContent = `$${lastPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    // Цену внизу НЕ ставим из истории — она обновляется из fetchCoinPrice или 15s интервала
                 }
                 
                 window._lastChartPrices = prices;
@@ -9650,6 +9866,10 @@
             // Сохраняем для большого графика
             window._mainChartPrice = last;
             window._mainChartPct   = pct;
+            // Update alert system with current price
+            if (typeof alertUpdateCoinInfo === 'function' && typeof selectedCoin !== 'undefined') {
+                alertUpdateCoinInfo(selectedCoin.symbol || selectedCoin.id, last);
+            }
         }
 
         // Получить уровни для текущего активного таба
@@ -10277,14 +10497,10 @@
                 rawPricesCache = prices;
                 rawOhlcCache = ohlc;
 
-                // Обновляем текущую цену из последней свечи
+                // Сохраняем цену для расчётов, но НЕ обновляем отображение из истории
                 const lastPrice = prices[prices.length - 1][1];
                 if (lastPrice && lastPrice > 0) {
                     currentCoinPrice = lastPrice;
-                    currentPriceSpan.textContent = `$${lastPrice.toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                    })}`;
                 }
 
                 window._lastChartPrices = prices;
@@ -12850,7 +13066,6 @@
 
         // Автообновление графика каждую минуту
         setInterval(async () => {
-            if (!lwSeries) return;
             try {
                 const binanceSymbol = BINANCE_SYMBOLS[selectedCoin.id] || 'BTCUSDT';
                 const r = await fetch(`/api/price?symbol=${binanceSymbol}`);
@@ -12859,30 +13074,36 @@
                 const price = parseFloat(d.price || d.lastPrice || 0);
                 if (!price) return;
 
-                if (chartDisplayType === 'candle' && rawOhlcCache.length) {
-                    // Свечной режим — обновляем последнюю свечу
-                    const last = rawOhlcCache[rawOhlcCache.length - 1];
-                    const [t, o, h, l, c] = last;
-                    const newHigh = Math.max(h, price);
-                    const newLow  = Math.min(l, price);
-                    rawOhlcCache[rawOhlcCache.length - 1] = [t, o, newHigh, newLow, price];
-                    lwSeries.update({
-                        time:  Math.floor(t / 1000),
-                        open:  o,
-                        high:  newHigh,
-                        low:   newLow,
-                        close: price,
-                    });
+                // Обновляем график если серия загружена
+                if (lwSeries) {
+                    if (chartDisplayType === 'candle' && rawOhlcCache.length) {
+                        const last = rawOhlcCache[rawOhlcCache.length - 1];
+                        const [t, o, h, l, c] = last;
+                        const newHigh = Math.max(h, price);
+                        const newLow  = Math.min(l, price);
+                        rawOhlcCache[rawOhlcCache.length - 1] = [t, o, newHigh, newLow, price];
+                        lwSeries.update({ time: Math.floor(t / 1000), open: o, high: newHigh, low: newLow, close: price });
+                    } else if (chartDisplayType === 'line' && rawPricesCache.length) {
+                        const last = rawPricesCache[rawPricesCache.length - 1];
+                        const t = last[0];
+                        rawPricesCache[rawPricesCache.length - 1] = [t, price];
+                        lwSeries.update({ time: Math.floor(t / 1000), value: price });
+                    }
+                }
 
-                } else if (chartDisplayType === 'line' && rawPricesCache.length) {
-                    // Линейный режим — обновляем последнюю точку
-                    const last = rawPricesCache[rawPricesCache.length - 1];
-                    const t = last[0];
-                    rawPricesCache[rawPricesCache.length - 1] = [t, price];
-                    lwSeries.update({ time: Math.floor(t / 1000), value: price });
+                // Всегда обновляем цену внизу и алерты
+                const priceEl = document.getElementById('currentPrice');
+                if (priceEl) {
+                    priceEl.textContent = price >= 1000 ? '$' + Math.round(price).toLocaleString('en-US')
+                                        : price >= 1    ? '$' + price.toFixed(2)
+                                        : price >= 0.01 ? '$' + price.toFixed(4)
+                                        :                 '$' + price.toFixed(7);
+                }
+                if (typeof alertUpdateCoinInfo === 'function' && typeof selectedCoin !== 'undefined') {
+                    alertUpdateCoinInfo(selectedCoin.symbol || selectedCoin.id, price);
                 }
             } catch(e) {}
-        }, 60 * 1000);
+        }, 15 * 1000);
 
         // ── Мини-тикер полоска ──────────────────────────────
         // 20 монет, 5 слотов, ротация каждые 8 сек со сдвигом
@@ -13460,6 +13681,288 @@
                 }
             });
         });
+
+
+        // ══════════════════════════════════════════════
+        // PRICE ALERTS
+        // ══════════════════════════════════════════════
+        const ALERT_KEY = 'tt_price_alerts';
+        let alertCurrentCoin = 'BTC';
+        let alertCurrentPrice = 0;
+        let alertActiveTab = 'price';
+        let alertCheckInterval = null;
+
+        function alertLoad() {
+            try { return JSON.parse(localStorage.getItem(ALERT_KEY) || '[]'); }
+            catch { return []; }
+        }
+
+        function alertSave(list) {
+            localStorage.setItem(ALERT_KEY, JSON.stringify(list));
+        }
+
+        function alertTogglePanel() {
+            const panel = document.getElementById('alertPanel');
+            panel.classList.toggle('open');
+            if (panel.classList.contains('open')) alertRefreshUI();
+        }
+
+        function alertSwitchTab(tab) {
+            alertActiveTab = tab;
+            document.getElementById('alertTabPrice').classList.toggle('active', tab === 'price');
+            document.getElementById('alertTabPct').classList.toggle('active', tab === 'pct');
+            document.getElementById('alertContentPrice').style.display = tab === 'price' ? 'block' : 'none';
+            document.getElementById('alertContentPct').style.display = tab === 'pct' ? 'block' : 'none';
+            if (tab === 'pct') alertUpdateSlider();
+        }
+
+        function alertUpdateCoinInfo(symbol, price) {
+            alertCurrentCoin = symbol.replace('USDT','').replace('-USD','').replace('USD','');
+            alertCurrentPrice = parseFloat(price) || 0;
+            const nameEl = document.getElementById('alertCoinName');
+            const priceEl = document.getElementById('alertCoinPrice');
+            if (nameEl) nameEl.textContent = alertCurrentCoin + 'USDT';
+            if (priceEl) priceEl.textContent = alertCurrentPrice > 0 ? '$' + alertCurrentPrice.toLocaleString('en', {maximumFractionDigits: alertCurrentPrice > 100 ? 2 : 6}) : '—';
+            // hint
+            const hint = document.getElementById('alertPriceHint');
+            if (hint && alertCurrentPrice > 0) hint.textContent = 'Текущая цена: $' + alertCurrentPrice.toLocaleString('en', {maximumFractionDigits: alertCurrentPrice > 100 ? 2 : 6});
+            alertUpdateSlider();
+        }
+
+        function alertUpdateSlider() {
+            const slider = document.getElementById('alertSlider');
+            if (!slider) return;
+            const pct = parseFloat(slider.value) || 0;
+            const arrowEl = document.getElementById('alertPctArrow');
+            const valEl = document.getElementById('alertPctValue');
+            const priceEl = document.getElementById('alertPctPrice');
+            const targetPrice = alertCurrentPrice > 0 ? alertCurrentPrice * (1 + pct / 100) : 0;
+
+            if (pct > 0) {
+                arrowEl.textContent = '↑';
+                arrowEl.style.color = '#10B981';
+                valEl.style.color = '#10B981';
+                valEl.textContent = '+' + pct.toFixed(1) + '%';
+            } else if (pct < 0) {
+                arrowEl.textContent = '↓';
+                arrowEl.style.color = '#EF4444';
+                valEl.style.color = '#EF4444';
+                valEl.textContent = pct.toFixed(1) + '%';
+            } else {
+                arrowEl.textContent = '→';
+                arrowEl.style.color = '#64748B';
+                valEl.style.color = '#64748B';
+                valEl.textContent = '0%';
+            }
+
+            // Slider track color
+            const min = -25, max = 25;
+            const ratio = (pct - min) / (max - min) * 100;
+            const color = pct > 0 ? '#10B981' : pct < 0 ? '#EF4444' : '#475569';
+            slider.style.background = pct > 0
+                ? `linear-gradient(to right, #1E293B ${50}%, ${color} ${50}%, ${color} ${ratio}%, #1E293B ${ratio}%)`
+                : pct < 0
+                ? `linear-gradient(to right, #1E293B ${ratio}%, ${color} ${ratio}%, ${color} ${50}%, #1E293B ${50}%)`
+                : '#1E293B';
+
+            if (priceEl) priceEl.textContent = targetPrice > 0 ? '≈ $' + targetPrice.toLocaleString('en', {maximumFractionDigits: targetPrice > 100 ? 2 : 6}) : '';
+        }
+
+        function alertAdd() {
+            const list = alertLoad();
+            if (list.length >= 10) { alertShowToast('Максимум 10 алертов'); return; }
+
+            let targetPrice, label, dir;
+
+            if (alertActiveTab === 'price') {
+                const input = document.getElementById('alertPriceInput');
+                targetPrice = parseFloat(input.value);
+                if (!targetPrice || targetPrice <= 0) { alertShowToast('Введите цену'); return; }
+                dir = targetPrice > alertCurrentPrice ? 'up' : 'down';
+                const sign = dir === 'up' ? '>' : '<';
+                label = alertCurrentCoin + ' ' + sign + ' $' + targetPrice.toLocaleString('en', {maximumFractionDigits: targetPrice > 100 ? 2 : 6});
+                input.value = '';
+            } else {
+                const pct = parseFloat(document.getElementById('alertSlider').value) || 0;
+                if (pct === 0) { alertShowToast('Сдвиньте слайдер'); return; }
+                targetPrice = alertCurrentPrice * (1 + pct / 100);
+                dir = pct > 0 ? 'up' : 'down';
+                const sign = dir === 'up' ? '>' : '<';
+                const pctStr = (pct > 0 ? '+' : '') + pct.toFixed(1) + '%';
+                label = alertCurrentCoin + ' ' + pctStr + ' ≈ $' + targetPrice.toLocaleString('en', {maximumFractionDigits: targetPrice > 100 ? 2 : 6});
+                document.getElementById('alertSlider').value = 0;
+                alertUpdateSlider();
+            }
+
+            list.push({ id: Date.now(), coin: alertCurrentCoin, targetPrice, dir, label, triggered: false });
+            alertSave(list);
+            alertRefreshUI();
+            alertShowToast('Алерт добавлен ✓');
+            alertRequestPermission();
+        }
+
+        function alertDelete(id, e) {
+            if (e) e.stopPropagation();
+            const list = alertLoad().filter(a => a.id !== id);
+            alertSave(list);
+            alertRefreshUI();
+        }
+
+        function alertRefreshUI() {
+            const list = alertLoad();
+            const count = list.length;
+            const countEl = document.getElementById('alertCount');
+            const bellCount = document.getElementById('alertBellCount');
+            const bellBtn = document.getElementById('alertBellBtn');
+            if (countEl) countEl.textContent = count;
+            if (bellCount) { bellCount.textContent = count; bellCount.style.display = count > 0 ? 'flex' : 'none'; }
+            if (bellBtn) bellBtn.classList.toggle('has-alerts', count > 0);
+
+            const listEl = document.getElementById('alertList');
+            if (!listEl) return;
+            if (list.length === 0) {
+                listEl.innerHTML = '<div class="alert-empty">Нет активных алертов</div>';
+                return;
+            }
+            listEl.innerHTML = list.map(a => `
+                <div class="alert-item ${a.dir}">
+                    <span class="alert-item-arrow">${a.dir === 'up' ? '↑' : '↓'}</span>
+                    <span class="alert-item-text">${a.label}</span>
+                    <button class="alert-item-del" onclick="alertDelete(${a.id},event)">×</button>
+                </div>
+            `).join('');
+        }
+
+        function alertRequestPermission() {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        }
+
+        function alertShowToast(msg, isAlert = false) {
+            let t = document.getElementById('alertToast');
+            if (!t) {
+                t = document.createElement('div');
+                t.id = 'alertToast';
+                document.body.appendChild(t);
+            }
+            t.textContent = msg;
+            t.style.cssText = `
+                position: fixed;
+                top: 24px;
+                left: 50%;
+                transform: translateX(-50%) translateY(-20px);
+                padding: 12px 22px;
+                border-radius: 12px;
+                font-size: 13px;
+                font-weight: 600;
+                z-index: 99999;
+                pointer-events: none;
+                transition: opacity 0.4s, transform 0.4s;
+                opacity: 0;
+                white-space: nowrap;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+                ${isAlert
+                    ? 'background: linear-gradient(135deg,#1a2a1a,#0F2A1A); color: #00E5A0; border: 1.5px solid rgba(0,229,160,0.5);'
+                    : 'background: #1E293B; color: #CBD5E1; border: 1px solid rgba(255,255,255,0.1);'}
+            `;
+            requestAnimationFrame(() => {
+                t.style.opacity = '1';
+                t.style.transform = 'translateX(-50%) translateY(0)';
+            });
+            clearTimeout(t._timer);
+            t._timer = setTimeout(() => {
+                t.style.opacity = '0';
+                t.style.transform = 'translateX(-50%) translateY(-20px)';
+            }, isAlert ? 5000 : 2500);
+        }
+
+        function alertFireNotification(alert) {
+            const title = 'Thinking Trader';
+            const body = alert.label + ' — цель достигнута';
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, { body, icon: '/favicon.svg' });
+            }
+            let n = document.getElementById('alertBigNotif');
+            if (!n) { n = document.createElement('div'); n.id = 'alertBigNotif'; document.body.appendChild(n); }
+            const isUp = alert.dir === 'up';
+            const color = isUp ? '#10B981' : '#EF4444';
+            const arrow = isUp ? '↑' : '↓';
+            n.innerHTML = `
+                <div style="display:flex;align-items:center;gap:14px">
+                    <div style="width:36px;height:36px;border-radius:10px;background:${isUp ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                        <span style="font-size:18px;font-weight:700;color:${color}">${arrow}</span>
+                    </div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:10px;font-weight:600;letter-spacing:1.5px;color:#475569;margin-bottom:3px;text-transform:uppercase">Алерт</div>
+                        <div style="font-size:14px;font-weight:700;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${alert.label}</div>
+                    </div>
+                    <button onclick="event.stopPropagation();this.closest('#alertBigNotif').style.opacity='0'" style="flex-shrink:0;background:none;border:none;color:#334155;font-size:18px;cursor:pointer;line-height:1;padding:2px">×</button>
+                </div>
+                <div style="margin-top:10px;height:1px;background:rgba(255,255,255,0.04)"></div>
+                <div style="margin-top:8px;font-size:10px;color:#334155;letter-spacing:0.5px">thinkingtrader.com</div>
+            `;
+            n.style.cssText = `
+                position:fixed;top:20px;right:20px;
+                background:#0D1117;
+                border:1px solid rgba(255,255,255,0.07);
+                border-top: 2px solid ${color};
+                border-radius:12px;
+                padding:14px 16px;
+                z-index:99999;
+                width:260px;
+                box-shadow:0 24px 48px rgba(0,0,0,0.7);
+                opacity:0;
+                transform:translateY(-8px);
+                transition:opacity 0.3s,transform 0.3s;
+                cursor:default;
+                font-family:inherit;
+            `;
+            requestAnimationFrame(() => { n.style.opacity='1'; n.style.transform='translateY(0)'; });
+            clearTimeout(n._timer);
+            n._timer = setTimeout(() => { n.style.opacity='0'; n.style.transform='translateY(-8px)'; }, 7000);
+        }
+
+        function alertCheckPrices() {
+            const list = alertLoad();
+            if (list.length === 0) return;
+            // Get current price from existing UI
+            const priceEl = document.getElementById('currentPrice');
+            if (!priceEl) return;
+            const priceText = priceEl.textContent.replace(/[$,]/g, '');
+            const price = parseFloat(priceText);
+            if (!price) return;
+
+            let changed = false;
+            const newList = list.filter(a => {
+                if (a.coin !== alertCurrentCoin) return true;
+                const triggered = (a.dir === 'up' && price >= a.targetPrice) ||
+                                  (a.dir === 'down' && price <= a.targetPrice);
+                if (triggered) { alertFireNotification(a); changed = true; return false; }
+                return true;
+            });
+            if (changed) { alertSave(newList); alertRefreshUI(); }
+        }
+
+        // Start checking every 15 seconds
+        setInterval(alertCheckPrices, 15000);
+
+        // Close panel on outside click
+        document.addEventListener('click', (e) => {
+            const panel = document.getElementById('alertPanel');
+            const btn = document.getElementById('alertBellBtn');
+            if (panel && panel.classList.contains('open') && !panel.contains(e.target) && !btn.contains(e.target)) {
+                panel.classList.remove('open');
+            }
+        });
+        // Prevent panel clicks from bubbling to document
+        document.getElementById('alertPanel')?.addEventListener('click', e => e.stopPropagation());
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('alertPanel')?.addEventListener('click', e => e.stopPropagation());
+        });
+
+        // Init on load
+        alertRefreshUI();
 
     </script>
 

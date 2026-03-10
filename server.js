@@ -50,7 +50,7 @@ function cacheSet(key, data, ttlMs) {
 }
 
 const TTL = {
-    PRICE:      30  * 1000,    // 30 сек
+    PRICE:      10  * 1000,    // 10 сек
     TICKER:     30  * 1000,    // 30 сек
     CHART:      30  * 1000,    // 30 сек
     OHLC:       30  * 1000,    // 30 сек
