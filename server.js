@@ -419,54 +419,68 @@ ${fgEmoji(fg)} <b>Fear &amp; Greed:</b> ${fg} — ${fgLabelEn(fg)}
 
 // ── Дневной пост 13:00 ────────────────────────────────────────
 async function buildNoonPost() {
-    const newsItems = await fetchAllNews();
-    const top1 = newsItems[0];
-    const titleRu = top1 ? await translateTitle(top1.title) : '—';
+    const [newsItems, tickerRaw] = await Promise.all([
+        fetchAllNews(),
+        proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent('["BTCUSDT","ETHUSDT"]')}`),
+    ]);
+
+    const btc = tickerRaw.find(t => t.symbol === 'BTCUSDT');
+    const eth = tickerRaw.find(t => t.symbol === 'ETHUSDT');
+
+    const top5 = newsItems.slice(0, 5);
+    const titles = await Promise.all(top5.map(n => translateTitle(n.title)));
+    const newsList = titles.map(t => `▸ ${t}`).join('\n');
 
     const sample = newsItems.slice(0, 30);
     const bull = Math.round(sample.filter(n => n.sentiment === 'bull').length / (sample.length || 1) * 100);
-    const bear = Math.round(sample.filter(n => n.sentiment === 'bear').length / (sample.length || 1) * 100);
-    const neut = 100 - bull - bear;
+    const sentimentText = bull >= 60 ? 'бычий' : bull <= 30 ? 'медвежий' : bull >= 45 ? 'умеренно бычий' : 'неопределённый';
 
-    return `📰 <b>Топ новость дня</b>
+    return `📰  <b>Новости дня · ${todayStr()}</b>
 
-<b>${titleRu}</b>
+<b>BTC</b> $${fmt(btc.lastPrice)} ${pctFmt(btc.priceChangePercent)}  ·  <b>ETH</b> $${fmt(eth.lastPrice)} ${pctFmt(eth.priceChangePercent)}
 
-━━━━━━━━━━━━━━━━━━━━━━
-<b>Настроение новостей:</b>
+${newsList}
 
-🟢 Бычьих     ${textBar(bull)}  ${bull}%
-🔴 Медвежьих  ${textBar(bear)}  ${bear}%
-🟡 Нейтральных ${textBar(neut)}  ${neut}%
+⚡ Рынок: <b>${sentimentText}</b> (${bull}%)
 
-👉 thinkingtrader.com`;
+thinkingtrader.com`;
 }
 
 // ── Дневной пост EN ──────────────────────────────────────────
 async function buildNoonPostEN() {
-    const newsItems = await fetchAllNews();
-    const top1 = newsItems[0];
+    const [newsItems, tickerRaw] = await Promise.all([
+        fetchAllNews(),
+        proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent('["BTCUSDT","ETHUSDT"]')}`),
+    ]);
+
+    const btc = tickerRaw.find(t => t.symbol === 'BTCUSDT');
+    const eth = tickerRaw.find(t => t.symbol === 'ETHUSDT');
+
+    const top5 = newsItems.slice(0, 5);
+    const newsList = top5.map(n => `▸ ${n.title}`).join('\n');
+
     const sample = newsItems.slice(0, 30);
     const bull = Math.round(sample.filter(n => n.sentiment === 'bull').length / (sample.length || 1) * 100);
-    const bear = Math.round(sample.filter(n => n.sentiment === 'bear').length / (sample.length || 1) * 100);
-    const neut = 100 - bull - bear;
-    return `📰 <b>Top News of the Day</b>
+    const sentimentText = bull >= 60 ? 'bullish' : bull <= 30 ? 'bearish' : bull >= 45 ? 'moderately bullish' : 'uncertain';
 
-<b>${top1?.title || '—'}</b>
+    return `📰  <b>News of the Day · ${todayStrEn()}</b>
 
-━━━━━━━━━━━━━━━━━━━━━━
-<b>Market Sentiment:</b>
+<b>BTC</b> $${fmt(btc.lastPrice)} ${pctFmt(btc.priceChangePercent)}  ·  <b>ETH</b> $${fmt(eth.lastPrice)} ${pctFmt(eth.priceChangePercent)}
 
-🟢 Bullish    ${textBar(bull)}  ${bull}%
-🔴 Bearish    ${textBar(bear)}  ${bear}%
-🟡 Neutral    ${textBar(neut)}  ${neut}%
+${newsList}
 
-👉 thinkingtrader.com`;
+⚡ Market: <b>${sentimentText}</b> (${bull}%)
+
+thinkingtrader.com`;
 }
 
 // ── Вечерний пост 19:00 ───────────────────────────────────────
 async function buildEveningPost() {
-    const candles = await proxyFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90');
+    const [candles, tickerRaw] = await Promise.all([
+        proxyFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90'),
+        proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent('["BTCUSDT"]')}`),
+    ]);
+    const btc = tickerRaw.find(t => t.symbol === 'BTCUSDT');
     const closes  = candles.map(k => parseFloat(k[4]));
     const volumes = candles.map(k => parseFloat(k[5]));
 
@@ -478,18 +492,18 @@ async function buildEveningPost() {
     }
     const rsiVal = 100 - (100 / (1 + (gains/14) / (losses/14 || 0.0001)));
     const rsi = rsiVal.toFixed(1);
-    const rsiLabel = rsiVal > 70 ? '— перекупленность 🔴' : rsiVal < 30 ? '— перепроданность 🟢' : '— нейтрально 🟡';
+    const rsiLabel = rsiVal > 70 ? 'перекупленность  ▼' : rsiVal < 30 ? 'перепроданность  ▲' : 'нейтрально';
 
     // MACD
     const ema = (arr, n) => arr.slice(-n).reduce((a,b) => a+b, 0) / n;
     const macdVal = parseFloat((ema(closes,12) - ema(closes,26)).toFixed(0));
     const macd = (macdVal >= 0 ? '+' : '') + macdVal;
-    const macdLabel = macdVal >= 0 ? '— бычий 🟢' : '— медвежий 🔴';
+    const macdLabel = macdVal >= 0 ? 'бычий  ▲' : 'медвежий  ▼';
 
     // EMA 50/200
     const ema50  = ema(closes, 50);
     const ema200 = closes.length >= 200 ? ema(closes, 200) : ema(closes, closes.length);
-    const emaStr = ema50 >= ema200 ? 'выше 200 🟢' : 'ниже 200 🔴';
+    const emaStr = ema50 >= ema200 ? 'выше 200  ▲' : 'ниже 200  ▼';
 
     // BB Width
     const slice = closes.slice(-20);
@@ -502,41 +516,45 @@ async function buildEveningPost() {
     const volAvg = volumes.slice(-20).reduce((a,b) => a+b, 0) / 20;
     const volDiff = ((volNow - volAvg) / volAvg * 100);
     const vol = (volDiff >= 0 ? '+' : '') + volDiff.toFixed(1) + '%';
-    const volLabel = volDiff >= 0 ? '— выше среднего 🟢' : '— ниже среднего 🔴';
+    const volLabel = volDiff >= 0 ? 'выше среднего  ▲' : 'ниже среднего  ▼';
 
-    // Sentiment индикаторов
-    let bullSig = 0, bearSig = 0;
-    if (rsiVal > 50) bullSig++; else if (rsiVal < 50) bearSig++;
+    // Вердикт
+    let bullSig = 0, bearSig = 0, neutSig = 0;
+    if (rsiVal > 55) bullSig++; else if (rsiVal < 45) bearSig++; else neutSig++;
     if (macdVal >= 0) bullSig++; else bearSig++;
     if (ema50 >= ema200) bullSig++; else bearSig++;
     if (volDiff >= 0) bullSig++; else bearSig++;
-    const total = bullSig + bearSig || 1;
-    const indBull = Math.round(bullSig / total * 100);
-    const indBear = Math.round(bearSig / total * 100);
-    const indNeut = 100 - indBull - indBear;
+    neutSig++;
 
-    return `📊 <b>Технический срез · BTC · ${todayStr()}</b>
-━━━━━━━━━━━━━━━━━━━━━━
+    let verdict;
+    if (bullSig >= 4)      verdict = 'бычий сигнал';
+    else if (bearSig >= 4) verdict = 'медвежий сигнал';
+    else if (bullSig >= 3) verdict = 'умеренно бычий';
+    else if (bearSig >= 3) verdict = 'умеренно медвежий';
+    else                   verdict = 'неопределённость';
 
-<b>RSI (14)</b>    ${rsi}   ${rsiLabel}
-<b>MACD</b>       ${macd}   ${macdLabel}
-<b>BB Width</b>   ${bb}   — сжатие 🟡
-<b>EMA 50/200</b>  ${emaStr}
-<b>Объём 24ч</b>  ${vol}   ${volLabel}
+    return `📊  <b>Технический срез · BTC · ${todayStr()}</b>
 
-━━━━━━━━━━━━━━━━━━━━━━
-<b>Настроение индикаторов:</b>
+<b>$${fmt(btc.lastPrice)}</b>   ${pctFmt(btc.priceChangePercent)} за 24ч
 
-🟢 Бычьих     ${textBar(indBull)}  ${indBull}%
-🔴 Медвежьих  ${textBar(indBear)}  ${indBear}%
-🟡 Нейтральных ${textBar(indNeut)}  ${indNeut}%
+<b>RSI (14)</b>       ${rsi}      ${rsiLabel}
+<b>MACD</b>            ${macd}      ${macdLabel}
+<b>BB Width</b>       ${bb}   сжатие
+<b>EMA 50/200</b>   ${emaStr}
+<b>Объём 24ч</b>    ${vol}      ${volLabel}
 
-👉 thinkingtrader.com`;
+⚡ Сигнал: ${bullSig}▲  ${bearSig}▼  ${neutSig}◆  →  <b>${verdict}</b>
+
+thinkingtrader.com`;
 }
 
 // ── Вечерний пост EN ─────────────────────────────────────────
 async function buildEveningPostEN() {
-    const candles = await proxyFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90');
+    const [candles, tickerRaw] = await Promise.all([
+        proxyFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90'),
+        proxyFetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent('["BTCUSDT"]')}`),
+    ]);
+    const btc = tickerRaw.find(t => t.symbol === 'BTCUSDT');
     const closes  = candles.map(k => parseFloat(k[4]));
     const volumes = candles.map(k => parseFloat(k[5]));
     let gains = 0, losses = 0;
@@ -546,14 +564,14 @@ async function buildEveningPostEN() {
     }
     const rsiVal = 100 - (100 / (1 + (gains/14) / (losses/14 || 0.0001)));
     const rsi = rsiVal.toFixed(1);
-    const rsiLabel = rsiVal > 70 ? '— overbought 🔴' : rsiVal < 30 ? '— oversold 🟢' : '— neutral 🟡';
+    const rsiLabel = rsiVal > 70 ? 'overbought  ▼' : rsiVal < 30 ? 'oversold  ▲' : 'neutral';
     const ema = (arr, n) => arr.slice(-n).reduce((a,b) => a+b, 0) / n;
     const macdVal = parseFloat((ema(closes,12) - ema(closes,26)).toFixed(0));
     const macd = (macdVal >= 0 ? '+' : '') + macdVal;
-    const macdLabel = macdVal >= 0 ? '— bullish 🟢' : '— bearish 🔴';
+    const macdLabel = macdVal >= 0 ? 'bullish  ▲' : 'bearish  ▼';
     const ema50 = ema(closes, 50);
     const ema200 = closes.length >= 200 ? ema(closes, 200) : ema(closes, closes.length);
-    const emaStr = ema50 >= ema200 ? 'above 200 🟢' : 'below 200 🔴';
+    const emaStr = ema50 >= ema200 ? 'above 200  ▲' : 'below 200  ▼';
     const slice = closes.slice(-20);
     const mean  = slice.reduce((a,b) => a+b, 0) / 20;
     const stddev = Math.sqrt(slice.reduce((s,v) => s+(v-mean)**2, 0) / 20);
@@ -562,33 +580,35 @@ async function buildEveningPostEN() {
     const volAvg = volumes.slice(-20).reduce((a,b) => a+b, 0) / 20;
     const volDiff = ((volNow - volAvg) / volAvg * 100);
     const vol = (volDiff >= 0 ? '+' : '') + volDiff.toFixed(1) + '%';
-    const volLabel = volDiff >= 0 ? '— above average 🟢' : '— below average 🔴';
-    let bullSig = 0, bearSig = 0;
-    if (rsiVal > 50) bullSig++; else if (rsiVal < 50) bearSig++;
+    const volLabel = volDiff >= 0 ? 'above avg  ▲' : 'below avg  ▼';
+
+    let bullSig = 0, bearSig = 0, neutSig = 0;
+    if (rsiVal > 55) bullSig++; else if (rsiVal < 45) bearSig++; else neutSig++;
     if (macdVal >= 0) bullSig++; else bearSig++;
     if (ema50 >= ema200) bullSig++; else bearSig++;
     if (volDiff >= 0) bullSig++; else bearSig++;
-    const total = bullSig + bearSig || 1;
-    const indBull = Math.round(bullSig / total * 100);
-    const indBear = Math.round(bearSig / total * 100);
-    const indNeut = 100 - indBull - indBear;
-    return `📊 <b>Technical Overview · BTC · ${todayStrEn()}</b>
-━━━━━━━━━━━━━━━━━━━━━━
+    neutSig++;
 
-<b>RSI (14)</b>    ${rsi}   ${rsiLabel}
-<b>MACD</b>       ${macd}   ${macdLabel}
-<b>BB Width</b>   ${bb}   — squeeze 🟡
-<b>EMA 50/200</b>  ${emaStr}
-<b>Volume 24h</b>  ${vol}   ${volLabel}
+    let verdict;
+    if (bullSig >= 4)      verdict = 'bullish signal';
+    else if (bearSig >= 4) verdict = 'bearish signal';
+    else if (bullSig >= 3) verdict = 'moderately bullish';
+    else if (bearSig >= 3) verdict = 'moderately bearish';
+    else                   verdict = 'uncertain';
 
-━━━━━━━━━━━━━━━━━━━━━━
-<b>Indicator Sentiment:</b>
+    return `📊  <b>Technical Overview · BTC · ${todayStrEn()}</b>
 
-🟢 Bullish    ${textBar(indBull)}  ${indBull}%
-🔴 Bearish    ${textBar(indBear)}  ${indBear}%
-🟡 Neutral    ${textBar(indNeut)}  ${indNeut}%
+<b>$${fmt(btc.lastPrice)}</b>   ${pctFmt(btc.priceChangePercent)} 24h
 
-👉 thinkingtrader.com`;
+<b>RSI (14)</b>       ${rsi}      ${rsiLabel}
+<b>MACD</b>            ${macd}      ${macdLabel}
+<b>BB Width</b>       ${bb}   squeeze
+<b>EMA 50/200</b>   ${emaStr}
+<b>Volume 24h</b>   ${vol}      ${volLabel}
+
+⚡ Signal: ${bullSig}▲  ${bearSig}▼  ${neutSig}◆  →  <b>${verdict}</b>
+
+thinkingtrader.com`;
 }
 
 // ── История отправленных постов ───────────────────────────────
@@ -599,30 +619,51 @@ function logPost(type, text) {
 }
 
 // ── CRON — автопостинг ────────────────────────────────────────
+// Используем setInterval вместо setTimeout — переживает рестарты Railway
+const TIMEZONE_OFFSET = 3; // МСК = UTC+3
+
+const scheduledPosts = [];
+const postSentToday = {}; // ключ "label:YYYY-MM-DD" → true
+
 function scheduleDaily(hour, minute, fn, label, fnEn = null) {
-    function schedule() {
-        const now = new Date();
-        const next = new Date();
-        next.setHours(hour, minute, 0, 0);
-        if (next <= now) next.setDate(next.getDate() + 1);
-        const delay = next - now;
-        console.log(`⏰ ${label} запланирован через ${Math.round(delay/60000)} мин`);
-        setTimeout(async () => {
-            try {
-                console.log(`📤 Отправка: ${label}`);
-                const text = await fn();
-                const textEn = fnEn ? await fnEn() : null;
-                await tgSendBoth(text, textEn);
-                logPost(label, text);
-                console.log(`✅ ${label} отправлен (RU + EN)`);
-            } catch (e) {
-                console.error(`❌ ${label} ошибка:`, e.message);
-            }
-            schedule(); // планируем на следующий день
-        }, delay);
-    }
-    schedule();
+    scheduledPosts.push({ hour, minute, fn, label, fnEn });
+    console.log(`⏰ ${label} запланирован на ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} МСК`);
 }
+
+// Проверяем каждые 30 секунд — пора ли отправить пост
+setInterval(async () => {
+    const now = new Date();
+    // Текущее время в МСК
+    const mskHour   = (now.getUTCHours() + TIMEZONE_OFFSET) % 24;
+    const mskMinute = now.getUTCMinutes();
+    const dateKey   = now.toISOString().slice(0, 10); // "2026-03-10"
+
+    for (const job of scheduledPosts) {
+        if (mskHour === job.hour && mskMinute === job.minute) {
+            const sentKey = `${job.label}:${dateKey}`;
+            if (postSentToday[sentKey]) continue; // уже отправлено сегодня
+
+            postSentToday[sentKey] = true;
+            try {
+                console.log(`📤 Отправка: ${job.label}`);
+                const text = await job.fn();
+                const textEn = job.fnEn ? await job.fnEn() : null;
+                await tgSendBoth(text, textEn);
+                logPost(job.label, text);
+                console.log(`✅ ${job.label} отправлен (RU + EN)`);
+            } catch (e) {
+                console.error(`❌ ${job.label} ошибка:`, e.message);
+                // Сбрасываем флаг чтобы попробовать ещё раз в эту минуту
+                delete postSentToday[sentKey];
+            }
+        }
+    }
+
+    // Очищаем старые записи (вчерашние)
+    for (const key of Object.keys(postSentToday)) {
+        if (!key.endsWith(dateKey)) delete postSentToday[key];
+    }
+}, 30 * 1000);
 
 // ── CRON — алерты каждые 5 минут ─────────────────────────────
 const alertPrices = { BTCUSDT: [], ETHUSDT: [] };
