@@ -2,6 +2,30 @@ require('dotenv').config();
 const express = require('express');
 const path    = require('path');
 
+// ── Firebase Admin (для серверной проверки алертов) ────────────
+let adminDb   = null;
+let adminMsg  = null;
+
+try {
+    const admin = require('firebase-admin');
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
+        ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+        : null;
+
+    if (serviceAccount && !admin.apps.length) {
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+        });
+        adminDb  = admin.firestore();
+        adminMsg = admin.messaging();
+        console.log('✅ Firebase Admin инициализирован');
+    } else if (!serviceAccount) {
+        console.warn('⚠️ FIREBASE_SERVICE_ACCOUNT не задан — серверные алерты отключены');
+    }
+} catch(e) {
+    console.warn('⚠️ Firebase Admin недоступен:', e.message);
+}
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -833,6 +857,106 @@ app.get('/api/admin/status', (req, res) => {
     });
 });
 
+
+// ══════════════════════════════════════════════════════════════
+// СЕРВЕРНЫЕ АЛЕРТЫ — проверка каждые 30 сек, push на все устройства
+// ══════════════════════════════════════════════════════════════
+
+async function sendPushToUser(userId, title, body) {
+    if (!adminDb || !adminMsg) return;
+    try {
+        const tokensSnap = await adminDb
+            .collection('users').doc(userId)
+            .collection('fcmTokens').get();
+        const tokens = tokensSnap.docs.map(d => d.data().token).filter(Boolean);
+        if (!tokens.length) return;
+
+        const results = await Promise.allSettled(tokens.map(token =>
+            adminMsg.send({ token, notification: { title, body }, webpush: {
+                notification: { icon: '/favicon-192.png', badge: '/favicon-192.png', vibrate: [200, 100, 200] }
+            }})
+        ));
+
+        // Удаляем невалидные токены
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') {
+                adminDb.collection('users').doc(userId)
+                    .collection('fcmTokens').doc(tokensSnap.docs[i].id)
+                    .delete().catch(() => {});
+            }
+        });
+    } catch(e) {}
+}
+
+async function checkUserAlerts() {
+    if (!adminDb) return;
+    try {
+        // Читаем всех пользователей у которых есть алерты
+        const usersSnap = await adminDb.collection('users').get();
+
+        // Собираем уникальные монеты по всем пользователям
+        const coinAlerts = {}; // { 'BTCUSDT': [{userId, coin, alerts}] }
+
+        await Promise.all(usersSnap.docs.map(async userDoc => {
+            const userId = userDoc.id;
+            try {
+                const alertsSnap = await adminDb
+                    .collection('users').doc(userId)
+                    .collection('alerts').get();
+                alertsSnap.docs.forEach(doc => {
+                    const coin   = doc.id; // BTC, ETH, etc
+                    const items  = doc.data().items || [];
+                    if (!items.length) return;
+                    const symbol = coin + 'USDT';
+                    if (!coinAlerts[symbol]) coinAlerts[symbol] = [];
+                    coinAlerts[symbol].push({ userId, coin, items, docRef: doc.ref });
+                });
+            } catch(e) {}
+        }));
+
+        const symbols = Object.keys(coinAlerts);
+        if (!symbols.length) return;
+
+        // Батч-запрос цен
+        const enc = encodeURIComponent(JSON.stringify(symbols));
+        const priceRes = await proxyFetch(`https://api.binance.com/api/v3/ticker/price?symbols=${enc}`);
+        const priceMap = {};
+        priceRes.forEach(p => { priceMap[p.symbol] = parseFloat(p.price); });
+
+        // Проверяем алерты каждого пользователя
+        await Promise.all(symbols.map(async symbol => {
+            const price = priceMap[symbol];
+            if (!price) return;
+
+            await Promise.all(coinAlerts[symbol].map(async ({ userId, coin, items, docRef }) => {
+                const triggered = [];
+                const remaining = items.filter(a => {
+                    const hit = (a.dir === 'up'   && price >= a.targetPrice) ||
+                                (a.dir === 'down' && price <= a.targetPrice);
+                    if (hit) triggered.push(a);
+                    return !hit;
+                });
+
+                if (!triggered.length) return;
+
+                // Обновляем Firestore
+                await docRef.set({ items: remaining });
+
+                // Шлём push для каждого сработавшего алерта
+                for (const a of triggered) {
+                    const title = '🔔 Thinking Trader';
+                    const body  = a.label + ' — цель достигнута';
+                    await sendPushToUser(userId, title, body);
+                    console.log(`🔔 Алерт сработал: ${userId} / ${a.label}`);
+                }
+            }));
+        }));
+
+    } catch(e) {
+        console.error('checkUserAlerts error:', e.message);
+    }
+}
+
 // ── Запуск ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
     console.log(`✅ Thinking Trader server running on http://localhost:${PORT}`);
@@ -847,4 +971,11 @@ app.listen(PORT, () => {
     setInterval(checkPriceAlerts, 5 * 60 * 1000);
     checkPriceAlerts(); // сразу при старте
     console.log(`🤖 Telegram bot активен · алерты каждые 5 мин`);
+
+    // Серверная проверка пользовательских алертов каждые 30 сек
+    if (adminDb) {
+        setInterval(checkUserAlerts, 30 * 1000);
+        checkUserAlerts();
+        console.log('🔔 Серверные алерты активны · каждые 30 сек');
+    }
 });
