@@ -14455,6 +14455,11 @@
             try {
                 if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
                 if (Notification.permission === 'denied') return;
+                // Запрашиваем разрешение если ещё не дано
+                if (Notification.permission !== 'granted') {
+                    const perm = await Notification.requestPermission();
+                    if (perm !== 'granted') return;
+                }
                 const messaging = firebase.messaging();
                 const swReg = await navigator.serviceWorker.ready;
                 const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg });
@@ -14462,7 +14467,8 @@
                 await db.collection('users').doc(userId)
                     .collection('fcmTokens').doc(token.slice(-20))
                     .set({ token, updatedAt: Date.now() });
-            } catch(e) {}
+                console.log('FCM token registered:', token.slice(-10));
+            } catch(e) { console.warn('FCM token error:', e.message); }
         }
 
         function alertCoinKey(coin) {
