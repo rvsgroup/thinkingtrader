@@ -643,7 +643,7 @@ setInterval(async () => {
             const sentKey = `${job.label}:${dateKey}`;
             if (postSentToday[sentKey]) continue; // уже отправлено сегодня
 
-            postSentToday[sentKey] = true;
+            postSentToday[sentKey] = true; // Ставим флаг ДО отправки и НЕ сбрасываем при ошибке
             try {
                 console.log(`📤 Отправка: ${job.label}`);
                 const text = await job.fn();
@@ -653,8 +653,7 @@ setInterval(async () => {
                 console.log(`✅ ${job.label} отправлен (RU + EN)`);
             } catch (e) {
                 console.error(`❌ ${job.label} ошибка:`, e.message);
-                // Сбрасываем флаг чтобы попробовать ещё раз в эту минуту
-                delete postSentToday[sentKey];
+                // НЕ сбрасываем флаг — лучше пропустить, чем дублировать
             }
         }
     }

@@ -5841,7 +5841,7 @@
                     <div class="alert-tab-content" id="alertContentPrice">
                         <div class="alert-input-row">
                             <span class="alert-input-prefix">$</span>
-                            <input class="alert-price-input" id="alertPriceInput" type="number" placeholder="0.00" step="any">
+                            <input class="alert-price-input" id="alertPriceInput" type="number" inputmode="decimal" placeholder="0.00" step="any">
                             <span class="alert-input-suffix">USDT</span>
                         </div>
                         <div class="alert-hint" id="alertPriceHint"></div>
@@ -14389,7 +14389,7 @@
 
 
         // ══════════════════════════════════════════════
-        // PRICE ALERTS (with Firestore sync)
+        // PRICE ALERTS
         // ══════════════════════════════════════════════
         const ALERT_KEY = 'tt_price_alerts';
         let alertCurrentCoin = 'BTC';
@@ -14398,54 +14398,21 @@
         let alertActiveTab = 'price';
         let alertCheckInterval = null;
 
-        // ── Firestore sync layer ──
-        let _alertDb = null;
-        let _alertUserId = null;
-        let _alertCache = {};        // in-memory: { coinKey: [alerts] }
-        let _alertUnsubscribe = null; // onSnapshot unsubscribe
-
         function alertCoinKey(coin) {
             return ALERT_KEY + '_' + (coin || alertCurrentCoin);
         }
 
-        // Get Firestore document ref for a coin's alerts
-        function _alertDocRef(coin) {
-            if (!_alertDb || !_alertUserId) return null;
-            const key = coin || alertCurrentCoin;
-            return _alertDb.collection('users').doc(_alertUserId).collection('alerts').doc(key);
-        }
-
-        // ── Load from cache (instant, used by 15s check) ──
         function alertLoad(coin) {
-            const key = alertCoinKey(coin);
-            if (_alertCache[key]) return _alertCache[key];
-            // Fallback to localStorage
-            try { return JSON.parse(localStorage.getItem(key) || '[]'); }
+            try { return JSON.parse(localStorage.getItem(alertCoinKey(coin)) || '[]'); }
             catch { return []; }
         }
 
-        // ── Save: cache + localStorage + Firestore ──
         function alertSave(list, coin) {
-            const key = alertCoinKey(coin);
-            _alertCache[key] = list;
-            localStorage.setItem(key, JSON.stringify(list));
-            // Async push to Firestore
-            const ref = _alertDocRef(coin);
-            if (ref) {
-                ref.set({ items: list, updatedAt: Date.now() }).catch(e => console.warn('Alert Firestore save error:', e));
-            }
+            localStorage.setItem(alertCoinKey(coin), JSON.stringify(list));
         }
 
         function alertLoadAll() {
             const all = [];
-            // From cache first
-            for (const key in _alertCache) {
-                if (key.startsWith(ALERT_KEY + '_') && Array.isArray(_alertCache[key])) {
-                    all.push(..._alertCache[key]);
-                }
-            }
-            if (all.length) return all;
-            // Fallback to localStorage
             try {
                 for (let i = 0; i < localStorage.length; i++) {
                     const key = localStorage.key(i);
@@ -14459,92 +14426,6 @@
             } catch {}
             return all;
         }
-
-        // ── Firestore real-time listener ──
-        function _alertStartSync() {
-            if (!_alertDb || !_alertUserId) return;
-            // Stop previous listener
-            if (_alertUnsubscribe) { _alertUnsubscribe(); _alertUnsubscribe = null; }
-
-            const colRef = _alertDb.collection('users').doc(_alertUserId).collection('alerts');
-            _alertUnsubscribe = colRef.onSnapshot(snap => {
-                snap.docChanges().forEach(change => {
-                    const coinKey = ALERT_KEY + '_' + change.doc.id;
-                    const data = change.doc.data();
-                    if (change.type === 'removed') {
-                        delete _alertCache[coinKey];
-                        localStorage.removeItem(coinKey);
-                    } else {
-                        const items = Array.isArray(data?.items) ? data.items : [];
-                        _alertCache[coinKey] = items;
-                        localStorage.setItem(coinKey, JSON.stringify(items));
-                    }
-                });
-                // Refresh UI after any remote change
-                try { alertRefreshUI(); } catch(e) {}
-            }, err => {
-                console.warn('Alert snapshot error:', err);
-            });
-        }
-
-        // ── Merge local alerts into Firestore on first login ──
-        async function _alertMergeLocal() {
-            if (!_alertDb || !_alertUserId) return;
-            const colRef = _alertDb.collection('users').doc(_alertUserId).collection('alerts');
-            try {
-                // Gather all local alerts
-                const localKeys = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith(ALERT_KEY + '_')) localKeys.push(key);
-                }
-                if (!localKeys.length) return;
-
-                // Check if user already has alerts in Firestore
-                const snap = await colRef.limit(1).get();
-                if (!snap.empty) return; // Already has cloud alerts, don't overwrite
-
-                // Push local alerts to Firestore
-                const batch = _alertDb.batch();
-                for (const key of localKeys) {
-                    try {
-                        const items = JSON.parse(localStorage.getItem(key) || '[]');
-                        if (!Array.isArray(items) || !items.length) continue;
-                        const coin = key.replace(ALERT_KEY + '_', '');
-                        batch.set(colRef.doc(coin), { items, updatedAt: Date.now() });
-                    } catch {}
-                }
-                await batch.commit();
-            } catch(e) {
-                console.warn('Alert merge error:', e);
-            }
-        }
-
-        // ── Init: called from onAuthStateChanged ──
-        window.initAlerts = async function(userId) {
-            _alertUserId = userId;
-            _alertDb = firebase.firestore();
-            // Merge local → cloud on first login
-            await _alertMergeLocal();
-            // Load from Firestore into cache
-            try {
-                const colRef = _alertDb.collection('users').doc(_alertUserId).collection('alerts');
-                const snap = await colRef.get();
-                snap.forEach(doc => {
-                    const data = doc.data();
-                    const items = Array.isArray(data?.items) ? data.items : [];
-                    const key = ALERT_KEY + '_' + doc.id;
-                    _alertCache[key] = items;
-                    localStorage.setItem(key, JSON.stringify(items));
-                });
-            } catch(e) {
-                console.warn('Alert initial load error:', e);
-            }
-            // Start real-time sync
-            _alertStartSync();
-            // Refresh UI
-            try { alertRefreshUI(); } catch(e) {}
-        };
 
         function alertTogglePanel() {
             const panel = document.getElementById('alertPanel');
@@ -14721,6 +14602,14 @@
             if ('Notification' in window && Notification.permission === 'default') {
                 Notification.requestPermission();
             }
+            // Register service worker for mobile push
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js').catch(() => {});
+            }
+        }
+        // Register SW on load
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
         }
 
         function alertShowToast(msg, isAlert = false) {
@@ -14764,7 +14653,17 @@
         function alertFireNotification(alert) {
             const title = 'Thinking Trader';
             const body = alert.label + ' — ' + t('alertTargetReached');
-            if ('Notification' in window && Notification.permission === 'granted') {
+            // Try service worker notification first (works on mobile)
+            if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+                navigator.serviceWorker.ready.then(reg => {
+                    if (reg.active) {
+                        reg.active.postMessage({ type: 'SHOW_NOTIFICATION', title, body, icon: '/favicon-192.png' });
+                    }
+                }).catch(() => {
+                    // Fallback to regular Notification
+                    if ('Notification' in window) new Notification(title, { body, icon: '/favicon.svg' });
+                });
+            } else if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(title, { body, icon: '/favicon.svg' });
             }
             let n = document.getElementById('alertBigNotif');
@@ -15763,11 +15662,6 @@
         // Initialize journal with user's data
         if (typeof window.initJournal === 'function') {
             window.initJournal(user.uid);
-        }
-
-        // Initialize alerts sync with user's data
-        if (typeof window.initAlerts === 'function') {
-            window.initAlerts(user.uid);
         }
 
         // Show admin page if admin email
