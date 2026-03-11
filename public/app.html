@@ -2049,13 +2049,14 @@
         .alert-panel.open { display: flex; }
         @media (min-width: 768px) {
             .alert-panel {
-                position: absolute;
+                position: fixed;
                 top: unset;
-                bottom: -6px;
-                left: calc(100% + 12px);
+                bottom: unset;
+                left: unset;
+                right: unset;
                 transform: none;
                 width: 300px;
-                max-height: calc(100vh - 100px);
+                max-height: calc(100vh - 80px);
                 overflow-y: auto;
             }
         }
@@ -2415,6 +2416,210 @@
             color: #64748B;
             font-size: 10px;
         }
+
+        /* ── Watchlist ── */
+        .watchlist {
+            display: flex;
+            flex-direction: column;
+            background: linear-gradient(145deg, #111928 0%, #0F1728 100%);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .watchlist.open {
+            flex: 1;
+            min-height: 0;
+        }
+        .watchlist-bar {
+            display: flex;
+            align-items: center;
+            padding: 8px 14px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+            min-height: 34px;
+            gap: 8px;
+        }
+        .watchlist-bar:hover { background: rgba(255,255,255,0.02); }
+        .watchlist-title {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            color: #64748B;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }
+        .watchlist-title::before {
+            content: '';
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: #818CF8;
+            animation: wl-pulse 2s infinite;
+        }
+        @keyframes wl-pulse {
+            0%,100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+        .wl-add-btn {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            color: #818CF8;
+            background: none;
+            border: 1px solid rgba(99,102,241,0.3);
+            border-radius: 8px;
+            padding: 5px 12px;
+            display: flex; align-items: center; gap: 4px;
+            cursor: pointer;
+            transition: all 0.15s;
+            line-height: 1;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .wl-add-btn:hover { background: rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.5); }
+        .wl-toggle-arrow {
+            font-size: 10px;
+            color: #475569;
+            transition: transform 0.3s;
+            flex-shrink: 0;
+        }
+        .watchlist.open .wl-toggle-arrow { transform: rotate(180deg); }
+
+        /* Dropdown поиска — абсолютный, поверх контента */
+        .wl-dropdown {
+            position: absolute;
+            top: 38px;
+            right: 0;
+            width: 260px;
+            background: #111827;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 8px;
+            z-index: 600;
+            box-shadow: 0 20px 48px rgba(0,0,0,0.6);
+            opacity: 0;
+            transform: translateY(-8px);
+            pointer-events: none;
+            transition: opacity 0.22s cubic-bezier(0.4,0,0.2,1),
+                        transform 0.22s cubic-bezier(0.4,0,0.2,1);
+        }
+        .wl-dropdown.open {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+        .wl-dropdown-search {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 6px;
+        }
+        .wl-dropdown-search-icon { font-size: 13px; color: #475569; flex-shrink: 0; }
+        .wl-dropdown-search input {
+            background: none; border: none; outline: none;
+            color: white; font-size: 13px; width: 100%; font-family: inherit;
+        }
+        .wl-dropdown-search input::placeholder { color: #475569; }
+        .wl-dropdown-list {
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        .wl-dropdown-list::-webkit-scrollbar { width: 3px; }
+        .wl-dropdown-list::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.4); border-radius: 3px; }
+        .wl-search-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            cursor: pointer;
+            transition: background 0.15s;
+            border-radius: 6px;
+        }
+        .wl-search-item:hover { background: rgba(99,102,241,0.15); }
+        .wl-search-item .wl-icon { width: 28px; height: 28px; flex-shrink: 0; }
+        .wl-search-item .wl-name { flex: 1; }
+        .wl-search-item .wl-symbol { font-size: 13px; }
+        .wl-search-item .wl-fullname { font-size: 10px; }
+        .wl-search-add {
+            font-size: 16px; color: #818CF8; font-weight: 700;
+            opacity: 0; transition: opacity 0.15s;
+        }
+        .wl-search-item:hover .wl-search-add { opacity: 1; }
+
+        /* Тело watchlist — скролл */
+        .wl-body {
+            display: none;
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+        .watchlist.open .wl-body {
+            display: block;
+        }
+        .wl-body::-webkit-scrollbar { width: 3px; }
+        .wl-body::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.4); border-radius: 3px; }
+
+        .watchlist-item {
+            display: grid;
+            grid-template-columns: 36px 1fr 64px auto 16px;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .watchlist-item:last-child { border-bottom: none; }
+        .watchlist-item:hover { background: rgba(255,255,255,0.03); }
+        .wl-icon { width: 36px; height: 36px; border-radius: 50%; }
+        .wl-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .wl-symbol {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px; font-weight: 700; color: #E2E8F0; line-height: 1.2;
+        }
+        .wl-fullname {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px; color: #475569;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .wl-spark {
+            display: flex; align-items: center; justify-content: center;
+        }
+        .wl-spark svg { display: block; }
+        .wl-price-col {
+            display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+        }
+        .wl-price {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px; font-weight: 700; color: #E2E8F0; line-height: 1.2;
+        }
+        .wl-change {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px; font-weight: 600;
+        }
+        .wl-change.up { color: #10B981; }
+        .wl-change.down { color: #EF4444; }
+        .wl-change.flat { color: #64748B; }
+        .wl-del {
+            width: 16px; height: 16px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; color: #334155;
+            cursor: pointer; border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.15s, color 0.15s, background 0.15s;
+            flex-shrink: 0;
+        }
+        .watchlist-item:hover .wl-del { opacity: 1; }
+        .wl-del:hover { color: #EF4444; background: rgba(239,68,68,0.1); }
 
         .results-section { 
             display: flex; 
@@ -3855,8 +4060,11 @@
                 height: auto !important;
                 max-height: none !important;
             }
+            .watchlist { display: none !important; }
+            .results-top { display: flex !important; height: auto !important; }
+            #progressToGoal { display: block !important; }
+            #tpslCard { display: flex !important; }
             .results-scroll { overflow: visible !important; flex: none !important; height: auto !important; max-height: none !important; }
-            .results-top { height: auto !important; }
             .main-result { padding: 14px 16px; border-radius: 8px; }
             .result-label { font-size: 11px; margin-bottom: 6px; }
             .result-amount { font-size: 28px; margin-bottom: 10px; }
@@ -5655,7 +5863,7 @@
                     <button class="alert-add-btn" onclick="alertAdd()" data-i18n="alertAddBtn">＋ Добавить алерт</button>
 
                     <div class="alert-list-header">
-                        <span data-i18n="alertListHeader">АКТИВНЫЕ АЛЕРТЫ</span> <span id="alertCount">0</span> / 10
+                        <span data-i18n="alertListHeader">АКТИВНЫЕ АЛЕРТЫ</span> <span id="alertCount">0</span>
                     </div>
                     <div class="alert-list" id="alertList"></div>
                 </div><!-- /alert-panel -->
@@ -6202,8 +6410,31 @@
 
             <!-- ══ КОЛОНКА 3: Результаты ══ -->
             <div class="results-section">
-                <!-- Верхние блоки — всегда видны -->
-                <div class="results-top">
+
+                <!-- Watchlist wrapper (for dropdown positioning) -->
+                <div style="position:relative;display:flex;flex-direction:column;flex:1;min-height:0" id="watchlistWrap">
+                <div class="watchlist open" id="watchlist">
+                    <div class="watchlist-bar" onclick="wlToggle()">
+                        <span class="watchlist-title" data-i18n="watchlistTitle">Watchlist</span>
+                        <button class="wl-add-btn" onclick="wlToggleDropdown(event)">+ <span data-i18n="wlAddCoin">Add</span></button>
+                        <span class="wl-toggle-arrow">▼</span>
+                    </div>
+                    <div class="wl-body" id="wlBody">
+                        <div id="watchlistItems"></div>
+                    </div>
+                </div>
+                <!-- Dropdown поиска — поверх всего, вне watchlist -->
+                <div class="wl-dropdown" id="wlDropdown">
+                    <div class="wl-dropdown-search">
+                        <span class="wl-dropdown-search-icon">🔍</span>
+                        <input id="wlSearchInput" type="text" placeholder="Search coin..." oninput="wlSearch(this.value)">
+                    </div>
+                    <div class="wl-dropdown-list" id="wlSearchResults"></div>
+                </div>
+                </div>
+
+                <!-- Верхние блоки — скрыты по дефолту, появляются при расчёте -->
+                <div class="results-top" id="resultsTop" style="display:none">
                 <div class="main-result" id="mainResult">
                     <!-- Результат: Продажа -->
                     <div class="result-block active" id="resultSell">
@@ -6401,7 +6632,7 @@
                 <div class="results-scroll">
 
                 <!-- Прогресс бар -->
-                <div class="progress-to-goal" id="progressToGoal">
+                <div class="progress-to-goal" id="progressToGoal" style="display:none">
                     <div class="progress-header">
                         <span class="progress-title">🎯 <span data-i18n="progressTitle">Прогресс до цели</span> <span id="goalPrice">$0</span></span>
                         <span class="progress-percent" id="progressPercent">0%</span>
@@ -6413,7 +6644,7 @@
                 </div>
 
                 <!-- TP / SL / RR блок — появляется когда есть покупки -->
-                <div class="tpsl-card" id="tpslCard">
+                <div class="tpsl-card" id="tpslCard" style="display:none">
                     <div class="tpsl-header">
                         <span class="tpsl-title" data-i18n="tpslTitle2">📈 Уровни выхода</span>
                         <span class="tpsl-rr" id="tpslRR">RR —</span>
@@ -6464,12 +6695,13 @@
 
                 </div>
 
-                <!-- Новость -->
-                <div class="news-widget" id="newsWidget" style="opacity:0;">
+                </div><!-- /results-scroll -->
+
+                <!-- Новость — всегда внизу колонки -->
+                <div class="news-widget" id="newsWidget" style="opacity:0;flex-shrink:0;">
                     <div class="nw-tags"><span class="nw-tag">📰 Загрузка новости...</span></div>
                 </div>
 
-                </div><!-- /results-scroll -->
             </div><!-- /results-section -->
         </div>
     </div>
@@ -8134,6 +8366,13 @@
                 alertHelpStep3: 'Выберите <b>«На экран домой»</b>',
                 alertHelpStep4: 'Откройте сайт с иконки — и разрешите уведомления',
                 alertHelpNote: 'Работает на iOS 16.4+ и всех Android',
+
+                // Watchlist
+                watchlistTitle: 'Watchlist',
+                wlAddCoin: 'Добавить',
+                wlEmpty: 'Список пуст',
+                wlRemove: 'Удалить',
+                wlSearchPlaceholder: 'Поиск монеты...',
             },
             en: {
                 // UI общее
@@ -8448,6 +8687,13 @@
                 alertHelpStep3: 'Select <b>"Add to Home Screen"</b>',
                 alertHelpStep4: 'Open from icon — and allow notifications',
                 alertHelpNote: 'Works on iOS 16.4+ and all Android',
+
+                // Watchlist
+                watchlistTitle: 'Watchlist',
+                wlAddCoin: 'Add',
+                wlEmpty: 'List is empty',
+                wlRemove: 'Remove',
+                wlSearchPlaceholder: 'Search coin...',
             }
         };
 
@@ -8866,6 +9112,9 @@
             Object.values(resultBlocks).forEach(block => block.classList.remove('active'));
             if (resultBlocks[name]) resultBlocks[name].classList.add('active');
 
+            // Show results, hide watchlist
+            if (typeof showCalcResults === 'function') showCalcResults();
+
             // Если открываем продажу и строк ещё нет — добавляем первую
             if (name === 'sell' && buyEntriesContainer.querySelectorAll('.buy-row').length === 0) {
                 initializeEmpty();
@@ -8883,6 +9132,8 @@
         calcBackBtn.addEventListener('click', () => {
             calcContent.style.display = 'none';
             calcHub.style.display = 'flex';
+            // Show watchlist, hide empty results
+            if (typeof showWatchlist === 'function') showWatchlist();
         });
 
         // Паттерны — фильтр и поиск (логика в patterns.js)
@@ -13229,6 +13480,265 @@
         });
         setInterval(loadTicker, 60 * 1000);
 
+        // ════════════════════════════════════════════════════
+        // WATCHLIST (третья колонка)
+        // ════════════════════════════════════════════════════
+        const WL_DEFAULT = ['bitcoin','ethereum','solana','ripple','binancecoin','cardano','dogecoin','toncoin'];
+        const WL_STORAGE_KEY = 'tt_watchlist_v1';
+
+        function wlLoad() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(WL_STORAGE_KEY));
+                if (Array.isArray(saved) && saved.length) return saved;
+            } catch(e) {}
+            return [...WL_DEFAULT];
+        }
+        function wlSave(list) {
+            localStorage.setItem(WL_STORAGE_KEY, JSON.stringify(list));
+        }
+
+        let wlCoins = wlLoad();
+
+        function formatWlPrice(p) {
+            if (p >= 1000) return '$' + p.toLocaleString('en-US', {maximumFractionDigits: 0});
+            if (p >= 1)    return '$' + p.toFixed(2);
+            if (p >= 0.001) return '$' + p.toFixed(4);
+            return '$' + p.toPrecision(4);
+        }
+
+        function wlToggle() {
+            const wl = document.getElementById('watchlist');
+            const wrap = document.getElementById('watchlistWrap');
+            if (!wl) return;
+            const opening = !wl.classList.contains('open');
+            wl.classList.toggle('open', opening);
+            if (wrap) wrap.style.flex = opening ? '1' : '0 0 auto';
+
+            // Если открыт калькулятор — управляем видимостью блоков результатов
+            const calcContent = document.getElementById('calcContent');
+            const isCalcOpen = calcContent && calcContent.style.display !== 'none';
+            if (isCalcOpen) {
+                const rt = document.getElementById('resultsTop');
+                const pg = document.getElementById('progressToGoal');
+                const tp = document.getElementById('tpslCard');
+                if (opening) {
+                    // Скрываем результаты — освобождаем место для watchlist
+                    if (rt) rt.style.display = 'none';
+                    if (pg) pg.style.display = 'none';
+                    if (tp) tp.style.display = 'none';
+                } else {
+                    // Возвращаем результаты когда watchlist схлопнулся
+                    if (rt) rt.style.display = '';
+                    if (pg) pg.style.display = '';
+                    if (tp) tp.style.display = '';
+                }
+            }
+        }
+
+        function wlToggleDropdown(e) {
+            e.stopPropagation();
+            const dd = document.getElementById('wlDropdown');
+            const isOpen = dd.classList.toggle('open');
+            if (isOpen) {
+                const input = document.getElementById('wlSearchInput');
+                input.value = '';
+                wlSearch('');
+                setTimeout(() => input.focus(), 50);
+            }
+        }
+
+        function wlCloseDropdown() {
+            document.getElementById('wlDropdown')?.classList.remove('open');
+        }
+
+        // Close dropdown on outside click
+        document.addEventListener('click', (e) => {
+            const dd = document.getElementById('wlDropdown');
+            const btn = document.querySelector('.wl-add-btn');
+            if (dd && dd.classList.contains('open') && !dd.contains(e.target) && btn && !btn.contains(e.target)) {
+                dd.classList.remove('open');
+            }
+        });
+
+        function wlSearch(query) {
+            const container = document.getElementById('wlSearchResults');
+            if (!container) return;
+            const q = query.toLowerCase().trim();
+            const available = COINS.filter(c =>
+                !wlCoins.includes(c.id) &&
+                BINANCE_SYMBOLS[c.id] &&
+                (q === '' || c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q))
+            ).slice(0, 8);
+
+            if (!available.length) {
+                container.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:14px 0">' + t('coinNotFound') + '</div>';
+                return;
+            }
+
+            container.innerHTML = available.map(c => {
+                const icon = ICONS[c.id] || '';
+                return `<div class="wl-search-item" onclick="wlAddCoin('${c.id}')">
+                    ${icon ? `<img class="wl-icon" src="${icon}" alt="${c.symbol}" loading="lazy" onerror="this.style.display='none'">` : '<div style="width:28px"></div>'}
+                    <div class="wl-name">
+                        <span class="wl-fullname">${c.name}</span>
+                        <span class="wl-symbol" style="font-size:10px;color:#475569">${c.symbol}</span>
+                    </div>
+                    <span class="wl-search-add">+</span>
+                </div>`;
+            }).join('');
+        }
+
+        function wlAddCoin(id) {
+            if (wlCoins.includes(id)) return;
+            wlCoins.push(id);
+            wlSave(wlCoins);
+            loadWatchlist();
+            wlCloseDropdown();
+        }
+
+        function wlRemoveCoin(id, e) {
+            e.stopPropagation();
+            wlCoins = wlCoins.filter(c => c !== id);
+            wlSave(wlCoins);
+            loadWatchlist();
+        }
+
+        // Sparkline cache
+        const _wlSparkCache = {};
+
+        function wlSparkSVG(points, isUp) {
+            if (!points || points.length < 2) return '';
+            const w = 64, h = 28;
+            const min = Math.min(...points), max = Math.max(...points);
+            const range = max - min || 1;
+            const coords = points.map((p, i) => {
+                const x = (i / (points.length - 1)) * w;
+                const y = h - ((p - min) / range) * (h - 4) - 2;
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            });
+            const color = isUp ? '#10B981' : '#EF4444';
+            const fillColor = isUp ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)';
+            const pathD = 'M' + coords.join('L');
+            const areaD = pathD + `L${w},${h}L0,${h}Z`;
+            return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" fill="none">
+                <path d="${areaD}" fill="${fillColor}"/>
+                <path d="${pathD}" stroke="${color}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>`;
+        }
+
+        async function wlFetchSparklines() {
+            try {
+                const toFetch = wlCoins.filter(id => !_wlSparkCache[id] || Date.now() - _wlSparkCache[id].ts > 5 * 60000);
+                if (!toFetch.length) return;
+                await Promise.allSettled(toFetch.map(async id => {
+                    const sym = BINANCE_SYMBOLS[id];
+                    if (!sym) return;
+                    try {
+                        const r = await fetch(`/api/ohlc?symbol=${sym}&interval=1h&limit=24`, { signal: AbortSignal.timeout(4000) });
+                        if (!r.ok) return;
+                        const data = await r.json();
+                        if (Array.isArray(data) && data.length > 2) {
+                            const closes = data.map(c => parseFloat(c[4] || c[1]));
+                            _wlSparkCache[id] = { closes, ts: Date.now() };
+                        }
+                    } catch(e) {}
+                }));
+            } catch(e) {}
+        }
+
+        async function loadWatchlist() {
+            try {
+                if (!wlCoins.length) {
+                    const container = document.getElementById('watchlistItems');
+                    if (container) container.innerHTML = '<div style="text-align:center;color:#334155;font-size:11px;padding:16px 0">' + t('wlEmpty') + '</div>';
+                    return;
+                }
+                const symbols = wlCoins.map(id => BINANCE_SYMBOLS[id]).filter(Boolean);
+                const encoded = encodeURIComponent(JSON.stringify(symbols));
+                const [tickerRes] = await Promise.allSettled([
+                    fetch(`/api/ticker?symbols=${encoded}`, { signal: AbortSignal.timeout(5000) }),
+                    wlFetchSparklines()
+                ]);
+                if (tickerRes.status !== 'fulfilled' || !tickerRes.value.ok) return;
+                const tickers = await tickerRes.value.json();
+                if (!Array.isArray(tickers) || !tickers.length) return;
+
+                const bySymbol = {};
+                tickers.forEach(tk => { bySymbol[tk.symbol] = tk; });
+
+                const container = document.getElementById('watchlistItems');
+                if (!container) return;
+
+                container.innerHTML = wlCoins.map(id => {
+                    const sym = BINANCE_SYMBOLS[id];
+                    const data = sym && bySymbol[sym];
+                    if (!data) return '';
+                    const coin = COINS.find(c => c.id === id);
+                    const icon = ICONS[id] || '';
+                    const price = parseFloat(data.lastPrice);
+                    const chg = parseFloat(data.priceChangePercent);
+                    const cls = isNaN(chg) ? 'flat' : chg >= 0 ? 'up' : 'down';
+                    const arrow = isNaN(chg) ? '' : chg >= 0 ? '▲' : '▼';
+                    const chgStr = isNaN(chg) ? '—' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+                    const spark = _wlSparkCache[id]?.closes;
+                    const sparkHtml = wlSparkSVG(spark, chg >= 0);
+                    return `<div class="watchlist-item" onclick="wlSelectCoin('${id}')">
+                        ${icon ? `<img class="wl-icon" src="${icon}" alt="${coin?.symbol||''}" loading="lazy" onerror="this.style.display='none'">` : '<div style="width:36px"></div>'}
+                        <div class="wl-name">
+                            <span class="wl-symbol">${coin?.symbol || id.toUpperCase()}</span>
+                            <span class="wl-fullname">${coin?.name || id}</span>
+                        </div>
+                        <div class="wl-spark">${sparkHtml}</div>
+                        <div class="wl-price-col">
+                            <span class="wl-price">${isNaN(price) ? '—' : formatWlPrice(price)}</span>
+                            <span class="wl-change ${cls}">${arrow} ${chgStr}</span>
+                        </div>
+                        <span class="wl-del" onclick="wlRemoveCoin('${id}',event)" title="${t('wlRemove')}">×</span>
+                    </div>`;
+                }).join('');
+            } catch(e) {
+                console.warn('Watchlist error:', e);
+            }
+        }
+
+        // Показать/скрыть watchlist и results
+        function showCalcResults() {
+            const rt = document.getElementById('resultsTop');
+            const pg = document.getElementById('progressToGoal');
+            const tp = document.getElementById('tpslCard');
+            if (rt) rt.style.display = '';
+            if (pg) pg.style.display = '';
+            if (tp) tp.style.display = '';
+            // Collapse watchlist but keep bar visible
+            const wl = document.getElementById('watchlist');
+            const wrap = document.getElementById('watchlistWrap');
+            if (wl) wl.classList.remove('open');
+            if (wrap) wrap.style.flex = '0 0 auto';
+        }
+
+        function showWatchlist() {
+            const wl = document.getElementById('watchlist');
+            const wrap = document.getElementById('watchlistWrap');
+            const rt = document.getElementById('resultsTop');
+            const pg = document.getElementById('progressToGoal');
+            const tp = document.getElementById('tpslCard');
+            if (wl) wl.classList.add('open');
+            if (wrap) wrap.style.flex = '1';
+            if (rt) rt.style.display = 'none';
+            if (pg) pg.style.display = 'none';
+            if (tp) tp.style.display = 'none';
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadWatchlist();
+        });
+        setInterval(loadWatchlist, 30 * 1000);
+
+        function wlSelectCoin(id) {
+            const coin = COINS.find(c => c.id === id);
+            if (coin && typeof selectCoin === 'function') selectCoin(coin);
+        }
+
         // Автообновление графика каждые 15 секунд
         function startPriceRefresh() {
           setInterval(async () => {
@@ -13749,6 +14259,11 @@
                     if (hint) hint.textContent = tr.alertCurrentPrice + ': $' + window.alertCurrentPrice.toLocaleString('en', {maximumFractionDigits: window.alertCurrentPrice > 100 ? 2 : 6});
                 }
             } catch(e) {}
+
+            // Watchlist translations
+            const wlSInput = document.getElementById('wlSearchInput');
+            if (wlSInput) wlSInput.placeholder = tr.wlSearchPlaceholder || 'Search coin...';
+            if (typeof loadWatchlist === 'function') loadWatchlist();
         }
 
         // Дропдаун
@@ -13874,7 +14389,7 @@
 
 
         // ══════════════════════════════════════════════
-        // PRICE ALERTS
+        // PRICE ALERTS (with Firestore sync)
         // ══════════════════════════════════════════════
         const ALERT_KEY = 'tt_price_alerts';
         let alertCurrentCoin = 'BTC';
@@ -13883,19 +14398,177 @@
         let alertActiveTab = 'price';
         let alertCheckInterval = null;
 
-        function alertLoad() {
-            try { return JSON.parse(localStorage.getItem(ALERT_KEY) || '[]'); }
+        // ── Firestore sync layer ──
+        let _alertDb = null;
+        let _alertUserId = null;
+        let _alertCache = {};        // in-memory: { coinKey: [alerts] }
+        let _alertUnsubscribe = null; // onSnapshot unsubscribe
+
+        function alertCoinKey(coin) {
+            return ALERT_KEY + '_' + (coin || alertCurrentCoin);
+        }
+
+        // Get Firestore document ref for a coin's alerts
+        function _alertDocRef(coin) {
+            if (!_alertDb || !_alertUserId) return null;
+            const key = coin || alertCurrentCoin;
+            return _alertDb.collection('users').doc(_alertUserId).collection('alerts').doc(key);
+        }
+
+        // ── Load from cache (instant, used by 15s check) ──
+        function alertLoad(coin) {
+            const key = alertCoinKey(coin);
+            if (_alertCache[key]) return _alertCache[key];
+            // Fallback to localStorage
+            try { return JSON.parse(localStorage.getItem(key) || '[]'); }
             catch { return []; }
         }
 
-        function alertSave(list) {
-            localStorage.setItem(ALERT_KEY, JSON.stringify(list));
+        // ── Save: cache + localStorage + Firestore ──
+        function alertSave(list, coin) {
+            const key = alertCoinKey(coin);
+            _alertCache[key] = list;
+            localStorage.setItem(key, JSON.stringify(list));
+            // Async push to Firestore
+            const ref = _alertDocRef(coin);
+            if (ref) {
+                ref.set({ items: list, updatedAt: Date.now() }).catch(e => console.warn('Alert Firestore save error:', e));
+            }
         }
+
+        function alertLoadAll() {
+            const all = [];
+            // From cache first
+            for (const key in _alertCache) {
+                if (key.startsWith(ALERT_KEY + '_') && Array.isArray(_alertCache[key])) {
+                    all.push(..._alertCache[key]);
+                }
+            }
+            if (all.length) return all;
+            // Fallback to localStorage
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith(ALERT_KEY + '_')) {
+                        try {
+                            const items = JSON.parse(localStorage.getItem(key) || '[]');
+                            if (Array.isArray(items)) all.push(...items);
+                        } catch {}
+                    }
+                }
+            } catch {}
+            return all;
+        }
+
+        // ── Firestore real-time listener ──
+        function _alertStartSync() {
+            if (!_alertDb || !_alertUserId) return;
+            // Stop previous listener
+            if (_alertUnsubscribe) { _alertUnsubscribe(); _alertUnsubscribe = null; }
+
+            const colRef = _alertDb.collection('users').doc(_alertUserId).collection('alerts');
+            _alertUnsubscribe = colRef.onSnapshot(snap => {
+                snap.docChanges().forEach(change => {
+                    const coinKey = ALERT_KEY + '_' + change.doc.id;
+                    const data = change.doc.data();
+                    if (change.type === 'removed') {
+                        delete _alertCache[coinKey];
+                        localStorage.removeItem(coinKey);
+                    } else {
+                        const items = Array.isArray(data?.items) ? data.items : [];
+                        _alertCache[coinKey] = items;
+                        localStorage.setItem(coinKey, JSON.stringify(items));
+                    }
+                });
+                // Refresh UI after any remote change
+                try { alertRefreshUI(); } catch(e) {}
+            }, err => {
+                console.warn('Alert snapshot error:', err);
+            });
+        }
+
+        // ── Merge local alerts into Firestore on first login ──
+        async function _alertMergeLocal() {
+            if (!_alertDb || !_alertUserId) return;
+            const colRef = _alertDb.collection('users').doc(_alertUserId).collection('alerts');
+            try {
+                // Gather all local alerts
+                const localKeys = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith(ALERT_KEY + '_')) localKeys.push(key);
+                }
+                if (!localKeys.length) return;
+
+                // Check if user already has alerts in Firestore
+                const snap = await colRef.limit(1).get();
+                if (!snap.empty) return; // Already has cloud alerts, don't overwrite
+
+                // Push local alerts to Firestore
+                const batch = _alertDb.batch();
+                for (const key of localKeys) {
+                    try {
+                        const items = JSON.parse(localStorage.getItem(key) || '[]');
+                        if (!Array.isArray(items) || !items.length) continue;
+                        const coin = key.replace(ALERT_KEY + '_', '');
+                        batch.set(colRef.doc(coin), { items, updatedAt: Date.now() });
+                    } catch {}
+                }
+                await batch.commit();
+            } catch(e) {
+                console.warn('Alert merge error:', e);
+            }
+        }
+
+        // ── Init: called from onAuthStateChanged ──
+        window.initAlerts = async function(userId) {
+            _alertUserId = userId;
+            _alertDb = firebase.firestore();
+            // Merge local → cloud on first login
+            await _alertMergeLocal();
+            // Load from Firestore into cache
+            try {
+                const colRef = _alertDb.collection('users').doc(_alertUserId).collection('alerts');
+                const snap = await colRef.get();
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    const items = Array.isArray(data?.items) ? data.items : [];
+                    const key = ALERT_KEY + '_' + doc.id;
+                    _alertCache[key] = items;
+                    localStorage.setItem(key, JSON.stringify(items));
+                });
+            } catch(e) {
+                console.warn('Alert initial load error:', e);
+            }
+            // Start real-time sync
+            _alertStartSync();
+            // Refresh UI
+            try { alertRefreshUI(); } catch(e) {}
+        };
 
         function alertTogglePanel() {
             const panel = document.getElementById('alertPanel');
             panel.classList.toggle('open');
-            if (panel.classList.contains('open')) alertRefreshUI();
+            if (panel.classList.contains('open')) {
+                alertRefreshUI();
+                if (window.innerWidth >= 768) {
+                    const bell = document.getElementById('alertBellBtn');
+                    if (bell) {
+                        const rect = bell.getBoundingClientRect();
+                        const panelW = 300;
+                        const margin = 8;
+                        let top = rect.bottom + margin;
+                        if (top + 420 > window.innerHeight) {
+                            top = Math.max(margin, rect.top - 420 - margin);
+                        }
+                        let left = rect.right - panelW;
+                        if (left < margin) left = margin;
+                        if (left + panelW > window.innerWidth - margin) left = window.innerWidth - panelW - margin;
+                        panel.style.top = top + 'px';
+                        panel.style.left = left + 'px';
+                    }
+                }
+            }
         }
 
         function alertSwitchTab(tab) {
@@ -13919,6 +14592,7 @@
             const hint = document.getElementById('alertPriceHint');
             if (hint && alertCurrentPrice > 0) hint.textContent = t('alertCurrentPrice') + ': $' + alertCurrentPrice.toLocaleString('en', {maximumFractionDigits: alertCurrentPrice > 100 ? 2 : 6});
             alertUpdateSlider();
+            try { alertRefreshUI(); } catch(e) {}
         }
 
         function alertUpdateSlider() {
@@ -13988,7 +14662,7 @@
 
             list.push({ id: Date.now(), coin: alertCurrentCoin, targetPrice, dir, label, triggered: false });
             alertSave(list);
-            alertRefreshUI();
+            try { alertRefreshUI(); } catch(e) {}
             alertShowToast(t('alertAdded'));
             alertRequestPermission();
         }
@@ -14017,28 +14691,30 @@
         });
 
         function alertRefreshUI() {
-            const list = alertLoad();
-            const count = list.length;
-            const countEl = document.getElementById('alertCount');
-            const bellCount = document.getElementById('alertBellCount');
-            const bellBtn = document.getElementById('alertBellBtn');
-            if (countEl) countEl.textContent = count;
-            if (bellCount) { bellCount.textContent = count; bellCount.style.display = count > 0 ? 'flex' : 'none'; }
-            if (bellBtn) bellBtn.classList.toggle('has-alerts', count > 0);
+            try {
+                const list = alertLoad();
+                const count = list.length;
+                const countEl = document.getElementById('alertCount');
+                const bellCount = document.getElementById('alertBellCount');
+                const bellBtn = document.getElementById('alertBellBtn');
+                if (countEl) countEl.textContent = count + ' / 10';
+                if (bellCount) { bellCount.textContent = count; bellCount.style.display = count > 0 ? 'flex' : 'none'; }
+                if (bellBtn) bellBtn.classList.toggle('has-alerts', count > 0);
 
-            const listEl = document.getElementById('alertList');
-            if (!listEl) return;
-            if (list.length === 0) {
-                listEl.innerHTML = '<div class="alert-empty">' + t('alertEmpty') + '</div>';
-                return;
-            }
-            listEl.innerHTML = list.map(a => `
-                <div class="alert-item ${a.dir}">
-                    <span class="alert-item-arrow">${a.dir === 'up' ? '↑' : '↓'}</span>
-                    <span class="alert-item-text">${a.label}</span>
-                    <button class="alert-item-del" onclick="alertDelete(${a.id},event)">×</button>
-                </div>
-            `).join('');
+                const listEl = document.getElementById('alertList');
+                if (!listEl) return;
+                if (list.length === 0) {
+                    listEl.innerHTML = '<div class="alert-empty">' + t('alertEmpty') + '</div>';
+                    return;
+                }
+                listEl.innerHTML = list.map(a => `
+                    <div class="alert-item ${a.dir}">
+                        <span class="alert-item-arrow">${a.dir === 'up' ? '↑' : '↓'}</span>
+                        <span class="alert-item-text">${a.label}</span>
+                        <button class="alert-item-del" onclick="alertDelete(${a.id},event)">×</button>
+                    </div>
+                `).join('');
+            } catch(e) {}
         }
 
         function alertRequestPermission() {
@@ -14131,29 +14807,60 @@
             n._timer = setTimeout(() => { n.style.opacity='0'; n.style.transform='translateY(-8px)'; }, 7000);
         }
 
-        function alertCheckPrices() {
-            const list = alertLoad();
-            if (list.length === 0) return;
-            // Get current price from existing UI
-            const priceEl = document.getElementById('currentPrice');
-            if (!priceEl) return;
-            const priceText = priceEl.textContent.replace(/[$,]/g, '');
-            const price = parseFloat(priceText);
-            if (!price) return;
-
-            let changed = false;
-            const newList = list.filter(a => {
-                if (a.coin !== alertCurrentCoin) return true;
-                const triggered = (a.dir === 'up' && price >= a.targetPrice) ||
-                                  (a.dir === 'down' && price <= a.targetPrice);
-                if (triggered) { alertFireNotification(a); changed = true; return false; }
-                return true;
-            });
-            if (changed) { alertSave(newList); alertRefreshUI(); }
+        // Проверка алертов текущей монеты (из UI, каждые 15с)
+        function alertCheckCurrentCoin() {
+            try {
+                const list = alertLoad();
+                if (!list.length) return;
+                const priceEl = document.getElementById('currentPrice');
+                const price = parseFloat((priceEl?.textContent || '').replace(/[$,]/g, ''));
+                if (!price) return;
+                let changed = false;
+                const newList = list.filter(a => {
+                    const triggered = (a.dir === 'up' && price >= a.targetPrice) ||
+                                      (a.dir === 'down' && price <= a.targetPrice);
+                    if (triggered) { alertFireNotification(a); changed = true; return false; }
+                    return true;
+                });
+                if (changed) { alertSave(newList); alertRefreshUI(); }
+            } catch(e) {}
         }
 
-        // Start checking every 15 seconds
-        setInterval(alertCheckPrices, 15000);
+        // Фоновая проверка остальных монет (через /api/price прокси, каждые 60с)
+        async function alertCheckBackgroundCoins() {
+            try {
+                const allAlerts = alertLoadAll();
+                if (!allAlerts.length) return;
+                // Монеты с алертами, кроме текущей
+                const bgCoins = [...new Set(allAlerts.map(a => a.coin))]
+                    .filter(c => c !== alertCurrentCoin);
+                if (!bgCoins.length) return;
+
+                for (const coin of bgCoins) {
+                    try {
+                        const list = alertLoad(coin);
+                        if (!list.length) continue;
+                        const sym = coin + 'USDT';
+                        const r = await fetch('/api/price?symbol=' + sym, { signal: AbortSignal.timeout(4000) });
+                        if (!r.ok) continue;
+                        const d = await r.json();
+                        const price = parseFloat(d.price || d.lastPrice || 0);
+                        if (!price) continue;
+                        let changed = false;
+                        const newList = list.filter(a => {
+                            const triggered = (a.dir === 'up' && price >= a.targetPrice) ||
+                                              (a.dir === 'down' && price <= a.targetPrice);
+                            if (triggered) { alertFireNotification(a); changed = true; return false; }
+                            return true;
+                        });
+                        if (changed) { alertSave(newList, coin); alertRefreshUI(); }
+                    } catch(e) {}
+                }
+            } catch(e) {}
+        }
+
+        setInterval(alertCheckCurrentCoin, 15000);
+        setInterval(alertCheckBackgroundCoins, 60000);
 
         // Close panel on outside click
         document.addEventListener('click', (e) => {
@@ -15056,6 +15763,11 @@
         // Initialize journal with user's data
         if (typeof window.initJournal === 'function') {
             window.initJournal(user.uid);
+        }
+
+        // Initialize alerts sync with user's data
+        if (typeof window.initAlerts === 'function') {
+            window.initAlerts(user.uid);
         }
 
         // Show admin page if admin email
