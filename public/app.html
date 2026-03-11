@@ -14398,20 +14398,99 @@
         let alertActiveTab = 'price';
         let alertCheckInterval = null;
 
+        // ── Firestore sync for alerts ──
+        let _alertDb = null;
+        let _alertUserId = null;
+        let _alertUnsubscribe = null;
+        // In-memory cache: { BTC: [...], ETH: [...] }
+        let _alertCache = {};
+
+        // Вызывается из onAuthStateChanged при логине
+        window.initAlerts = async function(userId, db) {
+            _alertUserId = userId;
+            _alertDb = db;
+
+            // Мержим локальные алерты в Firestore (чтобы не потерять)
+            try {
+                const localCoins = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith(ALERT_KEY + '_')) {
+                        const coin = key.replace(ALERT_KEY + '_', '');
+                        localCoins.push(coin);
+                    }
+                }
+                for (const coin of localCoins) {
+                    const localList = JSON.parse(localStorage.getItem(ALERT_KEY + '_' + coin) || '[]');
+                    if (!localList.length) continue;
+                    const ref = _alertDb.collection('users').doc(_alertUserId).collection('alerts').doc(coin);
+                    const snap = await ref.get();
+                    const remoteList = snap.exists ? (snap.data().items || []) : [];
+                    // Мерж: добавляем локальные которых нет в remote (по id)
+                    const remoteIds = new Set(remoteList.map(a => a.id));
+                    const merged = [...remoteList, ...localList.filter(a => !remoteIds.has(a.id))];
+                    await ref.set({ items: merged });
+                    localStorage.removeItem(ALERT_KEY + '_' + coin);
+                }
+            } catch(e) {}
+
+            // Realtime listener — обновляет кеш и UI при любом изменении
+            try {
+                _alertUnsubscribe = _alertDb
+                    .collection('users').doc(_alertUserId).collection('alerts')
+                    .onSnapshot(snap => {
+                        snap.forEach(doc => {
+                            _alertCache[doc.id] = doc.data().items || [];
+                        });
+                        // Удалённые документы
+                        const ids = new Set(snap.docs.map(d => d.id));
+                        Object.keys(_alertCache).forEach(k => { if (!ids.has(k)) delete _alertCache[k]; });
+                        try { alertRefreshUI(); } catch(e) {}
+                    }, () => {});
+            } catch(e) {}
+        };
+
+        // Вызывается при логауте
+        window.deinitAlerts = function() {
+            if (_alertUnsubscribe) { try { _alertUnsubscribe(); } catch(e) {} }
+            _alertDb = null;
+            _alertUserId = null;
+            _alertCache = {};
+        };
+
         function alertCoinKey(coin) {
             return ALERT_KEY + '_' + (coin || alertCurrentCoin);
         }
 
         function alertLoad(coin) {
-            try { return JSON.parse(localStorage.getItem(alertCoinKey(coin)) || '[]'); }
+            const c = coin || alertCurrentCoin;
+            // Если залогинен — из кеша
+            if (_alertUserId) return _alertCache[c] || [];
+            try { return JSON.parse(localStorage.getItem(alertCoinKey(c)) || '[]'); }
             catch { return []; }
         }
 
         function alertSave(list, coin) {
-            localStorage.setItem(alertCoinKey(coin), JSON.stringify(list));
+            const c = coin || alertCurrentCoin;
+            if (_alertUserId && _alertDb) {
+                // Обновляем кеш сразу (для мгновенного UI)
+                _alertCache[c] = list;
+                // Пишем в Firestore асинхронно
+                _alertDb.collection('users').doc(_alertUserId)
+                    .collection('alerts').doc(c)
+                    .set({ items: list })
+                    .catch(() => {});
+            } else {
+                localStorage.setItem(alertCoinKey(c), JSON.stringify(list));
+            }
         }
 
         function alertLoadAll() {
+            if (_alertUserId) {
+                const all = [];
+                Object.values(_alertCache).forEach(list => { if (Array.isArray(list)) all.push(...list); });
+                return all;
+            }
             const all = [];
             try {
                 for (let i = 0; i < localStorage.length; i++) {
@@ -15664,6 +15743,12 @@
             window.initJournal(user.uid);
         }
 
+        // Initialize alerts sync
+        if (typeof window.initAlerts === 'function') {
+            const alertDb = firebase.firestore();
+            window.initAlerts(user.uid, alertDb);
+        }
+
         // Show admin page if admin email
         if (user.email === ADMIN_EMAIL) {
             document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
@@ -15675,6 +15760,7 @@
 
     // Logout
     document.getElementById('btnLogout').addEventListener('click', () => {
+        if (typeof window.deinitAlerts === 'function') window.deinitAlerts();
         auth.signOut().then(() => {
             window.location.href = '/';
         });
