@@ -891,28 +891,21 @@ async function sendPushToUser(userId, title, body) {
 async function checkUserAlerts() {
     if (!adminDb) return;
     try {
-        // Читаем всех пользователей у которых есть алерты
-        const usersSnap = await adminDb.collection('users').get();
+        // collectionGroup читает alerts у ВСЕХ пользователей сразу
+        // даже если у документа пользователя нет полей (только подколлекции)
+        const alertsSnap = await adminDb.collectionGroup('alerts').get();
 
-        // Собираем уникальные монеты по всем пользователям
-        const coinAlerts = {}; // { 'BTCUSDT': [{userId, coin, alerts}] }
+        const coinAlerts = {}; // { 'BTCUSDT': [{userId, coin, items, docRef}] }
 
-        await Promise.all(usersSnap.docs.map(async userDoc => {
-            const userId = userDoc.id;
-            try {
-                const alertsSnap = await adminDb
-                    .collection('users').doc(userId)
-                    .collection('alerts').get();
-                alertsSnap.docs.forEach(doc => {
-                    const coin   = doc.id; // BTC, ETH, etc
-                    const items  = doc.data().items || [];
-                    if (!items.length) return;
-                    const symbol = coin + 'USDT';
-                    if (!coinAlerts[symbol]) coinAlerts[symbol] = [];
-                    coinAlerts[symbol].push({ userId, coin, items, docRef: doc.ref });
-                });
-            } catch(e) {}
-        }));
+        alertsSnap.docs.forEach(doc => {
+            const items = doc.data().items || [];
+            if (!items.length) return;
+            const coin   = doc.id; // BTC, ETH, etc
+            const userId = doc.ref.parent.parent.id; // users/{userId}/alerts/{coin}
+            const symbol = coin + 'USDT';
+            if (!coinAlerts[symbol]) coinAlerts[symbol] = [];
+            coinAlerts[symbol].push({ userId, coin, items, docRef: doc.ref });
+        });
 
         const symbols = Object.keys(coinAlerts);
         if (!symbols.length) return;
