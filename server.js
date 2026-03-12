@@ -966,27 +966,6 @@ async function checkUserAlerts() {
 }
 
 // ── Запуск ─────────────────────────────────────────────────────
-app.listen(PORT, () => {
-    console.log(`✅ Thinking Trader server running on http://localhost:${PORT}`);
-    console.log(`📦 Cache: prices 30s · charts 5m · news 15m · feargreed 30m · translate 24h`);
-
-    // Автопостинг по расписанию
-    scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
-    scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(19, 0, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
-
-    // Алерты каждые 5 минут
-    setInterval(checkPriceAlerts, 5 * 60 * 1000);
-    checkPriceAlerts(); // сразу при старте
-    console.log(`🤖 Telegram bot активен · алерты каждые 5 мин`);
-
-    // Серверная проверка пользовательских алертов каждые 30 сек
-    if (adminDb) {
-        setInterval(checkUserAlerts, 30 * 1000);
-        checkUserAlerts();
-        console.log('🔔 Серверные алерты активны · каждые 30 сек');
-    }
-});
 
 // Firebase custom token endpoint
 app.post('/api/customtoken', async (req, res) => {
@@ -1012,3 +991,27 @@ app.get('/api/debug-firebase', (req, res) => {
         res.json({ status: 'parse error', error: e.message, first100: raw.substring(0, 100) });
     }
 });
+
+app.listen(PORT, () => {
+    console.log(`✅ Thinking Trader server running on http://localhost:${PORT}`);
+    console.log(`📦 Cache: prices 30s · charts 5m · news 15m · feargreed 30m · translate 24h`);
+
+    // Автопостинг по расписанию
+    scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
+    scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
+    scheduleDaily(19, 0, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
+
+    // Алерты каждые 5 минут
+    setInterval(checkPriceAlerts, 5 * 60 * 1000);
+    checkPriceAlerts(); // сразу при старте
+    console.log(`🤖 Telegram bot активен · алерты каждые 5 мин`);
+
+    // Серверная проверка пользовательских алертов каждые 30 сек
+    if (adminDb) {
+        setInterval(checkUserAlerts, 30 * 1000);
+        checkUserAlerts();
+        console.log('🔔 Серверные алерты активны · каждые 30 сек');
+    }
+});
+
+
