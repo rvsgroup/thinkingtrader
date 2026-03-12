@@ -14443,31 +14443,6 @@
 
         const FCM_VAPID_KEY = 'BOrAFsRHZzpCJCDAJegN2wB7f7zIQkegt90mDOCT3XwgP2N0mYN1N5MhQDQGNgjcX51ePaGdTsAuTD-7QrIkpR0';
 
-        // Register sw.js explicitly so FCM token is bound to OUR sw, not
-        // the auto-generated firebase-messaging-sw.js stub. Without this
-        // push events arrive at the wrong SW and are silently dropped.
-        let _swRegistration = null;
-        async function ensureSwRegistered() {
-            if (_swRegistration) return _swRegistration;
-            try {
-                // Unregister any stale firebase-messaging-sw.js registrations
-                const existing = await navigator.serviceWorker.getRegistrations();
-                for (const reg of existing) {
-                    if (reg.active && reg.active.scriptURL.includes('firebase-messaging-sw')) {
-                        await reg.unregister();
-                        console.log('Unregistered stale firebase-messaging-sw.js');
-                    }
-                }
-                _swRegistration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-                await navigator.serviceWorker.ready;
-                console.log('SW registered:', _swRegistration.scope);
-            } catch(e) {
-                console.warn('SW register error:', e.message);
-                _swRegistration = await navigator.serviceWorker.ready;
-            }
-            return _swRegistration;
-        }
-
         async function registerFcmToken(userId, db) {
             try {
                 if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
@@ -14476,8 +14451,8 @@
                     const perm = await Notification.requestPermission();
                     if (perm !== 'granted') return;
                 }
-                const swReg = await ensureSwRegistered();
                 const messaging = firebase.messaging();
+                const swReg = await navigator.serviceWorker.ready;
                 const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg });
                 if (!token) return;
                 await db.collection('users').doc(userId)

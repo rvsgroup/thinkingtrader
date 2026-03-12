@@ -874,43 +874,11 @@ async function sendPushToUser(userId, title, body) {
         const results = await Promise.allSettled(tokens.map(token =>
             adminMsg.send({
                 token,
-                // Top-level notification — FCM fallback for all platforms
-                notification: { title, body },
-                // ── APNs (iOS Safari PWA) ──────────────────────────────────────
-                // Without this block iOS silently drops/defers push when locked.
-                // Priority 10 = immediate wakeup delivery.
-                apns: {
-                    headers: {
-                        'apns-push-type': 'alert',
-                        'apns-priority':  '10',
-                        'apns-expiration': String(Math.floor(Date.now() / 1000) + 86400),
-                    },
-                    payload: {
-                        aps: {
-                            alert: { title, body },
-                            sound: 'default',
-                            badge: 1,
-                            'content-available': 1,
-                            'mutable-content':   1,
-                        },
-                    },
-                },
-                // ── Web Push (Android / Desktop Chrome) ───────────────────────
-                // Urgency: high → FCM/APNs bridge wakes device immediately
                 webpush: {
-                    headers: {
-                        Urgency: 'high',
-                        TTL:     '86400',
-                    },
-                    notification: {
-                        title,
-                        body,
-                        icon:  '/favicon-192.png',
-                        badge: '/favicon-192.png',
-                    },
+                    notification: { title, body, icon: '/favicon-192.png', badge: '/favicon-192.png' },
                     data: { title, body },
-                    fcmOptions: { link: '/app' },
-                },
+                    fcmOptions: { link: '/app' }
+                }
             })
         ));
 
