@@ -971,8 +971,8 @@ async function checkUserAlerts() {
 app.post('/api/customtoken', async (req, res) => {
     try {
         const { idToken } = req.body;
-        if (!adminDb) return res.status(503).json({ error: 'Firebase Admin not initialized' });
         const adminLib = require('firebase-admin');
+        if (!adminLib.apps.length) return res.status(503).json({ error: 'Firebase Admin not initialized' });
         const decoded = await adminLib.apps[0].auth().verifyIdToken(idToken);
         const customToken = await adminLib.apps[0].auth().createCustomToken(decoded.uid);
         res.json({ customToken });
