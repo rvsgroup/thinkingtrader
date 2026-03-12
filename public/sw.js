@@ -17,7 +17,7 @@ self.addEventListener('message', (event) => {
     }
 });
 
-// FCM Push — fires even when browser is closed
+// FCM Push — срабатывает даже когда браузер закрыт
 self.addEventListener('push', (event) => {
     let data = {};
     try { data = event.data ? event.data.json() : {}; } catch(e) {}

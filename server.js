@@ -872,9 +872,14 @@ async function sendPushToUser(userId, title, body) {
         if (!tokens.length) return;
 
         const results = await Promise.allSettled(tokens.map(token =>
-            adminMsg.send({ token, notification: { title, body }, webpush: {
-                notification: { icon: '/favicon-192.png', badge: '/favicon-192.png', vibrate: [200, 100, 200] }
-            }})
+            adminMsg.send({
+                token,
+                webpush: {
+                    // Без notification — чтобы push event в sw.js получил data с label
+                    data: { title, body, icon: '/favicon-192.png' },
+                    fcmOptions: { link: '/app' }
+                }
+            })
         ));
 
         // Удаляем невалидные токены
