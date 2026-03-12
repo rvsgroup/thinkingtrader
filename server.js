@@ -12,6 +12,7 @@ try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
         ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
         : null;
+    if (serviceAccount) serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
 
     if (serviceAccount && !admin.apps.length) {
         admin.initializeApp({
