@@ -969,15 +969,6 @@ async function checkUserAlerts() {
 
 // ── Запуск ─────────────────────────────────────────────────────
 
-        const decoded = await adminApp.auth().verifyIdToken(idToken);
-        const customToken = await adminApp.auth().createCustomToken(decoded.uid);
-        res.json({ customToken });
-    } catch (e) {
-        res.status(401).json({ error: e.message });
-    }
-});
-
-});
 
 app.listen(PORT, () => {
     console.log(`✅ Thinking Trader server running on http://localhost:${PORT}`);
