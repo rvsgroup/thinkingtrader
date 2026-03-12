@@ -969,11 +969,6 @@ async function checkUserAlerts() {
 
 // ── Запуск ─────────────────────────────────────────────────────
 
-// Firebase custom token endpoint
-app.post('/api/customtoken', async (req, res) => {
-    try {
-        const { idToken } = req.body;
-        if (!adminApp) return res.status(503).json({ error: 'Firebase Admin not initialized' });
         const decoded = await adminApp.auth().verifyIdToken(idToken);
         const customToken = await adminApp.auth().createCustomToken(decoded.uid);
         res.json({ customToken });
@@ -982,15 +977,6 @@ app.post('/api/customtoken', async (req, res) => {
     }
 });
 
-app.get('/api/debug-firebase', (req, res) => {
-    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-    const tgToken = process.env.TG_TOKEN;
-    res.json({ 
-        hasFirebase: !!raw,
-        firebaseLength: raw ? raw.length : 0,
-        hasTgToken: !!tgToken,
-        allKeys: Object.keys(process.env).filter(k => !k.includes('KEY') && !k.includes('TOKEN') && !k.includes('SECRET'))
-    });
 });
 
 app.listen(PORT, () => {
