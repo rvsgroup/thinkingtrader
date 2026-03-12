@@ -1001,3 +1001,14 @@ app.post('/api/customtoken', async (req, res) => {
         res.status(401).json({ error: e.message });
     }
 });
+
+app.get('/api/debug-firebase', (req, res) => {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!raw) return res.json({ status: 'no env var' });
+    try {
+        const parsed = JSON.parse(raw);
+        res.json({ status: 'ok', type: parsed.type, project: parsed.project_id, hasKey: !!parsed.private_key });
+    } catch(e) {
+        res.json({ status: 'parse error', error: e.message, first100: raw.substring(0, 100) });
+    }
+});
