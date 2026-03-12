@@ -19,18 +19,40 @@ self.addEventListener('message', (event) => {
 
 // FCM Push — срабатывает даже когда браузер закрыт
 self.addEventListener('push', (event) => {
-    let data = {};
-    try { data = event.data ? event.data.json() : {}; } catch(e) {}
-    const title = data.title || 'Thinking Trader';
-    const body  = data.body  || 'Price alert triggered';
-    const icon  = data.icon  || '/favicon-192.png';
+    // FCM wraps the payload: { notification:{title,body}, data:{...} }
+    // iOS may also deliver via the aps.alert path — handle both shapes.
+    let title = 'Thinking Trader';
+    let body  = 'Price alert triggered';
+    let icon  = '/favicon-192.png';
+
+    try {
+        if (event.data) {
+            const raw = event.data.json();
+            // Shape 1: FCM envelope  { notification: {title, body}, data: {...} }
+            if (raw.notification) {
+                title = raw.notification.title || title;
+                body  = raw.notification.body  || body;
+                icon  = raw.notification.icon  || icon;
+            // Shape 2: flat data-only message  { title, body, icon }
+            } else if (raw.data) {
+                title = raw.data.title || title;
+                body  = raw.data.body  || body;
+                icon  = raw.data.icon  || icon;
+            } else {
+                title = raw.title || title;
+                body  = raw.body  || body;
+                icon  = raw.icon  || icon;
+            }
+        }
+    } catch(e) {}
+
     event.waitUntil(
         self.registration.showNotification(title, {
             body,
             icon,
-            badge: '/favicon-192.png',
+            badge:   '/favicon-192.png',
             vibrate: [200, 100, 200],
-            tag: 'tt-alert-' + Date.now(),
+            tag:     'tt-alert-' + Date.now(),
             renotify: true,
             data: { url: '/app' },
         })
