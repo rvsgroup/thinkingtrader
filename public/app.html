@@ -5585,6 +5585,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
   <script src="patterns.js"></script>
   <script src="patterns-scanner.js"></script>
@@ -14398,20 +14399,101 @@
         let alertActiveTab = 'price';
         let alertCheckInterval = null;
 
+        // ── Firestore sync ──
+        let _alertDb   = null;
+        let _alertUid  = null;
+        let _alertUnsub = null;
+        let _alertCache = {};
+
+        window.initAlerts = async function(userId, db) {
+            _alertUid = userId;
+            _alertDb  = db;
+            // Мерж локальных алертов → Firestore
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (!key || !key.startsWith(ALERT_KEY + '_')) continue;
+                    const coin = key.replace(ALERT_KEY + '_', '');
+                    const local = JSON.parse(localStorage.getItem(key) || '[]');
+                    if (!local.length) continue;
+                    const ref = db.collection('users').doc(userId).collection('alerts').doc(coin);
+                    const snap = await ref.get();
+                    const remote = snap.exists ? (snap.data().items || []) : [];
+                    const remoteIds = new Set(remote.map(a => a.id));
+                    const merged = [...remote, ...local.filter(a => !remoteIds.has(a.id))];
+                    await ref.set({ items: merged });
+                    localStorage.removeItem(key);
+                }
+            } catch(e) {}
+            // Realtime listener
+            try {
+                _alertUnsub = db.collection('users').doc(userId).collection('alerts')
+                    .onSnapshot(snap => {
+                        const ids = new Set(snap.docs.map(d => d.id));
+                        Object.keys(_alertCache).forEach(k => { if (!ids.has(k)) delete _alertCache[k]; });
+                        snap.forEach(doc => { _alertCache[doc.id] = doc.data().items || []; });
+                        try { alertRefreshUI(); } catch(e) {}
+                    }, () => {});
+            } catch(e) {}
+            // FCM токен
+            registerFcmToken(userId, db);
+        };
+
+        window.deinitAlerts = function() {
+            if (_alertUnsub) { try { _alertUnsub(); } catch(e) {} }
+            _alertDb = null; _alertUid = null; _alertCache = {};
+        };
+
+        const FCM_VAPID_KEY = 'BOrAFsRHZzpCJCDAJegN2wB7f7zIQkegt90mDOCT3XwgP2N0mYN1N5MhQDQGNgjcX51ePaGdTsAuTD-7QrIkpR0';
+
+        async function registerFcmToken(userId, db) {
+            try {
+                if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+                if (Notification.permission === 'denied') return;
+                if (Notification.permission !== 'granted') {
+                    const perm = await Notification.requestPermission();
+                    if (perm !== 'granted') return;
+                }
+                const messaging = firebase.messaging();
+                const swReg = await navigator.serviceWorker.ready;
+                const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg });
+                if (!token) return;
+                await db.collection('users').doc(userId)
+                    .collection('fcmTokens').doc(token.slice(-20))
+                    .set({ token, updatedAt: Date.now() });
+                console.log('FCM token registered:', token.slice(-10));
+            } catch(e) { console.warn('FCM token error:', e.message); }
+        }
+
         function alertCoinKey(coin) {
             return ALERT_KEY + '_' + (coin || alertCurrentCoin);
         }
 
         function alertLoad(coin) {
-            try { return JSON.parse(localStorage.getItem(alertCoinKey(coin)) || '[]'); }
+            const c = coin || alertCurrentCoin;
+            if (_alertUid) return _alertCache[c] || [];
+            try { return JSON.parse(localStorage.getItem(alertCoinKey(c)) || '[]'); }
             catch { return []; }
         }
 
         function alertSave(list, coin) {
-            localStorage.setItem(alertCoinKey(coin), JSON.stringify(list));
+            const c = coin || alertCurrentCoin;
+            if (_alertUid && _alertDb) {
+                _alertCache[c] = list;
+                _alertDb.collection('users').doc(_alertUid)
+                    .collection('alerts').doc(c)
+                    .set({ items: list }).catch(() => {});
+            } else {
+                localStorage.setItem(alertCoinKey(c), JSON.stringify(list));
+            }
         }
 
         function alertLoadAll() {
+            if (_alertUid) {
+                const all = [];
+                Object.values(_alertCache).forEach(list => { if (Array.isArray(list)) all.push(...list); });
+                return all;
+            }
             const all = [];
             try {
                 for (let i = 0; i < localStorage.length; i++) {
@@ -14698,9 +14780,11 @@
                 if (!price) return;
                 let changed = false;
                 const newList = list.filter(a => {
-                    const triggered = (a.dir === 'up' && price >= a.targetPrice) ||
-                                      (a.dir === 'down' && price <= a.targetPrice);
-                    if (triggered) { alertFireNotification(a); changed = true; return false; }
+                    // Сервер пометил triggered:true — показываем и удаляем
+                    if (a.triggered) { alertFireNotification(a); changed = true; return false; }
+                    const hit = (a.dir === 'up' && price >= a.targetPrice) ||
+                                (a.dir === 'down' && price <= a.targetPrice);
+                    if (hit) { alertFireNotification(a); changed = true; return false; }
                     return true;
                 });
                 if (changed) { alertSave(newList); alertRefreshUI(); }
@@ -15645,6 +15729,9 @@
         if (typeof window.initJournal === 'function') {
             window.initJournal(user.uid);
         }
+        if (typeof window.initAlerts === 'function') {
+            window.initAlerts(user.uid, firebase.firestore());
+        }
 
         // Show admin page if admin email
         if (user.email === ADMIN_EMAIL) {
@@ -15657,6 +15744,7 @@
 
     // Logout
     document.getElementById('btnLogout').addEventListener('click', () => {
+        if (typeof window.deinitAlerts === 'function') window.deinitAlerts();
         auth.signOut().then(() => {
             window.location.href = '/';
         });
