@@ -875,8 +875,8 @@ async function sendPushToUser(userId, title, body) {
             adminMsg.send({
                 token,
                 webpush: {
-                    // Без notification — чтобы push event в sw.js получил data с label
-                    data: { title, body, icon: '/favicon-192.png' },
+                    notification: { title, body, icon: '/favicon-192.png', badge: '/favicon-192.png' },
+                    data: { title, body },
                     fcmOptions: { link: '/app' }
                 }
             })
