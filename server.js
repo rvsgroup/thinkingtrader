@@ -27,6 +27,16 @@ try {
 }
 
 const app  = express();
+
+app.use((req, res, next) => {
+    const allowed = ["https://www.thinkingtrader.com", "capacitor://localhost", "http://localhost:3000"];
+    const origin = req.headers.origin;
+    if (allowed.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") return res.sendStatus(200);
+    next();
+});
 const PORT = process.env.PORT || 3000;
 
 // Редирект: http→https и thinkingtrader.com→www.thinkingtrader.com
