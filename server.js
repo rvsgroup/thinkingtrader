@@ -5,6 +5,7 @@ const path    = require('path');
 // ── Firebase Admin (для серверной проверки алертов) ────────────
 let adminDb   = null;
 let adminMsg  = null;
+let adminApp  = null;
 
 try {
     const admin = require('firebase-admin');
@@ -18,6 +19,7 @@ try {
         });
         adminDb  = admin.firestore();
         adminMsg = admin.messaging();
+        adminApp = admin;
         console.log('✅ Firebase Admin инициализирован');
     } else if (!serviceAccount) {
         console.warn('⚠️ FIREBASE_SERVICE_ACCOUNT не задан — серверные алерты отключены');
@@ -971,10 +973,9 @@ async function checkUserAlerts() {
 app.post('/api/customtoken', async (req, res) => {
     try {
         const { idToken } = req.body;
-        const adminLib = require('firebase-admin');
-        if (!adminLib.apps.length) return res.status(503).json({ error: 'Firebase Admin not initialized' });
-        const decoded = await adminLib.apps[0].auth().verifyIdToken(idToken);
-        const customToken = await adminLib.apps[0].auth().createCustomToken(decoded.uid);
+        if (!adminApp) return res.status(503).json({ error: 'Firebase Admin not initialized' });
+        const decoded = await adminApp.auth().verifyIdToken(idToken);
+        const customToken = await adminApp.auth().createCustomToken(decoded.uid);
         res.json({ customToken });
     } catch (e) {
         res.status(401).json({ error: e.message });
