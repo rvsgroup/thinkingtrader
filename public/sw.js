@@ -17,12 +17,12 @@ self.addEventListener('message', (event) => {
     }
 });
 
-// FCM Push — срабатывает даже когда браузер закрыт
+// FCM Push — fires even when browser is closed
 self.addEventListener('push', (event) => {
     let data = {};
     try { data = event.data ? event.data.json() : {}; } catch(e) {}
     const title = data.title || 'Thinking Trader';
-    const body  = data.body  || 'Ценовой алерт сработал';
+    const body  = data.body  || 'Price alert triggered';
     const icon  = data.icon  || '/favicon-192.png';
     event.waitUntil(
         self.registration.showNotification(title, {
