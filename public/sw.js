@@ -19,12 +19,12 @@ self.addEventListener('message', (event) => {
 
 // FCM Push — срабатывает даже когда браузер закрыт
 self.addEventListener('push', (event) => {
-    let raw = {};
-    try { raw = event.data ? event.data.json() : {}; } catch(e) {}
-    // FCM wraps payload: { notification: {title,body}, data: {title,body} }
-    const title = raw.notification?.title || raw.data?.title || raw.title || 'Thinking Trader';
-    const body  = raw.notification?.body  || raw.data?.body  || raw.body  || 'Ценовой алерт сработал';
-    const icon  = raw.notification?.icon  || raw.data?.icon  || raw.icon  || '/favicon-192.png';
+    let data = {};
+    try { data = event.data ? event.data.json() : {}; } catch(e) {}
+    const title = data.notification?.title || data.data?.title || data.title || 'Thinking Trader';
+    const body  = data.notification?.body  || data.data?.body  || data.body  || 'Price alert triggered';
+
+    const icon  = data.icon  || '/favicon-192.png';
     event.waitUntil(
         self.registration.showNotification(title, {
             body,
