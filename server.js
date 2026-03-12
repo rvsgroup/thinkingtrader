@@ -992,8 +992,9 @@ app.listen(PORT, () => {
 app.post('/api/customtoken', async (req, res) => {
     try {
         const { idToken } = req.body;
-        const decoded = await admin.auth().verifyIdToken(idToken);
-        const customToken = await admin.auth().createCustomToken(decoded.uid);
+        const adminLib = require('firebase-admin');
+        const decoded = await adminLib.auth().verifyIdToken(idToken);
+        const customToken = await adminLib.auth().createCustomToken(decoded.uid);
         res.json({ customToken });
     } catch (e) {
         res.status(401).json({ error: e.message });
