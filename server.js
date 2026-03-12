@@ -967,6 +967,19 @@ async function checkUserAlerts() {
     }
 }
 
+// ── Custom Token для Capacitor ────────────────────────────────
+app.post('/api/customtoken', async (req, res) => {
+    try {
+        const { idToken } = req.body;
+        if (!adminApp) return res.status(503).json({ error: 'Firebase Admin not initialized' });
+        const decoded = await adminApp.auth().verifyIdToken(idToken);
+        const customToken = await adminApp.auth().createCustomToken(decoded.uid);
+        res.json({ customToken });
+    } catch (e) {
+        res.status(401).json({ error: e.message });
+    }
+});
+
 // ── Запуск ─────────────────────────────────────────────────────
 
 
