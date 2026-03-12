@@ -987,3 +987,22 @@ app.listen(PORT, () => {
         console.log('🔔 Серверные алерты активны · каждые 30 сек');
     }
 });
+
+// Firebase custom token endpoint
+const admin = require('firebase-admin');
+if (!admin.apps.length) {
+    const serviceAccount = require('./serviceAccount.json');
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+}
+app.post('/api/customtoken', async (req, res) => {
+    try {
+        const { idToken } = req.body;
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        const customToken = await admin.auth().createCustomToken(decoded.uid);
+        res.json({ customToken });
+    } catch (e) {
+        res.status(401).json({ error: e.message });
+    }
+});
