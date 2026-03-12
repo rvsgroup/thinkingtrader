@@ -983,13 +983,13 @@ app.post('/api/customtoken', async (req, res) => {
 
 app.get('/api/debug-firebase', (req, res) => {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (!raw) return res.json({ status: 'no env var' });
-    try {
-        const parsed = JSON.parse(raw);
-        res.json({ status: 'ok', type: parsed.type, project: parsed.project_id, hasKey: !!parsed.private_key });
-    } catch(e) {
-        res.json({ status: 'parse error', error: e.message, first100: raw.substring(0, 100) });
-    }
+    const tgToken = process.env.TG_TOKEN;
+    res.json({ 
+        hasFirebase: !!raw,
+        firebaseLength: raw ? raw.length : 0,
+        hasTgToken: !!tgToken,
+        allKeys: Object.keys(process.env).filter(k => !k.includes('KEY') && !k.includes('TOKEN') && !k.includes('SECRET'))
+    });
 });
 
 app.listen(PORT, () => {
