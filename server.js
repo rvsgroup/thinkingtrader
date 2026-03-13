@@ -1005,10 +1005,15 @@ app.get('/api/user/trades', async (req, res) => {
     const uid = await verifyToken(req, res);
     if (!uid) return;
     try {
+        console.log('Fetching trades for uid:', uid, 'adminDb:', !!adminDb);
         const snap = await adminDb.collection('users').doc(uid).collection('trades').orderBy('date', 'desc').get();
         const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        console.log('Trades fetched:', trades.length);
         res.json({ trades });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { 
+        console.error('Trades fetch error:', e.code, e.message);
+        res.status(500).json({ error: e.message }); 
+    }
 });
 
 app.post('/api/user/trades', async (req, res) => {
