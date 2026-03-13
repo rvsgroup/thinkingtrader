@@ -23,6 +23,7 @@ try {
     if (serviceAccount && !admin.apps.length) {
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
+            projectId: 'thinking-trader',
         });
         adminDb  = admin.firestore();
         adminMsg = admin.messaging();
