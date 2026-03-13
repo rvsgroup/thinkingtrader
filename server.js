@@ -981,6 +981,77 @@ app.post('/api/customtoken', async (req, res) => {
     }
 });
 
+
+// ── User data endpoints для Capacitor ─────────────────────────
+async function verifyToken(req, res) {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) { res.status(401).json({ error: 'No token' }); return null; }
+    const idToken = auth.split('Bearer ')[1];
+    if (!adminApp) { res.status(503).json({ error: 'Admin not ready' }); return null; }
+    try {
+        const decoded = await adminApp.auth().verifyIdToken(idToken);
+        return decoded.uid;
+    } catch(e) { res.status(401).json({ error: e.message }); return null; }
+}
+
+app.get('/api/user/trades', async (req, res) => {
+    const uid = await verifyToken(req, res);
+    if (!uid) return;
+    try {
+        const snap = await adminDb.collection('users').doc(uid).collection('trades').orderBy('date', 'desc').get();
+        const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        res.json({ trades });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/user/trades', async (req, res) => {
+    const uid = await verifyToken(req, res);
+    if (!uid) return;
+    try {
+        const { id, ...data } = req.body;
+        await adminDb.collection('users').doc(uid).collection('trades').doc(id).set(data);
+        res.json({ ok: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/user/trades/:id', async (req, res) => {
+    const uid = await verifyToken(req, res);
+    if (!uid) return;
+    try {
+        await adminDb.collection('users').doc(uid).collection('trades').doc(req.params.id).delete();
+        res.json({ ok: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/user/alerts', async (req, res) => {
+    const uid = await verifyToken(req, res);
+    if (!uid) return;
+    try {
+        const snap = await adminDb.collection('users').doc(uid).collection('alerts').get();
+        const alerts = {};
+        snap.docs.forEach(d => { alerts[d.id] = d.data(); });
+        res.json({ alerts });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/user/alerts/:coin', async (req, res) => {
+    const uid = await verifyToken(req, res);
+    if (!uid) return;
+    try {
+        await adminDb.collection('users').doc(uid).collection('alerts').doc(req.params.coin).set(req.body);
+        res.json({ ok: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/user/alerts/:coin', async (req, res) => {
+    const uid = await verifyToken(req, res);
+    if (!uid) return;
+    try {
+        await adminDb.collection('users').doc(uid).collection('alerts').doc(req.params.coin).delete();
+        res.json({ ok: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Запуск ─────────────────────────────────────────────────────
 
 
