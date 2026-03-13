@@ -332,32 +332,48 @@ const PatternScanner = (function() {
     }
 
     function getDoubleParams(interval) {
-        if (interval === '1h') return { minGap: 25, maxGap: 60,  minRetrace: 0.04, maxRetrace: 0.12, radius: 20 };
-        if (interval === '4h') return { minGap: 20, maxGap: 110, minRetrace: 0.12, maxRetrace: 0.30, radius: 5 };
+        if (interval === '1h') return { minGap: 25, maxGap: 60,  minRetrace: 0.04, maxRetrace: 0.12, radius: 5 };
+        if (interval === '4h') return { minGap: 20, maxGap: 110, minRetrace: 0.10, maxRetrace: 0.30, radius: 6 };
         if (interval === '1d') return { minGap: 20, maxGap: 60,  minRetrace: 0.10, maxRetrace: 0.35, radius: 10 };
-        if (interval === '1w') return { minGap: 35, maxGap: 50,  minRetrace: 0.15, maxRetrace: 0.60, radius: 7  };
+        if (interval === '1w') return { minGap: 35, maxGap: 50,  minRetrace: 0.15, maxRetrace: 0.60, radius: 12  };
         return { minGap: 25, maxGap: 60, minRetrace: 0.15, maxRetrace: 0.25, radius: 10 };
     }
 
     function findLocalExtremes(candles, radius) {
         const tops = [], bottoms = [];
-        for (let i = radius; i < candles.length - radius; i++) {
+        const len = candles.length;
+
+        // Исключаем последнюю свечу (незакрытую)
+        for (let i = 0; i < len - 1; i++) {
             const c = candles[i];
             const fullRange = c.high - c.low;
             let isTop = true, isBottom = true;
+
+            // Проверка слева
             for (let j = 1; j <= radius; j++) {
-                if (c.high <= candles[i-j].high || c.high <= candles[i+j].high) isTop = false;
-                if (c.low  >= candles[i-j].low  || c.low  >= candles[i+j].low)  isBottom = false;
+                if (i - j < 0) break;
+                if (c.high <= candles[i - j].high) isTop = false;
+                if (c.low >= candles[i - j].low) isBottom = false;
             }
+
+            // Проверка справа (только по закрытым свечам, до len-1)
+            for (let j = 1; j <= radius; j++) {
+                if (i + j >= len - 1) break; // не заходим на последнюю
+                if (c.high <= candles[i + j].high) isTop = false;
+                if (c.low >= candles[i + j].low) isBottom = false;
+            }
+
+            // Фильтр длинных теней (порог 0.95)
             if (isTop && fullRange > 0) {
                 const upperWick = c.high - Math.max(c.open, c.close);
-                if (upperWick / fullRange > 0.80) isTop = false;
+                if (upperWick / fullRange > 0.95) isTop = false;
             }
             if (isBottom && fullRange > 0) {
                 const lowerWick = Math.min(c.open, c.close) - c.low;
-                if (lowerWick / fullRange > 0.90) isBottom = false;
+                if (lowerWick / fullRange > 0.95) isBottom = false;
             }
-            if (isTop)    tops.push(i);
+
+            if (isTop) tops.push(i);
             if (isBottom) bottoms.push(i);
         }
         return { tops, bottoms };
@@ -453,14 +469,12 @@ const PatternScanner = (function() {
         const minRetrace = 0.03;
         const radius     = params.radius;
         const { tops, bottoms } = findLocalExtremes(candles, radius);
-        const forming = [];
+        let forming = [];
 
         const last = candles[candles.length - 1];
         const lastIdx = candles.length - 1;
 
         // ── Forming Double Top ──
-        // Ищем подтверждённую вершину, от которой был откат,
-        // и текущая цена подходит к её уровню
         for (let a = tops.length - 1; a >= 0; a--) {
             const i1 = tops[a];
             const h1 = candles[i1].high;
@@ -469,7 +483,6 @@ const PatternScanner = (function() {
             if (gap < params.minGap) continue;
             if (gap > params.maxGap) break;
 
-            // Откат между вершиной и текущей позицией
             let minBetween = Infinity;
             let breached = false;
             for (let k = i1 + 1; k < lastIdx; k++) {
@@ -481,11 +494,8 @@ const PatternScanner = (function() {
             const retrace = (h1 - minBetween) / h1;
             if (retrace < minRetrace) continue;
 
-            // Текущая цена входит в зону tolerance от вершины
             if (last.high >= h1 * (1 - tolerance)) {
-                // Пробила вверх — паттерн исчезает
                 if (last.high > h1 * (1 + tolerance)) continue;
-
                 forming.push({
                     type: 'forming_double_top',
                     typeEn: 'Forming Double Top',
@@ -523,9 +533,7 @@ const PatternScanner = (function() {
             if (retrace < minRetrace) continue;
 
             if (last.low <= l1 * (1 + tolerance)) {
-                // Пробила вниз — паттерн исчезает
                 if (last.low < l1 * (1 - tolerance)) continue;
-
                 forming.push({
                     type: 'forming_double_bottom',
                     typeEn: 'Forming Double Bottom',
@@ -540,6 +548,23 @@ const PatternScanner = (function() {
                 });
                 break;
             }
+        }
+
+        // ===== ФИЛЬТРАЦИЯ: убираем forming, которые уже есть в confirmedPatterns =====
+        if (confirmedPatterns && confirmedPatterns.length) {
+            forming = forming.filter(f => {
+                return !confirmedPatterns.some(c => {
+                    // Для двойной вершины
+                    if (f.type === 'forming_double_top' && c.type === 'double_top' && c.direction === 'bearish') {
+                        return c.time1 === f.time1 && Math.abs(c.level - f.level) / c.level <= tolerance;
+                    }
+                    // Для двойного дна
+                    if (f.type === 'forming_double_bottom' && c.type === 'double_bottom' && c.direction === 'bullish') {
+                        return c.time1 === f.time1 && Math.abs(c.level - f.level) / c.level <= tolerance;
+                    }
+                    return false;
+                });
+            });
         }
 
         return forming;
