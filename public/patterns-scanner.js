@@ -351,7 +351,7 @@ const PatternScanner = (function() {
             }
             if (isTop && fullRange > 0) {
                 const upperWick = c.high - Math.max(c.open, c.close);
-                if (upperWick / fullRange > 0.90) isTop = false;
+                if (upperWick / fullRange > 0.80) isTop = false;
             }
             if (isBottom && fullRange > 0) {
                 const lowerWick = Math.min(c.open, c.close) - c.low;
