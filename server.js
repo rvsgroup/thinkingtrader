@@ -383,15 +383,7 @@ async function fetchAllNews() {
             }
         } catch (e) { /* пропускаем упавший фид */ }
     }));
-    // Дедупликация по ссылке и по заголовку
-    const seen = new Set();
-    const unique = allItems.filter(item => {
-        const key = item.link || item.title;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-    return unique.sort((a, b) => new Date(b.date) - new Date(a.date));
+    return allItems.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 async function translateTitle(text) {
@@ -1115,6 +1107,30 @@ app.get('/api/user/alerts', async (req, res) => {
             alerts[id] = fromFsDoc(doc);
         });
         res.json({ alerts });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/user/alerts/:coin', async (req, res) => {
+    const idToken = getToken(req);
+    if (!idToken) return res.status(401).json({ error: 'No token' });
+    try {
+        const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+        const uid = payload.sub || payload.user_id;
+        const fields = {};
+        for (const k in req.body) fields[k] = fsValue(req.body[k]);
+        await firestoreSet(`users/${uid}/alerts/${req.params.coin}`, fields, idToken);
+        res.json({ ok: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/user/alerts/:coin', async (req, res) => {
+    const idToken = getToken(req);
+    if (!idToken) return res.status(401).json({ error: 'No token' });
+    try {
+        const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+        const uid = payload.sub || payload.user_id;
+        await firestoreDelete(`users/${uid}/alerts/${req.params.coin}`, idToken);
+        res.json({ ok: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
