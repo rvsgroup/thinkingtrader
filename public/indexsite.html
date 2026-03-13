@@ -1181,5 +1181,52 @@
             }
         });
     </script>
+<script>
+if (window.Capacitor) {
+    document.body.style.paddingTop = '55px';
+}
+</script>
+<script>
+if (window.Capacitor) {
+    function fixHeaders() {
+        const selectors = ['.header', '.navbar', '.top-bar', 'header', '.hero', '.index-header'];
+        selectors.forEach(sel => {
+            const el = document.querySelector(sel);
+            if (el) el.style.paddingTop = '40px';
+        });
+        document.body.style.paddingTop = '40px';
+    }
+    document.addEventListener('DOMContentLoaded', fixHeaders);
+    setTimeout(fixHeaders, 300);
+}
+</script>
+<script>
+
+if (window.Capacitor) {
+
+    function fixHeaders() {
+
+        const selectors = ['.header', '.navbar', '.top-bar', 'header', '.hero', '.index-header'];
+
+        selectors.forEach(sel => {
+
+            const el = document.querySelector(sel);
+
+            if (el) el.style.paddingTop = '35px';
+
+        });
+
+        document.body.style.paddingTop = '35px';
+
+    }
+
+    document.addEventListener('DOMContentLoaded', fixHeaders);
+
+    setTimeout(fixHeaders, 300);
+
+}
+
+</script>
+
 </body>
 </html>

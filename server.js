@@ -383,7 +383,15 @@ async function fetchAllNews() {
             }
         } catch (e) { /* пропускаем упавший фид */ }
     }));
-    return allItems.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Дедупликация по ссылке и по заголовку
+    const seen = new Set();
+    const unique = allItems.filter(item => {
+        const key = item.link || item.title;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    return unique.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 async function translateTitle(text) {
