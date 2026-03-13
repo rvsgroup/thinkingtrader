@@ -12,7 +12,13 @@ try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
         ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
         : null;
-    if (serviceAccount) serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+    if (serviceAccount) {
+        const before = serviceAccount.private_key.substring(0, 50);
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        const after = serviceAccount.private_key.substring(0, 50);
+        console.log('private_key before:', JSON.stringify(before));
+        console.log('private_key after:', JSON.stringify(after));
+    }
 
     if (serviceAccount && !admin.apps.length) {
         admin.initializeApp({
