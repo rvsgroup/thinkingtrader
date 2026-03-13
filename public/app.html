@@ -14430,7 +14430,10 @@
                     .onSnapshot(snap => {
                         const ids = new Set(snap.docs.map(d => d.id));
                         Object.keys(_alertCache).forEach(k => { if (!ids.has(k)) delete _alertCache[k]; });
-                        snap.forEach(doc => { _alertCache[doc.id] = doc.data().items || []; });
+                        snap.forEach(doc => {
+                            const items = doc.data().items;
+                            _alertCache[doc.id] = Array.isArray(items) ? items : [];
+                        });
                         try { alertRefreshUI(); } catch(e) {}
                     }, () => {});
             } catch(e) {}
@@ -14469,7 +14472,10 @@
 
         function alertLoad(coin) {
             const c = coin || alertCurrentCoin;
-            if (_alertUid) return (_alertCache[c] || []).filter(a => !a.triggered);
+            if (_alertUid) {
+                const arr = _alertCache[c];
+                return Array.isArray(arr) ? arr.filter(a => !a.triggered) : [];
+            }
             try { return JSON.parse(localStorage.getItem(alertCoinKey(c)) || '[]'); }
             catch { return []; }
         }
