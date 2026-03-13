@@ -986,80 +986,127 @@ app.post('/api/customtoken', async (req, res) => {
 
 
 // ── User data endpoints для Capacitor ─────────────────────────
-async function verifyToken(req, res) {
+const PROJECT_ID = 'thinking-trader';
+const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+
+async function firestoreGet(path, idToken) {
+    const r = await fetch(`${FIRESTORE_BASE}/${path}`, {
+        headers: { 'Authorization': `Bearer ${idToken}` }
+    });
+    return r.json();
+}
+
+async function firestoreSet(path, fields, idToken) {
+    const r = await fetch(`${FIRESTORE_BASE}/${path}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields })
+    });
+    return r.json();
+}
+
+async function firestoreDelete(path, idToken) {
+    const r = await fetch(`${FIRESTORE_BASE}/${path}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${idToken}` }
+    });
+    return r.ok;
+}
+
+function fsValue(val) {
+    if (val === null || val === undefined) return { nullValue: null };
+    if (typeof val === 'boolean') return { booleanValue: val };
+    if (typeof val === 'number') return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+    if (typeof val === 'string') return { stringValue: val };
+    if (typeof val === 'object') {
+        const fields = {};
+        for (const k in val) fields[k] = fsValue(val[k]);
+        return { mapValue: { fields } };
+    }
+    return { stringValue: String(val) };
+}
+
+function fromFsValue(v) {
+    if (!v) return null;
+    if ('stringValue' in v) return v.stringValue;
+    if ('integerValue' in v) return parseInt(v.integerValue);
+    if ('doubleValue' in v) return v.doubleValue;
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('nullValue' in v) return null;
+    if ('mapValue' in v) {
+        const obj = {};
+        for (const k in v.mapValue.fields) obj[k] = fromFsValue(v.mapValue.fields[k]);
+        return obj;
+    }
+    return null;
+}
+
+function fromFsDoc(doc) {
+    if (!doc || !doc.fields) return null;
+    const obj = {};
+    for (const k in doc.fields) obj[k] = fromFsValue(doc.fields[k]);
+    const id = doc.name?.split('/').pop();
+    return { id, ...obj };
+}
+
+function getToken(req) {
     const auth = req.headers.authorization;
-    if (!auth || !auth.startsWith('Bearer ')) { res.status(401).json({ error: 'No token' }); return null; }
-    const idToken = auth.split('Bearer ')[1];
-    if (!adminApp) { res.status(503).json({ error: 'Admin not ready' }); return null; }
-    try {
-        const decoded = await adminApp.auth().verifyIdToken(idToken);
-        return decoded.uid;
-    } catch(e) { res.status(401).json({ error: e.message }); return null; }
+    if (!auth || !auth.startsWith('Bearer ')) return null;
+    return auth.split('Bearer ')[1];
 }
 
 app.get('/api/user/trades', async (req, res) => {
-    const uid = await verifyToken(req, res);
-    if (!uid) return;
+    const idToken = getToken(req);
+    if (!idToken) return res.status(401).json({ error: 'No token' });
     try {
-        const sa = process.env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) : null;
-        console.log('SA private_key_id:', sa?.private_key_id);
-        console.log('SA private_key start:', sa?.private_key?.substring(0,50));
-        console.log('Fetching trades for uid:', uid, 'adminDb:', !!adminDb);
-        const snap = await adminDb.collection('users').doc(uid).collection('trades').orderBy('date', 'desc').get();
-        const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        console.log('Trades fetched:', trades.length);
+        // Decode uid from token (without verification for now - Firestore rules will enforce security)
+        const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+        const uid = payload.sub || payload.user_id;
+        const data = await firestoreGet(`users/${uid}/trades`, idToken);
+        const trades = (data.documents || []).map(fromFsDoc).filter(Boolean);
+        trades.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         res.json({ trades });
-    } catch(e) { 
-        console.error('Trades fetch error:', e.code, e.message);
-        res.status(500).json({ error: e.message }); 
-    }
+    } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/user/trades', async (req, res) => {
-    const uid = await verifyToken(req, res);
-    if (!uid) return;
+    const idToken = getToken(req);
+    if (!idToken) return res.status(401).json({ error: 'No token' });
     try {
+        const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+        const uid = payload.sub || payload.user_id;
         const { id, ...data } = req.body;
-        await adminDb.collection('users').doc(uid).collection('trades').doc(id).set(data);
+        const fields = {};
+        for (const k in data) fields[k] = fsValue(data[k]);
+        await firestoreSet(`users/${uid}/trades/${id}`, fields, idToken);
         res.json({ ok: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/user/trades/:id', async (req, res) => {
-    const uid = await verifyToken(req, res);
-    if (!uid) return;
+    const idToken = getToken(req);
+    if (!idToken) return res.status(401).json({ error: 'No token' });
     try {
-        await adminDb.collection('users').doc(uid).collection('trades').doc(req.params.id).delete();
+        const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+        const uid = payload.sub || payload.user_id;
+        await firestoreDelete(`users/${uid}/trades/${req.params.id}`, idToken);
         res.json({ ok: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/user/alerts', async (req, res) => {
-    const uid = await verifyToken(req, res);
-    if (!uid) return;
+    const idToken = getToken(req);
+    if (!idToken) return res.status(401).json({ error: 'No token' });
     try {
-        const snap = await adminDb.collection('users').doc(uid).collection('alerts').get();
+        const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+        const uid = payload.sub || payload.user_id;
+        const data = await firestoreGet(`users/${uid}/alerts`, idToken);
         const alerts = {};
-        snap.docs.forEach(d => { alerts[d.id] = d.data(); });
+        (data.documents || []).forEach(doc => {
+            const id = doc.name?.split('/').pop();
+            alerts[id] = fromFsDoc(doc);
+        });
         res.json({ alerts });
-    } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/user/alerts/:coin', async (req, res) => {
-    const uid = await verifyToken(req, res);
-    if (!uid) return;
-    try {
-        await adminDb.collection('users').doc(uid).collection('alerts').doc(req.params.coin).set(req.body);
-        res.json({ ok: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-app.delete('/api/user/alerts/:coin', async (req, res) => {
-    const uid = await verifyToken(req, res);
-    if (!uid) return;
-    try {
-        await adminDb.collection('users').doc(uid).collection('alerts').doc(req.params.coin).delete();
-        res.json({ ok: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
