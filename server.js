@@ -1001,6 +1001,9 @@ app.get('/api/user/trades', async (req, res) => {
     const uid = await verifyToken(req, res);
     if (!uid) return;
     try {
+        const sa = process.env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) : null;
+        console.log('SA private_key_id:', sa?.private_key_id);
+        console.log('SA private_key start:', sa?.private_key?.substring(0,50));
         console.log('Fetching trades for uid:', uid, 'adminDb:', !!adminDb);
         const snap = await adminDb.collection('users').doc(uid).collection('trades').orderBy('date', 'desc').get();
         const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
