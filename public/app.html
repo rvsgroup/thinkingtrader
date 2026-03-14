@@ -15542,8 +15542,11 @@
     // ── Scan кнопка на маленьком графике ──
     window.smallScanActive = false;
 
+    // Глобальный массив для хранения дополнительных линий на маленьком графике
+    if (typeof _smallExtraSeries === 'undefined') window._smallExtraSeries = [];
+
     window.runSmallScan = function runSmallScan() {
-        // Переключаем на свечной если ещё линейный
+        // 1. Убеждаемся, что график в свечном режиме
         if (typeof chartDisplayType !== 'undefined' && chartDisplayType !== 'candle') {
             document.getElementById('btnCandle').click();
             setTimeout(runSmallScan, 300);
@@ -15551,7 +15554,15 @@
         }
         if (!lwSeries || !rawOhlcCache.length) return;
 
-        // Конвертируем OHLC в формат PatternScanner
+        // 2. Удаляем старые дополнительные линии
+        if (window._smallExtraSeries) {
+            window._smallExtraSeries.forEach(series => {
+                try { lwChart.removeSeries(series); } catch {}
+            });
+            window._smallExtraSeries = [];
+        }
+
+        // 3. Преобразуем OHLC в формат PatternScanner
         const candles = rawOhlcCache.map(k => ({
             time:  Math.floor(k[0] / 1000),
             open:  parseFloat(k[1]),
@@ -15560,32 +15571,141 @@
             close: parseFloat(k[4]),
         }));
 
-        // Включённые фильтры из filterDropdownApp
+        // 4. Собираем включённые фильтры
         const enabledNames = [];
         document.querySelectorAll('#filterDropdownApp input[type="checkbox"]').forEach(cb => {
             if (cb.checked) enabledNames.push(cb.dataset.pat.toLowerCase());
         });
 
         PatternScanner.enableAll();
-        const allPatterns = PatternScanner.scan(candles);
-        const patterns = allPatterns.filter(p =>
+
+        // --- Свечные паттерны ---
+        const allCandlePatterns = PatternScanner.scan(candles);
+        const candlePatterns = allCandlePatterns.filter(p =>
             enabledNames.some(n => p.type.toLowerCase().includes(n) || n.includes(p.type.toLowerCase()))
         );
 
-        const markers = patterns.map(p => ({
+        const candleMarkers = candlePatterns.map(p => ({
             time:     p.time,
             position: p.position,
             color:    p.color,
             shape:    p.direction === 'bullish' ? 'arrowUp' : (p.direction === 'bearish' ? 'arrowDown' : 'circle'),
             text:     (currentLang === 'en' && p.typeEn) ? p.typeEn : p.type,
         }));
-        markers.sort((a, b) => a.time - b.time);
-        try { lwSeries.setMarkers(markers); } catch {}
-    }
+
+        // --- Двойные паттерны ---
+        const doublePatterns = PatternScanner.scanDouble(candles, currentPeriod);
+        const formingPatterns = PatternScanner.scanForming(candles, currentPeriod, doublePatterns);
+
+        const doubleMarkers = [];
+
+        // Вспомогательная функция проверки фильтра
+        const isDoubleEnabled = (type) => {
+            if (type.includes('вершин') || type.includes('top'))
+                return enabledNames.some(n => n.includes('вершин') || n.includes('top'));
+            if (type.includes('дно') || type.includes('bottom'))
+                return enabledNames.some(n => n.includes('дно') || n.includes('bottom'));
+            return false;
+        };
+
+        // Подтверждённые двойные вершины / донья
+        doublePatterns.forEach(p => {
+            if (p.type === 'double_top' && !isDoubleEnabled('вершин')) return;
+            if (p.type === 'double_bottom' && !isDoubleEnabled('дно')) return;
+
+            const isTop = p.type === 'double_top';
+            const color = isTop ? '#EF4444' : '#10B981';
+            const markerPos = isTop ? 'aboveBar' : 'belowBar';
+            const markerShape = isTop ? 'arrowDown' : 'arrowUp';
+
+            // Создаём линию только между двумя вершинами
+            const lineSeries = lwChart.addLineSeries({
+                color,
+                lineWidth: 4,
+                lineStyle: 2,               // пунктир
+                crosshairMarkerVisible: false,
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+            lineSeries.setData([
+                { time: p.time1, value: p.level },
+                { time: p.time2, value: p.level },
+            ]);
+            window._smallExtraSeries.push(lineSeries);
+
+            // Маркеры
+            doubleMarkers.push({ time: p.time1, position: markerPos, color, shape: markerShape, text: '' });
+            doubleMarkers.push({
+                time: p.time2,
+                position: markerPos,
+                color,
+                shape: markerShape,
+                text: currentLang === 'en'
+                    ? (isTop ? `Double Top ↓ ${p.retrace}%` : `Double Bottom ↑ ${p.retrace}%`)
+                    : (isTop ? `Двойная вершина ↓ ${p.retrace}%` : `Двойное дно ↑ ${p.retrace}%`)
+            });
+        });
+
+        // Формирующиеся двойные паттерны
+        formingPatterns.forEach(p => {
+            if (p.type === 'forming_double_top' && !isDoubleEnabled('вершин')) return;
+            if (p.type === 'forming_double_bottom' && !isDoubleEnabled('дно')) return;
+
+            const isTop = p.type === 'forming_double_top';
+            const color = isTop ? '#EF4444' : '#10B981';
+            const markerPos = isTop ? 'aboveBar' : 'belowBar';
+            const markerShape = isTop ? 'arrowDown' : 'arrowUp';
+
+            const lineSeries = lwChart.addLineSeries({
+                color,
+                lineWidth: 4,
+                lineStyle: 3,               // другой пунктир (крупный)
+                crosshairMarkerVisible: false,
+                lastValueVisible: false,
+                priceLineVisible: false,
+            });
+            lineSeries.setData([
+                { time: p.time1, value: p.level },
+                { time: p.time2, value: p.level },
+            ]);
+            window._smallExtraSeries.push(lineSeries);
+
+            // Маркеры (без текста)
+            doubleMarkers.push({ time: p.time1, position: markerPos, color, shape: markerShape, text: '' });
+            doubleMarkers.push({ time: p.time2, position: markerPos, color, shape: markerShape, text: '' });
+        });
+
+        // --- Объединяем все маркеры и дедуплицируем ---
+        const allRaw = [...candleMarkers, ...doubleMarkers];
+        allRaw.sort((a, b) => a.time - b.time);
+
+        const allMarkers = [];
+        for (const m of allRaw) {
+            const last = allMarkers[allMarkers.length - 1];
+            if (last && last.time === m.time && last.position === m.position) {
+                if (m.text) {
+                    // Определяем разделитель в зависимости от языка
+                    const sep = (typeof currentLang !== 'undefined' && currentLang === 'en') ? ' & ' : ' и ';
+                    last.text = last.text ? last.text + sep + m.text : m.text;
+                }
+            } else {
+                allMarkers.push({ ...m });
+            }
+        }
+
+        // Устанавливаем маркеры на свечную серию
+        try { lwSeries.setMarkers(allMarkers); } catch (e) {}
+    };
 
     window.clearSmallScan = function clearSmallScan() {
         try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
-    }
+        if (window._smallExtraSeries) {
+            window._smallExtraSeries.forEach(series => {
+                try { lwChart.removeSeries(series); } catch {}
+            });
+            window._smallExtraSeries = [];
+        }
+    };
 
     const scanBtnAppEl = document.getElementById('scanBtnApp');
     if (scanBtnAppEl) {
@@ -16428,9 +16548,13 @@
 
             // Пунктирная линия между вершинами/днами
             const ls = fsChart.addLineSeries({
-                color, lineWidth: 2, lineStyle: 2,
-                crosshairMarkerVisible: false, lastValueVisible: false,
-                priceLineVisible: false, priceScaleId: 'right',
+                color, 
+                lineWidth: 4,
+                lineStyle: 2,
+                crosshairMarkerVisible: false, 
+                lastValueVisible: false,
+                priceLineVisible: false, 
+                priceScaleId: 'right',
             });
             ls.setData([
                 { time: p.time1, value: p.level },
@@ -16443,8 +16567,8 @@
                 : (isTop ? `Двойная вершина ↓ откат ${p.retrace}%` : `Двойное дно ↑ откат ${p.retrace}%`);
 
             doubleMarkers.push(
-                { time: p.time1, position: isTop ? 'aboveBar' : 'belowBar', color, shape: 'circle', text: '' },
-                { time: p.time2, position: isTop ? 'aboveBar' : 'belowBar', color, shape: 'circle', text: markerText }
+                { time: p.time1, position: isTop ? 'aboveBar' : 'belowBar', color, shape: isTop ? 'arrowDown' : 'arrowUp', text: '' },
+                { time: p.time2, position: isTop ? 'aboveBar' : 'belowBar', color, shape: isTop ? 'arrowDown' : 'arrowUp', text: markerText }
             );
         });
 
@@ -16462,7 +16586,7 @@
                 : (isTop ? '⏳ Форм. вершина' : '⏳ Форм. дно');
 
             const ls = fsChart.addLineSeries({
-                color, lineWidth: 2, lineStyle: 3,
+                color, lineWidth: 4, lineStyle: 2,
                 crosshairMarkerVisible: false,
                 lastValueVisible: true,
                 priceLineVisible: false,
@@ -16485,7 +16609,7 @@
         // Объединяем все маркеры и дедуплицируем по time
         // Lightweight Charts показывает только один маркер на свечу,
         // поэтому при совпадении time объединяем тексты в один маркер
-        const allRaw = [...candleMarkers, ...doubleMarkers];
+        const allRaw = [...doubleMarkers, ...candleMarkers];
         allRaw.sort((a, b) => a.time - b.time);
 
         const allMarkers = [];
@@ -16494,7 +16618,9 @@
             if (last && last.time === m.time && last.position === m.position) {
                 // Объединяем: берём текст от обоих, приоритет цвета у первого
                 if (m.text) {
-                    last.text = last.text ? last.text + '\n' + m.text : m.text;
+                    // Определяем разделитель в зависимости от языка
+                    const sep = (typeof currentLang !== 'undefined' && currentLang === 'en') ? ' & ' : ' и ';
+                    last.text = last.text ? last.text + sep + m.text : m.text;
                 }
             } else {
                 allMarkers.push({ ...m });
