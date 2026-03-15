@@ -663,12 +663,58 @@ function logPost(type, text) {
 const TIMEZONE_OFFSET = 3; // МСК = UTC+3
 
 const scheduledPosts = [];
-const postSentToday = {}; // ключ "label:YYYY-MM-DD" → true
 
 function scheduleDaily(hour, minute, fn, label, fnEn = null) {
     scheduledPosts.push({ hour, minute, fn, label, fnEn });
     console.log(`⏰ ${label} запланирован на ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} МСК`);
 }
+
+/**
+ * Пытаемся атомарно пометить пост как отправленный в Firestore.
+ * Возвращает true, если удалось установить флаг (этот экземпляр первый).
+ * Если Firestore недоступен, используем резервную блокировку в памяти (postSentTodayFallback).
+ */
+async function tryMarkSentInFirestore(label, dateKey) {
+    // Если Firestore не инициализирован — используем временную память
+    if (!adminDb) {
+        const fallbackKey = `fallback:${label}:${dateKey}`;
+        if (postSentTodayFallback[fallbackKey]) return false;
+        postSentTodayFallback[fallbackKey] = true;
+        return true;
+    }
+
+    const docId = `${label}:${dateKey}`;
+    const docRef = adminDb.collection('cronSent').doc(docId);
+
+    try {
+        // Пытаемся создать документ с условием, что его ещё нет
+        await adminDb.runTransaction(async (transaction) => {
+            const doc = await transaction.get(docRef);
+            if (doc.exists) {
+                throw new Error('already sent');
+            }
+            transaction.set(docRef, {
+                sent: true,
+                label,
+                date: dateKey,
+                timestamp: adminDb.FieldValue.serverTimestamp(),
+            });
+        });
+        console.log(`✅ Блокировка получена для ${docId}`);
+        return true; // мы первые
+    } catch (error) {
+        if (error.message === 'already sent') {
+            console.log(`⏭️ Пост ${docId} уже был отправлен другим экземпляром`);
+            return false;
+        }
+        // При любой другой ошибке (сеть, права) — пропускаем, чтобы не дублировать
+        console.error(`❌ Ошибка Firestore при блокировке ${docId}:`, error.message);
+        return false;
+    }
+}
+
+// Резервная блокировка в памяти (если Firestore не работает)
+const postSentTodayFallback = {};
 
 // Проверяем каждые 30 секунд — пора ли отправить пост
 setInterval(async () => {
@@ -680,10 +726,10 @@ setInterval(async () => {
 
     for (const job of scheduledPosts) {
         if (mskHour === job.hour && mskMinute === job.minute) {
-            const sentKey = `${job.label}:${dateKey}`;
-            if (postSentToday[sentKey]) continue; // уже отправлено сегодня
+            // Пытаемся получить эксклюзивное право на отправку
+            const canSend = await tryMarkSentInFirestore(job.label, dateKey);
+            if (!canSend) continue; // уже отправлено (другим процессом)
 
-            postSentToday[sentKey] = true; // Ставим флаг ДО отправки и НЕ сбрасываем при ошибке
             try {
                 console.log(`📤 Отправка: ${job.label}`);
                 const text = await job.fn();
@@ -693,14 +739,16 @@ setInterval(async () => {
                 console.log(`✅ ${job.label} отправлен (RU + EN)`);
             } catch (e) {
                 console.error(`❌ ${job.label} ошибка:`, e.message);
-                // НЕ сбрасываем флаг — лучше пропустить, чем дублировать
+                // Флаг уже установлен — не сбрасываем, чтобы не заспамить при повторных попытках
+                // Если нужно предусмотреть повторную отправку при ошибке, можно добавить логику удаления флага
             }
         }
     }
 
-    // Очищаем старые записи (вчерашние)
-    for (const key of Object.keys(postSentToday)) {
-        if (!key.endsWith(dateKey)) delete postSentToday[key];
+    // Очищаем старую резервную память (за вчерашний день)
+    const yesterdayKey = now.toISOString().slice(0, 10); // сегодня
+    for (const key of Object.keys(postSentTodayFallback)) {
+        if (!key.includes(yesterdayKey)) delete postSentTodayFallback[key];
     }
 }, 30 * 1000);
 
