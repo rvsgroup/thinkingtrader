@@ -663,58 +663,48 @@ function logPost(type, text) {
 const TIMEZONE_OFFSET = 3; // МСК = UTC+3
 
 const scheduledPosts = [];
+const postSentToday = {}; // in-memory фоллбэк, если Firestore недоступен
+
+// Проверка/установка флага отправки через Firestore (общий для всех экземпляров)
+async function markPostSent(sentKey) {
+    // Сначала пробуем Firestore — он общий для всех инстансов
+    if (adminDb) {
+        const docRef = adminDb.collection('_postLocks').doc(sentKey);
+        try {
+            const snap = await docRef.get();
+            if (snap.exists) return false; // уже отправлено другим экземпляром
+            await docRef.set({ sentAt: new Date().toISOString(), instance: process.env.RAILWAY_REPLICA_ID || 'default' });
+            return true; // мы первые — отправляем
+        } catch (e) {
+            console.warn('⚠️ Firestore lock error, falling back to memory:', e.message);
+        }
+    }
+    // Фоллбэк на in-memory (если Firestore недоступен)
+    if (postSentToday[sentKey]) return false;
+    postSentToday[sentKey] = true;
+    return true;
+}
+
+// Очистка старых локов из Firestore (вызывается раз в день)
+async function cleanOldPostLocks(dateKey) {
+    if (!adminDb) return;
+    try {
+        const snap = await adminDb.collection('_postLocks').get();
+        const batch = adminDb.batch();
+        let count = 0;
+        snap.forEach(doc => {
+            if (!doc.id.endsWith(dateKey)) { batch.delete(doc.ref); count++; }
+        });
+        if (count > 0) await batch.commit();
+    } catch (e) {
+        console.warn('⚠️ cleanOldPostLocks error:', e.message);
+    }
+}
 
 function scheduleDaily(hour, minute, fn, label, fnEn = null) {
     scheduledPosts.push({ hour, minute, fn, label, fnEn });
     console.log(`⏰ ${label} запланирован на ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} МСК`);
 }
-
-/**
- * Пытаемся атомарно пометить пост как отправленный в Firestore.
- * Возвращает true, если удалось установить флаг (этот экземпляр первый).
- * Если Firestore недоступен, используем резервную блокировку в памяти (postSentTodayFallback).
- */
-async function tryMarkSentInFirestore(label, dateKey) {
-    // Если Firestore не инициализирован — используем временную память
-    if (!adminDb) {
-        const fallbackKey = `fallback:${label}:${dateKey}`;
-        if (postSentTodayFallback[fallbackKey]) return false;
-        postSentTodayFallback[fallbackKey] = true;
-        return true;
-    }
-
-    const docId = `${label}:${dateKey}`;
-    const docRef = adminDb.collection('cronSent').doc(docId);
-
-    try {
-        // Пытаемся создать документ с условием, что его ещё нет
-        await adminDb.runTransaction(async (transaction) => {
-            const doc = await transaction.get(docRef);
-            if (doc.exists) {
-                throw new Error('already sent');
-            }
-            transaction.set(docRef, {
-                sent: true,
-                label,
-                date: dateKey,
-                timestamp: adminDb.FieldValue.serverTimestamp(),
-            });
-        });
-        console.log(`✅ Блокировка получена для ${docId}`);
-        return true; // мы первые
-    } catch (error) {
-        if (error.message === 'already sent') {
-            console.log(`⏭️ Пост ${docId} уже был отправлен другим экземпляром`);
-            return false;
-        }
-        // При любой другой ошибке (сеть, права) — пропускаем, чтобы не дублировать
-        console.error(`❌ Ошибка Firestore при блокировке ${docId}:`, error.message);
-        return false;
-    }
-}
-
-// Резервная блокировка в памяти (если Firestore не работает)
-const postSentTodayFallback = {};
 
 // Проверяем каждые 30 секунд — пора ли отправить пост
 setInterval(async () => {
@@ -726,9 +716,10 @@ setInterval(async () => {
 
     for (const job of scheduledPosts) {
         if (mskHour === job.hour && mskMinute === job.minute) {
-            // Пытаемся получить эксклюзивное право на отправку
-            const canSend = await tryMarkSentInFirestore(job.label, dateKey);
-            if (!canSend) continue; // уже отправлено (другим процессом)
+            const sentKey = `${job.label}:${dateKey}`;
+
+            const canSend = await markPostSent(sentKey);
+            if (!canSend) continue; // уже отправлено (этим или другим экземпляром)
 
             try {
                 console.log(`📤 Отправка: ${job.label}`);
@@ -739,23 +730,43 @@ setInterval(async () => {
                 console.log(`✅ ${job.label} отправлен (RU + EN)`);
             } catch (e) {
                 console.error(`❌ ${job.label} ошибка:`, e.message);
-                // Флаг уже установлен — не сбрасываем, чтобы не заспамить при повторных попытках
-                // Если нужно предусмотреть повторную отправку при ошибке, можно добавить логику удаления флага
+                // НЕ удаляем флаг из Firestore — лучше пропустить, чем дублировать
             }
         }
     }
 
-    // Очищаем старую резервную память (за вчерашний день)
-    const yesterdayKey = now.toISOString().slice(0, 10); // сегодня
-    for (const key of Object.keys(postSentTodayFallback)) {
-        if (!key.includes(yesterdayKey)) delete postSentTodayFallback[key];
+    // Очищаем старые записи (вчерашние)
+    for (const key of Object.keys(postSentToday)) {
+        if (!key.endsWith(dateKey)) delete postSentToday[key];
     }
+    cleanOldPostLocks(dateKey);
 }, 30 * 1000);
 
 // ── CRON — алерты каждые 5 минут ─────────────────────────────
 const alertPrices = { BTCUSDT: [], ETHUSDT: [] };
-const alertLastSent = { BTCUSDT: 0, ETHUSDT: 0 };
+const alertLastSent = { BTCUSDT: 0, ETHUSDT: 0 }; // in-memory фоллбэк
 const alertSettings = { BTCUSDT: 3, ETHUSDT: 5 }; // пороги %
+
+// Проверка/установка лока для алерта через Firestore
+async function canSendAlert(sym) {
+    const now = Date.now();
+    if (adminDb) {
+        try {
+            const docRef = adminDb.collection('_alertLocks').doc(sym);
+            const snap = await docRef.get();
+            const lastSent = snap.exists ? snap.data().sentAt || 0 : 0;
+            if (now - lastSent <= 7200000) return false; // 2 часа не прошло
+            await docRef.set({ sentAt: now, instance: process.env.RAILWAY_REPLICA_ID || 'default' });
+            return true;
+        } catch (e) {
+            console.warn('⚠️ Alert lock Firestore error, fallback to memory:', e.message);
+        }
+    }
+    // Фоллбэк
+    if (now - alertLastSent[sym] <= 7200000) return false;
+    alertLastSent[sym] = now;
+    return true;
+}
 
 async function checkPriceAlerts() {
     try {
@@ -772,8 +783,7 @@ async function checkPriceAlerts() {
             const change = ((price - oldest.price) / oldest.price) * 100;
             const threshold = alertSettings[sym] || 3;
 
-            if (Math.abs(change) >= threshold && now - alertLastSent[sym] > 7200000) {
-                alertLastSent[sym] = now;
+            if (Math.abs(change) >= threshold && await canSendAlert(sym)) {
                 const coin    = sym.replace('USDT','');
                 const emoji   = coin === 'BTC' ? '🟠' : '🔷';
                 const dir     = change > 0 ? '🚀 Резкий рост' : '🔴 Резкое падение';
