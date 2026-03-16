@@ -102,9 +102,19 @@ const TTL = {
 
 // ── Хелпер fetch ───────────────────────────────────────────────
 async function proxyFetch(url) {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
-    return res.json();
+    try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            console.error(`❌ proxyFetch ${res.status} ${url} — ${body.slice(0, 200)}`);
+            throw new Error(`HTTP ${res.status} from ${url}`);
+        }
+        return res.json();
+    } catch (e) {
+        if (e.message?.includes('HTTP')) throw e;
+        console.error(`❌ proxyFetch NETWORK ERROR ${url} — ${e.message}`);
+        throw e;
+    }
 }
 
 // ── Хелпер: отдать из кэша или загрузить ──────────────────────
