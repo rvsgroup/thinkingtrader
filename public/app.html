@@ -10146,6 +10146,10 @@
                 updateTPSL();
                 updateProgressBar();
                 calculateMargin();
+                // Перезапускаем сканер если активен (для новой монеты)
+                if (window.smallScanActive && window.runSmallScan) {
+                    setTimeout(() => window.runSmallScan(), 300);
+                }
             } else {
                 chartLoading.textContent = t('chartError');
                 priceChangeBadge.className = 'price-change-badge';
@@ -10495,6 +10499,12 @@
         let rawOhlcCache = [];         // кэш OHLC данных
 
         function createLWLine(prices) {
+            // Удаляем пунктирные линии сканера перед пересозданием серии
+            if (window._smallExtraSeries && window._smallExtraSeries.length) {
+                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
+                window._smallExtraSeries = [];
+            }
+            try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
             if (lwSeries) { lwChart.removeSeries(lwSeries); lwSeries = null; }
 
             const values = prices.map(p => p[1]);
@@ -10520,6 +10530,12 @@
         }
 
         function createLWCandles(ohlc) {
+            // Удаляем пунктирные линии сканера перед пересозданием серии
+            if (window._smallExtraSeries && window._smallExtraSeries.length) {
+                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
+                window._smallExtraSeries = [];
+            }
+            try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
             if (lwSeries) { lwChart.removeSeries(lwSeries); lwSeries = null; }
 
             lwSeries = lwChart.addCandlestickSeries({
