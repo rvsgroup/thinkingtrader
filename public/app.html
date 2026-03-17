@@ -1367,6 +1367,93 @@
         }
 
         /* ── Колонка 2: Калькулятор ── */
+        /* ── Setup Scanner Panel ── */
+        #midColumnWrap {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
+            overflow: hidden;
+            height: 790px;
+            max-height: 790px;
+        }
+        .setup-scanner-panel {
+            background: rgba(17, 25, 40, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(99, 102, 241, 0.15);
+            border-radius: 8px;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            flex: 0 0 auto;
+            transition: flex 0.3s ease;
+        }
+        .setup-scanner-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #6366F1, #10B981);
+            pointer-events: none;
+        }
+        .setup-scanner-panel::after {
+            content: '';
+            position: absolute;
+            top: 2px; left: 0; right: 0;
+            height: 60px;
+            background: linear-gradient(180deg, rgba(99,102,241,0.06) 0%, transparent 100%);
+            pointer-events: none;
+            border-radius: 8px 8px 0 0;
+        }
+        .setup-scanner-panel.active {
+            display: flex;
+            flex: 0 0 auto;
+        }
+        .setup-scanner-panel.active.open {
+            flex: 1;
+            min-height: 0;
+        }
+        .setup-scanner-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            cursor: pointer;
+            position: relative;
+            z-index: 1;
+            flex-shrink: 0;
+        }
+        .setup-scanner-bar:hover { background: rgba(255,255,255,0.02); }
+        .setup-scanner-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #818CF8;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .setup-scanner-collapse-arrow {
+            font-size: 10px;
+            color: #475569;
+            transition: transform 0.3s;
+        }
+        .setup-scanner-panel.open .setup-scanner-collapse-arrow { transform: rotate(180deg); }
+        .setup-scanner-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 14px 14px;
+            min-height: 0;
+            position: relative;
+            z-index: 1;
+            display: none;
+        }
+        .setup-scanner-panel.open .setup-scanner-body {
+            display: block;
+        }
+        .setup-scanner-body::-webkit-scrollbar { width: 3px; }
+        .setup-scanner-body::-webkit-scrollbar-track { background: transparent; }
+        .setup-scanner-body::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 6px; }
+
         .calc-section {
             background: rgba(17, 25, 40, 0.95);
             backdrop-filter: blur(10px);
@@ -1377,8 +1464,7 @@
             flex-direction: column;
             gap: 10px;
             overflow: hidden;
-            height: 790px;
-            max-height: 790px;
+            flex: 1;
             min-height: 0;
             min-width: 0;
         }
@@ -3976,6 +4062,7 @@
 
             /* Все три колонки — полная ширина, высота auto, без overflow обрезания */
             .left-column,
+            #midColumnWrap,
             .calc-section,
             .results-section {
                 width: 100% !important;
@@ -5991,8 +6078,26 @@
 
             </div><!-- /left-column -->
 
-            <!-- ══ КОЛОНКА 2: Калькулятор ══ -->
-            <div class="calc-section">
+            <!-- ══ КОЛОНКА 2: Сканер сетапов + Калькулятор ══ -->
+            <div style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:0 0 auto;width:var(--calc-width, auto);" id="midColumnWrap">
+
+            <!-- Панель сканера сетапов (скрыта по умолчанию) -->
+            <div class="setup-scanner-panel" id="setupScannerPanel">
+                <div class="setup-scanner-bar" onclick="toggleSetupPanel()">
+                    <span class="setup-scanner-title" data-i18n="setupScannerTitle">Сканер сетапов</span>
+                    <span class="setup-scanner-collapse-arrow">▲</span>
+                </div>
+                <div class="setup-scanner-body" id="setupScannerBody">
+                    <!-- Контент будет генерироваться JS -->
+                    <div style="text-align:center;padding:40px 10px;color:#475569;font-size:12px;">
+                        <div style="font-size:24px;margin-bottom:8px;">📊</div>
+                        <div data-i18n="setupScannerEmpty">Нажмите «Scan» на графике для анализа</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Калькулятор -->
+            <div class="calc-section" id="calcSection">
 
                 <!-- ХАБ — стартовый экран -->
                 <div id="calcHub" class="calc-hub">
@@ -6413,7 +6518,8 @@
 
                 </div><!-- /calcContent -->
 
-            </div>
+            </div><!-- /calc-section -->
+            </div><!-- /midColumnWrap -->
 
             <!-- ══ КОЛОНКА 3: Результаты ══ -->
             <div class="results-section">
@@ -8108,6 +8214,8 @@
                 // Паттерны
                 patternAll: 'Все', patternBullish: 'Бычьи', patternBearish: 'Медвежьи', patternNeutral: 'Нейтральные',
                 fsScannerLabel: 'Сканер паттернов активен',
+                setupScannerTitle: 'Сканер сетапов',
+                setupScannerEmpty: 'Нажмите «Scan» на графике для анализа',
                 fsPatternsFound: 'Обнаруженные паттерны',
                 fsFilterAll: 'Все', fsFilterReset: 'Сбросить',
                 fsGroupSingle: 'Одиночные', fsGroupDouble: 'Двойные', fsGroupChart: 'Графические',
@@ -8429,6 +8537,8 @@
                 // Patterns
                 patternAll: 'All', patternBullish: 'Bullish', patternBearish: 'Bearish', patternNeutral: 'Neutral',
                 fsScannerLabel: 'Pattern scanner active',
+                setupScannerTitle: 'Setup scanner',
+                setupScannerEmpty: 'Press "Scan" on the chart to analyze',
                 fsPatternsFound: 'Detected patterns',
                 fsFilterAll: 'All', fsFilterReset: 'Reset',
                 fsGroupSingle: 'Single', fsGroupDouble: 'Double', fsGroupChart: 'Chart',
@@ -9340,6 +9450,7 @@
                 currentPeriod = parseFloat(btn.dataset.period);
                 loadChartData();
                 if (window.smallScanActive) setTimeout(() => window.runSmallScan && window.runSmallScan(), 500);
+                if (window.smallScanActive) setTimeout(() => window.runSetupAnalysis && window.runSetupAnalysis(), 1200);
                 // Синхронизируем большой график если открыт
                 const fsOverlayEl = document.getElementById('fsOverlay');
                 if (fsOverlayEl && fsOverlayEl.classList.contains('active')) {
@@ -10146,9 +10257,10 @@
                 updateTPSL();
                 updateProgressBar();
                 calculateMargin();
-                // Перезапускаем сканер если активен (для новой монеты)
-                if (window.smallScanActive && window.runSmallScan) {
-                    setTimeout(() => window.runSmallScan(), 300);
+                // Перезапускаем сканер и анализ сетапов если активен
+                if (window.smallScanActive) {
+                    if (window.runSmallScan) setTimeout(() => window.runSmallScan(), 300);
+                    if (window.runSetupAnalysis) setTimeout(() => window.runSetupAnalysis(), 1500);
                 }
             } else {
                 chartLoading.textContent = t('chartError');
@@ -10499,12 +10611,6 @@
         let rawOhlcCache = [];         // кэш OHLC данных
 
         function createLWLine(prices) {
-            // Удаляем пунктирные линии сканера перед пересозданием серии
-            if (window._smallExtraSeries && window._smallExtraSeries.length) {
-                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
-                window._smallExtraSeries = [];
-            }
-            try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
             if (lwSeries) { lwChart.removeSeries(lwSeries); lwSeries = null; }
 
             const values = prices.map(p => p[1]);
@@ -10530,12 +10636,6 @@
         }
 
         function createLWCandles(ohlc) {
-            // Удаляем пунктирные линии сканера перед пересозданием серии
-            if (window._smallExtraSeries && window._smallExtraSeries.length) {
-                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
-                window._smallExtraSeries = [];
-            }
-            try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
             if (lwSeries) { lwChart.removeSeries(lwSeries); lwSeries = null; }
 
             lwSeries = lwChart.addCandlestickSeries({
@@ -15737,8 +15837,278 @@
                 ? (currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен')
                 : 'Scan';
             if (window.smallScanActive) runSmallScan(); else clearSmallScan();
+            // Показываем панель и разворачиваем при первом включении
+            const panel = document.getElementById('setupScannerPanel');
+            if (panel && window.smallScanActive && !panel.classList.contains('active')) {
+                panel.classList.add('active');
+                setupPanelSetOpen(true);
+            }
+            // Запускаем анализ сетапа с задержкой чтобы индикаторы успели обновиться
+            if (window.smallScanActive) {
+                setTimeout(() => { if (typeof runSetupAnalysis === 'function') runSetupAnalysis(); }, 800);
+            }
         });
     }
+
+    // ── Setup Scanner Panel — сворачивание/разворачивание ──
+    function setupPanelSetOpen(open) {
+        const panel = document.getElementById('setupScannerPanel');
+        const calcSection = document.getElementById('calcSection');
+        if (!panel) return;
+        if (open) {
+            panel.classList.add('open');
+            if (calcSection) calcSection.style.display = 'none';
+        } else {
+            panel.classList.remove('open');
+            if (calcSection) { calcSection.style.display = 'flex'; calcSection.style.flex = '1'; }
+        }
+    }
+
+    window.toggleSetupPanel = function() {
+        const panel = document.getElementById('setupScannerPanel');
+        if (!panel) return;
+        const isOpen = panel.classList.contains('open');
+        setupPanelSetOpen(!isOpen);
+    };
+
+    // ── Setup Scanner: сбор данных и рендер карточки ──
+    // SVG иконки для каждого типа сигнала
+    const _setupIcons = {
+        rsi: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 12L4 6L7 9L10 3L15 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><text x="1" y="15" font-size="4" fill="currentColor" font-weight="700">RSI</text></svg>`,
+        zscore: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8h12M8 2v12" stroke="currentColor" stroke-width="1" opacity="0.3"/><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="8" cy="8" r="1" fill="currentColor"/></svg>`,
+        ema: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 12C4 12 6 4 8 4S12 10 15 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M1 10C4 10 7 6 10 6S13 8 15 8" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.4"/></svg>`,
+        macd: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="8" width="2" height="5" rx="0.5" fill="currentColor" opacity="0.4"/><rect x="4" y="6" width="2" height="7" rx="0.5" fill="currentColor" opacity="0.6"/><rect x="7" y="4" width="2" height="9" rx="0.5" fill="currentColor"/><rect x="10" y="5" width="2" height="8" rx="0.5" fill="currentColor" opacity="0.7"/><rect x="13" y="7" width="2" height="6" rx="0.5" fill="currentColor" opacity="0.4"/></svg>`,
+        bb: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 4C4 2 12 2 15 4" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.5"/><path d="M1 8C4 7 12 7 15 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M1 12C4 14 12 14 15 12" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.5"/></svg>`,
+        obv: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="10" width="3" height="4" rx="0.5" fill="currentColor" opacity="0.5"/><rect x="5" y="7" width="3" height="7" rx="0.5" fill="currentColor" opacity="0.7"/><rect x="9" y="4" width="3" height="10" rx="0.5" fill="currentColor"/><rect x="13" y="6" width="2" height="8" rx="0.5" fill="currentColor" opacity="0.6"/></svg>`,
+        stoch: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 11L5 5L9 9L15 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="3" r="1.5" fill="currentColor"/></svg>`,
+        mfi: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M6 10V7L8 5L10 7V10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+        cci: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 8h14" stroke="currentColor" stroke-width="0.5" opacity="0.3"/><path d="M1 11C3 11 4 5 6 5S8 11 10 11S12 5 15 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+        willr: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3V13M2 13H14" stroke="currentColor" stroke-width="1" opacity="0.3"/><path d="M2 10L5 6L8 8L11 4L14 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+        pattern: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="6" y="2" width="4" height="12" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><line x1="8" y1="0.5" x2="8" y2="2" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.2"/></svg>`,
+        doubleBottom: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 4L4 12L7 6L10 12L15 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+        doubleTop: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 12L4 4L7 10L10 4L15 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    };
+
+    window.runSetupAnalysis = function() {
+        const body = document.getElementById('setupScannerBody');
+        if (!body) return;
+
+        const coinName = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.name : 'Bitcoin';
+        const coinSymbol = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.symbol : 'BTC';
+        const coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+        const price = (typeof currentCoinPrice !== 'undefined' && currentCoinPrice) ? currentCoinPrice : 0;
+        const priceFmt = price > 0 ? '$' + price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+        const periodBtn = document.querySelector('.chart-period-buttons .period-btn.active');
+        const periodLabel = periodBtn ? periodBtn.textContent.trim() : '1Д';
+        const isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+
+        // --- Сбор сигналов ---
+        const signals = [];
+
+        // RSI
+        const rsiEl = document.getElementById('rsiValue');
+        const rsiVal = rsiEl ? parseFloat(rsiEl.textContent) : null;
+        if (rsiVal !== null && !isNaN(rsiVal)) {
+            let dir = 'neutral';
+            let label = isEn ? `RSI neutral (${rsiVal})` : `RSI нейтрален (${rsiVal})`;
+            if (rsiVal < 30) { dir = 'bull'; label = isEn ? `RSI oversold (${rsiVal})` : `RSI перепродан (${rsiVal})`; }
+            else if (rsiVal > 70) { dir = 'bear'; label = isEn ? `RSI overbought (${rsiVal})` : `RSI перекуплен (${rsiVal})`; }
+            signals.push({ name: label, dir, cat: isEn ? 'momentum' : 'моментум', icon: 'rsi' });
+        }
+
+        // Z-Score
+        const zEl = document.getElementById('zscoreValue');
+        const zVal = zEl ? parseFloat(zEl.textContent) : null;
+        if (zVal !== null && !isNaN(zVal)) {
+            let dir = 'neutral';
+            let label = isEn ? `Z-Score neutral (${zVal})` : `Z-Score нейтрален (${zVal})`;
+            if (zVal < -1.5) { dir = 'bull'; label = isEn ? `Z-Score low (${zVal})` : `Z-Score низкий (${zVal})`; }
+            else if (zVal > 1.5) { dir = 'bear'; label = isEn ? `Z-Score high (${zVal})` : `Z-Score высокий (${zVal})`; }
+            signals.push({ name: label, dir, cat: isEn ? 'volatility' : 'волатильн.', icon: 'zscore' });
+        }
+
+        // Индикаторы страницы 2
+        const badgeMap = {
+            emaBadge:   { name: 'EMA 50/200',  nameEn: 'EMA 50/200',  cat: 'тренд',      catEn: 'trend',      icon: 'ema' },
+            macdBadge:  { name: 'MACD',         nameEn: 'MACD',         cat: 'моментум',   catEn: 'momentum',   icon: 'macd' },
+            bbBadge:    { name: 'Боллинджер',   nameEn: 'Bollinger',    cat: 'волатильн.', catEn: 'volatility', icon: 'bb' },
+            obvBadge:   { name: 'OBV',          nameEn: 'OBV',          cat: 'объём',      catEn: 'volume',     icon: 'obv' },
+            stochBadge: { name: 'Stoch RSI',    nameEn: 'Stoch RSI',    cat: 'моментум',   catEn: 'momentum',   icon: 'stoch' },
+            mfiBadge:   { name: 'MFI',          nameEn: 'MFI',          cat: 'объём',      catEn: 'volume',     icon: 'mfi' },
+            cciBadge:   { name: 'CCI',          nameEn: 'CCI',          cat: 'моментум',   catEn: 'momentum',   icon: 'cci' },
+            willrBadge: { name: 'Williams %R',  nameEn: 'Williams %R',  cat: 'моментум',   catEn: 'momentum',   icon: 'willr' },
+        };
+        for (const [id, meta] of Object.entries(badgeMap)) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            const cls = el.className || '';
+            let dir = 'neutral';
+            if (cls.includes('bullish')) dir = 'bull';
+            else if (cls.includes('bearish')) dir = 'bear';
+            const nm = isEn ? meta.nameEn : meta.name;
+            const dl = dir === 'bull' ? (isEn ? ' bullish' : ' бычий') : dir === 'bear' ? (isEn ? ' bearish' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            signals.push({ name: nm + dl, dir, cat: isEn ? meta.catEn : meta.cat, icon: meta.icon });
+        }
+
+        // Паттерны — последние 3 любых (свечные + двойные вместе, отсортированы по времени)
+        if (typeof rawOhlcCache !== 'undefined' && rawOhlcCache.length && typeof PatternScanner !== 'undefined') {
+            const candles = rawOhlcCache.map(k => ({ time: Math.floor(k[0]/1000), open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]) }));
+            PatternScanner.enableAll();
+            const candlePatterns = PatternScanner.scan(candles).map(p => ({
+                time: p.time,
+                name: (isEn && p.typeEn) ? p.typeEn : p.type,
+                dir: p.direction === 'bullish' ? 'bull' : p.direction === 'bearish' ? 'bear' : 'neutral',
+                icon: 'pattern'
+            }));
+            const doublePatterns = PatternScanner.scanDouble(candles, typeof currentPeriod !== 'undefined' ? currentPeriod : 1).map(p => {
+                const isTop = p.type === 'double_top';
+                return {
+                    time: p.time2,
+                    name: isTop ? (isEn ? 'Double top' : 'Двойная вершина') : (isEn ? 'Double bottom' : 'Двойное дно'),
+                    dir: isTop ? 'bear' : 'bull',
+                    icon: isTop ? 'doubleTop' : 'doubleBottom'
+                };
+            });
+            // Объединяем, сортируем по времени, берём последние 3
+            const allPatterns = [...candlePatterns, ...doublePatterns].sort((a, b) => a.time - b.time);
+            const last3 = allPatterns.slice(-3);
+            last3.forEach(p => {
+                signals.push({ name: p.name, dir: p.dir, cat: isEn ? 'pattern' : 'паттерн', icon: p.icon });
+            });
+        }
+
+        // --- Подсчёт ---
+        const bull = signals.filter(s => s.dir === 'bull').length;
+        const bear = signals.filter(s => s.dir === 'bear').length;
+        const neut = signals.filter(s => s.dir === 'neutral').length;
+        const total = signals.length;
+        const score = total > 0 ? Math.min(10, Math.max(1, Math.round(((Math.max(bull, bear) / total) * 10)))) : 0;
+
+        let verdict, verdictColor;
+        if (bull >= bear + 2 && bull > neut) { verdict = isEn ? 'Bullish reversal' : 'Бычий разворот'; verdictColor = '#10B981'; }
+        else if (bear >= bull + 2 && bear > neut) { verdict = isEn ? 'Bearish reversal' : 'Медвежий разворот'; verdictColor = '#EF4444'; }
+        else if (bull > bear) { verdict = isEn ? 'Moderately bullish' : 'Умеренно бычий'; verdictColor = '#34D399'; }
+        else if (bear > bull) { verdict = isEn ? 'Moderately bearish' : 'Умеренно медвежий'; verdictColor = '#F87171'; }
+        else { verdict = isEn ? 'Uncertainty' : 'Неопределённость'; verdictColor = '#FBBF24'; }
+
+        const ringPct = total > 0 ? (score / 10) : 0;
+        const ringDash = Math.round(151 * ringPct);
+        const ringGap = 151 - ringDash;
+
+        // --- Цвета ---
+        const colors = {
+            bull:    { bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.25)', text: '#10B981', catBg: 'rgba(16,185,129,0.18)', catText: '#34D399' },
+            bear:    { bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.2)',   text: '#EF4444', catBg: 'rgba(239,68,68,0.15)',  catText: '#F87171' },
+            neutral: { bg: 'rgba(251,191,36,0.06)',  border: 'rgba(251,191,36,0.18)', text: '#FBBF24', catBg: 'rgba(251,191,36,0.12)', catText: '#FCD34D' },
+        };
+
+        // --- Рендер сигналов ---
+        const sorted = [...signals].sort((a, b) => ({ bull: 0, neutral: 1, bear: 2 }[a.dir] || 1) - ({ bull: 0, neutral: 1, bear: 2 }[b.dir] || 1));
+        let signalsHtml = '';
+        sorted.forEach(s => {
+            const c = colors[s.dir];
+            const arrow = s.dir === 'bull' ? '▲' : s.dir === 'bear' ? '▼' : '◆';
+            const iconSvg = _setupIcons[s.icon] || _setupIcons.rsi;
+            signalsHtml += `
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:${c.bg};border:0.5px solid ${c.border};">
+                <span style="color:${c.text};display:flex;align-items:center;">${iconSvg}</span>
+                <span style="color:${c.text};font-size:11px;font-weight:700;width:12px;">${arrow}</span>
+                <span style="flex:1;color:#E2E8F0;font-size:12px;font-weight:500;">${s.name}</span>
+                <span style="font-size:9px;font-weight:600;padding:2px 8px;border-radius:5px;background:${c.catBg};color:${c.catText};">${s.cat}</span>
+            </div>`;
+        });
+
+        // --- Карточка (утверждённый стиль — 2 колонки сигналов) ---
+        const iconUrl = (typeof ICONS !== 'undefined' && ICONS[coinId]) ? ICONS[coinId] : '';
+        const changeBadge = document.querySelector('.price-change-badge');
+        const changeText = changeBadge ? changeBadge.textContent.trim() : '';
+        const changeColor = changeBadge && changeBadge.classList.contains('positive') ? '#10B981' : '#EF4444';
+
+        // Сигналы в 2 колонки, нечётный последний — на всю ширину
+        const isOdd = sorted.length % 2 !== 0;
+        const gridSignals = isOdd ? sorted.slice(0, -1) : sorted;
+        const lastSignal = isOdd ? sorted[sorted.length - 1] : null;
+
+        let gridHtml = '';
+        gridSignals.forEach(s => {
+            const c = colors[s.dir];
+            const arrow = s.dir === 'bull' ? '▲' : s.dir === 'bear' ? '▼' : '◆';
+            const iconSvg = _setupIcons[s.icon] || _setupIcons.rsi;
+            gridHtml += `<div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:8px;background:${c.bg};border:0.5px solid ${c.border};">
+                <span style="color:${c.text};display:flex;align-items:center;">${iconSvg}</span>
+                <span style="color:${c.text};font-size:10px;font-weight:700;">${arrow}</span>
+                <span style="flex:1;font-size:11px;font-weight:500;color:#E2E8F0;">${s.name}</span>
+                <span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:4px;background:${c.catBg};color:${c.catText};">${s.cat}</span>
+            </div>`;
+        });
+        let lastHtml = '';
+        if (lastSignal) {
+            const c = colors[lastSignal.dir];
+            const arrow = lastSignal.dir === 'bull' ? '▲' : lastSignal.dir === 'bear' ? '▼' : '◆';
+            const iconSvg = _setupIcons[lastSignal.icon] || _setupIcons.rsi;
+            lastHtml = `<div style="display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:8px;background:${c.bg};border:0.5px solid ${c.border};grid-column:1/-1;">
+                <span style="color:${c.text};display:flex;align-items:center;">${iconSvg}</span>
+                <span style="color:${c.text};font-size:10px;font-weight:700;">${arrow}</span>
+                <span style="flex:1;font-size:11px;font-weight:500;color:#E2E8F0;">${lastSignal.name}</span>
+                <span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:4px;background:${c.catBg};color:${c.catText};">${lastSignal.cat}</span>
+            </div>`;
+        }
+
+        body.innerHTML = `
+        <div style="background:#0B1222;border:1px solid rgba(99,102,241,0.2);border-radius:18px;position:relative;overflow:hidden;">
+            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#6366F1,#10B981);"></div>
+            <div style="position:absolute;top:3px;left:0;right:0;height:70px;background:linear-gradient(180deg,rgba(99,102,241,0.06) 0%,transparent 100%);pointer-events:none;"></div>
+
+            <div style="padding:20px 22px 16px;position:relative;z-index:1;">
+
+                <!-- Top row: coin info -->
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <img src="${iconUrl}" alt="${coinSymbol}" style="width:30px;height:30px;border-radius:50%;" onerror="this.style.display='none'">
+                    <span style="font-size:15px;font-weight:700;color:#F1F5F9;">${coinName}</span>
+                    <span style="font-size:12px;color:#94A3B8;">${priceFmt}</span>
+                    <span style="font-size:11px;color:${changeColor};font-weight:600;">${changeText}</span>
+                </div>
+
+                <div style="font-size:8px;letter-spacing:1.5px;color:#818CF8;text-transform:uppercase;margin-bottom:8px;">${isEn ? 'Setup scanner' : 'Сканер сетапов'} · ${periodLabel}</div>
+
+                <!-- Verdict row -->
+                <div style="margin-bottom:16px;padding-right:220px;">
+                    <div style="font-size:20px;font-weight:700;color:${verdictColor};margin-bottom:3px;">${verdict}</div>
+                    <div style="font-size:11px;color:#94A3B8;">${isEn ? 'Matched' : 'Совпало'} ${Math.max(bull,bear)} ${isEn ? 'of' : 'из'} ${total} ${isEn ? 'signals' : 'сигналов'}</div>
+                </div>
+
+                <!-- Ring + legend — absolute top right -->
+                <div style="position:absolute;top:20px;right:22px;display:flex;align-items:center;gap:14px;z-index:2;">
+                    <svg width="100" height="100" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="6"/>
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="${verdictColor}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${Math.round(264 * ringPct)} ${264 - Math.round(264 * ringPct)}" transform="rotate(-90 50 50)"/>
+                        <text x="50" y="46" text-anchor="middle" fill="#F1F5F9" font-size="30" font-weight="700" font-family="sans-serif">${score}</text>
+                        <text x="50" y="62" text-anchor="middle" fill="#64748B" font-size="10" font-family="sans-serif">${isEn ? 'of 10' : 'из 10'}</text>
+                    </svg>
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <div style="display:flex;align-items:center;gap:5px;"><div style="width:8px;height:8px;border-radius:2px;background:#10B981;"></div><span style="font-size:11px;color:#CBD5E1;">${bull} ${isEn ? 'bull' : 'бычьих'}</span></div>
+                        <div style="display:flex;align-items:center;gap:5px;"><div style="width:8px;height:8px;border-radius:2px;background:#64748B;"></div><span style="font-size:11px;color:#94A3B8;">${neut} ${isEn ? 'neut' : 'нейтр.'}</span></div>
+                        <div style="display:flex;align-items:center;gap:5px;"><div style="width:8px;height:8px;border-radius:2px;background:#EF4444;"></div><span style="font-size:11px;color:#94A3B8;">${bear} ${isEn ? 'bear' : 'медв.'}</span></div>
+                    </div>
+                </div>
+
+                <div style="height:0.5px;background:rgba(255,255,255,0.06);margin-bottom:12px;"></div>
+
+                <!-- Signals grid 2 columns -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+                    ${gridHtml}
+                    ${lastHtml}
+                </div>
+
+                <!-- Footer -->
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:0.5px solid rgba(255,255,255,0.06);">
+                    <span style="font-size:9px;font-weight:600;color:#475569;letter-spacing:0.5px;">THINKING TRADER</span>
+                    <span style="font-size:9px;font-weight:600;color:#818CF8;cursor:pointer;">${isEn ? 'Share' : 'Поделиться'} ↗</span>
+                </div>
+            </div>
+        </div>
+        `;
+    };
 
     // ── Filter dropdown toggle ──
     document.getElementById('filterBtnApp').addEventListener('click', (e) => {
@@ -16736,6 +17106,7 @@
         if (fsChart) { fsChart.remove(); fsChart = null; fsCandleSeries = null; }
         // Синхронизируем маленький
         window.smallScanActive = false;
+        // Панель сканера сетапов остаётся видимой (просто свёрнутая), не скрываем
         const _scanBtn = document.getElementById('scanBtnApp');
         if (_scanBtn) {
             _scanBtn.classList.remove('scan-active');
