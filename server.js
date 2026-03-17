@@ -675,10 +675,11 @@ const TIMEZONE_OFFSET = 3; // МСК = UTC+3
 const scheduledPosts = [];
 const postSentToday = {}; // in-memory фоллбэк, если Firestore недоступен
 
-// Проверка/установка флага отправки через файл (переживает рестарт, не зависит от Firestore)
+// Проверка/установка флага отправки через файл (переживает рестарт и деплой через Railway Volume)
 const fs = require('fs');
-const LOCK_DIR = '/tmp/tt-post-locks';
+const LOCK_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH ? process.env.RAILWAY_VOLUME_MOUNT_PATH + '/tt-post-locks' : '/tmp/tt-post-locks';
 try { fs.mkdirSync(LOCK_DIR, { recursive: true }); } catch {}
+console.log(`🔒 Post locks dir: ${LOCK_DIR}`);
 
 function lockFilePath(key) {
     return `${LOCK_DIR}/${key.replace(/[^a-zA-Z0-9_:-]/g, '_')}`;

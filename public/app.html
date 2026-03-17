@@ -15,6 +15,7 @@
     <meta name="theme-color" content="#0B1525">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -5817,22 +5818,24 @@
                                         <button class="pf-action" id="pfNone">Сбросить</button>
                                     </div>
                                     <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
-                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;">Одиночные</div>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Доджи" checked>Доджи</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Марибозу" checked>Марибозу</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Молот" checked>Молот</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Повешенный" checked>Повешенный</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Падающая звезда" checked>Падающая звезда</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Перевёрнутый молот" checked>Перевёрнутый молот</label>
+                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="pfGroupSingle">Одиночные</div>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Доджи" checked><span data-i18n="pfDoji">Доджи</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Марибозу" checked><span data-i18n="pfMarubozu">Марибозу</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Молот" checked><span data-i18n="pfHammer">Молот</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Повешенный" checked><span data-i18n="pfHangingMan">Повешенный</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Падающая звезда" checked><span data-i18n="pfShootingStar">Падающая звезда</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Перевёрнутый молот" checked><span data-i18n="pfInvHammer">Перевёрнутый молот</span></label>
                                     <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
-                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;">Двойные</div>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Поглощение" checked>Поглощение</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Харами" checked>Харами</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Пинцет" checked>Пинцет</label>
+                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="pfGroupDouble">Двойные</div>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Поглощение" checked><span data-i18n="pfEngulfing">Поглощение</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Харами" checked><span data-i18n="pfHarami">Харами</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Пинцет" checked><span data-i18n="pfTweezer">Пинцет</span></label>
                                     <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
-                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;">Графические</div>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Двойная вершина" checked>Двойная вершина</label>
-                                    <label class="pf-item"><input type="checkbox" data-pat="Двойное дно" checked>Двойное дно</label>
+                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="pfGroupChart">Графические</div>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Двойная вершина" checked><span data-i18n="pfDoubleTop">Двойная вершина</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Двойное дно" checked><span data-i18n="pfDoubleBottom">Двойное дно</span></label>
+                                    <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="pfGroupLevels">Уровни</div>
+                                    <label class="pf-item"><input type="checkbox" id="filterLevelsApp" checked><span data-i18n="pfLevels">Поддержка / Сопротивление</span></label>
                                 </div>
                             </div>
                             <button id="expandChartBtn" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;" title="Развернуть"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
@@ -8224,6 +8227,12 @@
                 fsPatInvHammer: 'Перевёрнутый молот', fsPatEngulfing: 'Поглощение',
                 fsPatHarami: 'Харами', fsPatTweezer: 'Пинцет',
                 fsPatDoubleTop: 'Двойная вершина', fsPatDoubleBottom: 'Двойное дно',
+                pfGroupSingle: 'Одиночные', pfGroupDouble: 'Двойные', pfGroupChart: 'Графические', pfGroupLevels: 'Уровни',
+                pfDoji: 'Доджи', pfMarubozu: 'Марибозу', pfHammer: 'Молот', pfHangingMan: 'Повешенный',
+                pfShootingStar: 'Падающая звезда', pfInvHammer: 'Перевёрнутый молот',
+                pfEngulfing: 'Поглощение', pfHarami: 'Харами', pfTweezer: 'Пинцет',
+                pfDoubleTop: 'Двойная вершина', pfDoubleBottom: 'Двойное дно',
+                pfLevels: 'Поддержка / Сопротивление',
                 patternSearch: 'Поиск...', patternCandles: 'свечей',
                 patternLabelBullish: 'Бычий', patternLabelBearish: 'Медвежий', patternLabelNeutral: 'Нейтральный',
                 patternReliability: 'Надёжность', patternCandlesLabel: 'Свечей', patternSignal: 'Сигнал',
@@ -8547,6 +8556,12 @@
                 fsPatInvHammer: 'Inv. Hammer', fsPatEngulfing: 'Engulfing',
                 fsPatHarami: 'Harami', fsPatTweezer: 'Tweezer',
                 fsPatDoubleTop: 'Double Top', fsPatDoubleBottom: 'Double Bottom',
+                pfGroupSingle: 'Single', pfGroupDouble: 'Double', pfGroupChart: 'Chart patterns', pfGroupLevels: 'Levels',
+                pfDoji: 'Doji', pfMarubozu: 'Marubozu', pfHammer: 'Hammer', pfHangingMan: 'Hanging Man',
+                pfShootingStar: 'Shooting Star', pfInvHammer: 'Inverted Hammer',
+                pfEngulfing: 'Engulfing', pfHarami: 'Harami', pfTweezer: 'Tweezer',
+                pfDoubleTop: 'Double Top', pfDoubleBottom: 'Double Bottom',
+                pfLevels: 'Support / Resistance',
                 patternSearch: 'Search...', patternCandles: 'candles',
                 patternLabelBullish: 'Bullish', patternLabelBearish: 'Bearish', patternLabelNeutral: 'Neutral',
                 patternReliability: 'Reliability', patternCandlesLabel: 'Candles', patternSignal: 'Signal',
@@ -9034,6 +9049,10 @@
                     loadVWAP();
                     loadMFI();
                     scheduleIndSummaryUpdate();
+                    // Обновляем сканер сетапов после загрузки всех индикаторов
+                    if (window.smallScanActive && window.runSetupAnalysis) {
+                        setTimeout(() => window.runSetupAnalysis(), 2000);
+                    }
                 });
             });
             // Обновляем Funding Rate и OI для новой монеты
@@ -10231,23 +10250,82 @@
 
         // Период → интервал и лимит Binance klines
         async function loadChartData() {
+            // Очищаем старые линии сканера
+            if (window._smallExtraSeries && window._smallExtraSeries.length) {
+                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
+                window._smallExtraSeries = [];
+            }
+            try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
+
             chartLoading.style.display = 'flex';
             const ohlc = await fetchOhlcData(selectedCoin.id, currentPeriod);
             rawOhlcCache = ohlc;
             
             if (ohlc && ohlc.length) {
-                // Преобразуем свечи в цены закрытия для линейного графика
                 const prices = ohlc.map(([t, o, h, l, c]) => [t, c]);
                 rawPricesCache = prices;
                 
                 const lastPrice = prices[prices.length - 1][1];
                 if (lastPrice && lastPrice > 0) {
                     currentCoinPrice = lastPrice;
-                    // Цену внизу НЕ ставим из истории — она обновляется из fetchCoinPrice или 15s интервала
                 }
                 
                 window._lastChartPrices = prices;
-                createChart(prices);
+
+                // Если сканер активен — принудительно свечной режим
+                if (window.smallScanActive) {
+                    chartDisplayType = 'candle';
+                    const btnLine = document.getElementById('btnLine');
+                    const btnCand = document.getElementById('btnCandle');
+                    if (btnLine) btnLine.classList.remove('active');
+                    if (btnCand) btnCand.classList.add('active');
+                }
+
+                chartLoading.style.display = 'none';
+                if (!lwChart) initLWChart();
+
+                // Создаём серию напрямую (без createLWCandles/createLWLine чтобы не было race condition)
+                if (lwSeries) { lwChart.removeSeries(lwSeries); lwSeries = null; }
+
+                if (chartDisplayType === 'candle' && rawOhlcCache.length) {
+                    lwSeries = lwChart.addCandlestickSeries({
+                        upColor: '#10B981', downColor: '#EF4444',
+                        borderUpColor: '#10B981', borderDownColor: '#EF4444',
+                        wickUpColor: '#10B981', wickDownColor: '#EF4444',
+                        priceLineVisible: false,
+                    });
+                    const candleData = rawOhlcCache
+                        .map(([t, o, h, l, c]) => ({ time: Math.floor(t / 1000), open: o, high: h, low: l, close: c }))
+                        .sort((a, b) => a.time - b.time)
+                        .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
+                    lwSeries.setData(candleData);
+                } else {
+                    const values = prices.map(p => p[1]);
+                    const isPos = values[values.length - 1] >= values[0];
+                    const color = isPos ? '#10B981' : '#EF4444';
+                    lwSeries = lwChart.addAreaSeries({
+                        lineColor: color,
+                        topColor: isPos ? 'rgba(16,185,129,0.28)' : 'rgba(239,68,68,0.28)',
+                        bottomColor: 'rgba(0,0,0,0)',
+                        lineWidth: 2, priceLineVisible: false,
+                        crosshairMarkerVisible: true, crosshairMarkerRadius: 5,
+                    });
+                    const lineData = prices
+                        .map(([t, v]) => ({ time: Math.floor(t / 1000), value: v }))
+                        .sort((a, b) => a.time - b.time)
+                        .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
+                    lwSeries.setData(lineData);
+                }
+
+                lwChart.timeScale().fitContent();
+                const nowSec = Math.floor(Date.now() / 1000);
+                lwChart.timeScale().scrollToPosition(0, false);
+                lwChart.timeScale().setVisibleRange({
+                    from: prices[0] ? Math.floor(prices[0][0] / 1000) : nowSec - 86400 * 7,
+                    to: nowSec
+                });
+                setTimeout(() => drawLWLevels(), 0);
+
                 updateChangeBadge(prices);
                 updateRSI(prices);
                 updateZScore(prices);
@@ -10257,10 +10335,13 @@
                 updateTPSL();
                 updateProgressBar();
                 calculateMargin();
-                // Перезапускаем сканер и анализ сетапов если активен
-                if (window.smallScanActive) {
-                    if (window.runSmallScan) setTimeout(() => window.runSmallScan(), 300);
-                    if (window.runSetupAnalysis) setTimeout(() => window.runSetupAnalysis(), 1500);
+
+                // Сканер — сразу после setData (как на большом графике)
+                if (window.smallScanActive && window.runSmallScan) {
+                    window.runSmallScan();
+                }
+                if (window.smallScanActive && window.runSetupAnalysis) {
+                    setTimeout(() => window.runSetupAnalysis(), 2000);
                 }
             } else {
                 chartLoading.textContent = t('chartError');
@@ -10611,6 +10692,11 @@
         let rawOhlcCache = [];         // кэш OHLC данных
 
         function createLWLine(prices) {
+            // Удаляем пунктирные линии сканера (double top/bottom)
+            if (window._smallExtraSeries && window._smallExtraSeries.length) {
+                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
+                window._smallExtraSeries = [];
+            }
             if (lwSeries) { lwChart.removeSeries(lwSeries); lwSeries = null; }
 
             const values = prices.map(p => p[1]);
@@ -10636,6 +10722,11 @@
         }
 
         function createLWCandles(ohlc) {
+            // Удаляем пунктирные линии сканера (double top/bottom)
+            if (window._smallExtraSeries && window._smallExtraSeries.length) {
+                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
+                window._smallExtraSeries = [];
+            }
             if (lwSeries) { lwChart.removeSeries(lwSeries); lwSeries = null; }
 
             lwSeries = lwChart.addCandlestickSeries({
@@ -11027,6 +11118,13 @@
         }
 
         async function loadChartData() {
+            // Очищаем старые линии сканера
+            if (window._smallExtraSeries && window._smallExtraSeries.length) {
+                window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
+                window._smallExtraSeries = [];
+            }
+            try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
+
             chartLoading.style.display = 'flex';
             // Загружаем только OHLC данные (свечи)
             const ohlc = await fetchOhlcData(selectedCoin.id, currentPeriod);
@@ -11042,6 +11140,15 @@
                     currentCoinPrice = lastPrice;
                 }
 
+                // Если сканер активен — принудительно свечной режим
+                if (window.smallScanActive) {
+                    chartDisplayType = 'candle';
+                    const btnLine = document.getElementById('btnLine');
+                    const btnCand = document.getElementById('btnCandle');
+                    if (btnLine) btnLine.classList.remove('active');
+                    if (btnCand) btnCand.classList.add('active');
+                }
+
                 window._lastChartPrices = prices;
                 createChart(prices);          // создаёт график (линию или свечи) на основе chartDisplayType
                 updateChangeBadge(prices);
@@ -11051,6 +11158,14 @@
                 updateTPSL();
                 updateProgressBar();
                 calculateMargin();
+
+                // Сканер — сразу после отрисовки (как на большом графике)
+                if (window.smallScanActive && window.runSmallScan) {
+                    window.runSmallScan();
+                }
+                if (window.smallScanActive && window.runSetupAnalysis) {
+                    setTimeout(() => window.runSetupAnalysis(), 2000);
+                }
             } else {
                 chartLoading.textContent = t('chartError');
             }
@@ -15695,7 +15810,7 @@
         // 4. Собираем включённые фильтры
         const enabledNames = [];
         document.querySelectorAll('#filterDropdownApp input[type="checkbox"]').forEach(cb => {
-            if (cb.checked) enabledNames.push(cb.dataset.pat.toLowerCase());
+            if (cb.checked && cb.dataset.pat) enabledNames.push(cb.dataset.pat.toLowerCase());
         });
 
         PatternScanner.enableAll();
@@ -15816,6 +15931,51 @@
 
         // Устанавливаем маркеры на свечную серию
         try { lwSeries.setMarkers(allMarkers); } catch (e) {}
+
+        // --- Уровни поддержки/сопротивления ---
+        const levelsFilterOn = document.getElementById('filterLevelsApp');
+        if (typeof PatternScanner.scanLevels === 'function' && (!levelsFilterOn || levelsFilterOn.checked)) {
+            const levels = PatternScanner.scanLevels(candles, currentPeriod);
+            if (levels) {
+                const startTime = levels.rangeStartTime;
+                const endTime = candles[candles.length - 1].time;
+
+                // Линия поддержки (зелёная, цельная)
+                const supLine = lwChart.addLineSeries({
+                    color: '#10B981',
+                    lineWidth: 1.5,
+                    lineStyle: 0,
+                    crosshairMarkerVisible: false,
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                });
+                supLine.setData([
+                    { time: startTime, value: levels.support },
+                    { time: endTime, value: levels.support },
+                ]);
+                window._smallExtraSeries.push(supLine);
+
+                // Линия сопротивления (красная, цельная)
+                const resLine = lwChart.addLineSeries({
+                    color: '#EF4444',
+                    lineWidth: 1.5,
+                    lineStyle: 0,
+                    crosshairMarkerVisible: false,
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                });
+                resLine.setData([
+                    { time: startTime, value: levels.resistance },
+                    { time: endTime, value: levels.resistance },
+                ]);
+                window._smallExtraSeries.push(resLine);
+
+                // Сохраняем для карточки сетапа
+                window._lastLevels = levels;
+            } else {
+                window._lastLevels = null;
+            }
+        }
     };
 
     window.clearSmallScan = function clearSmallScan() {
@@ -15887,6 +16047,7 @@
         pattern: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="6" y="2" width="4" height="12" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><line x1="8" y1="0.5" x2="8" y2="2" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" stroke-width="1.2"/></svg>`,
         doubleBottom: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 4L4 12L7 6L10 12L15 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
         doubleTop: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 12L4 4L7 10L10 4L15 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+        level: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="1" y1="4" x2="15" y2="4" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/><line x1="1" y1="12" x2="15" y2="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/><path d="M8 6v4" stroke="currentColor" stroke-width="1" opacity="0.4"/><path d="M6 7l2-1.5 2 1.5" stroke="currentColor" stroke-width="1" opacity="0.4"/><path d="M6 9l2 1.5 2-1.5" stroke="currentColor" stroke-width="1" opacity="0.4"/></svg>`,
     };
 
     window.runSetupAnalysis = function() {
@@ -15974,6 +16135,18 @@
             const last3 = allPatterns.slice(-3);
             last3.forEach(p => {
                 signals.push({ name: p.name, dir: p.dir, cat: isEn ? 'pattern' : 'паттерн', icon: p.icon });
+            });
+        }
+
+        // --- Уровни поддержки/сопротивления ---
+        if (window._lastLevels) {
+            const lv = window._lastLevels;
+            const lvIcon = 'level';
+            signals.push({
+                name: isEn ? lv.signalTextEn : lv.signalText,
+                dir: lv.signal,
+                cat: isEn ? 'level' : 'уровень',
+                icon: lvIcon
             });
         }
 
@@ -16101,13 +16274,133 @@
                 </div>
 
                 <!-- Footer -->
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:0.5px solid rgba(255,255,255,0.06);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:0.5px solid rgba(255,255,255,0.06;">
                     <span style="font-size:9px;font-weight:600;color:#475569;letter-spacing:0.5px;">THINKING TRADER</span>
-                    <span style="font-size:9px;font-weight:600;color:#818CF8;cursor:pointer;">${isEn ? 'Share' : 'Поделиться'} ↗</span>
+                    <span id="setupShareBtn" style="font-size:9px;font-weight:600;color:#818CF8;cursor:pointer;" onclick="openSetupShareMenu()">${isEn ? 'Share' : 'Поделиться'} ↗</span>
+                </div>
+
+                <!-- Share menu (hidden by default) -->
+                <div id="setupShareMenu" style="display:none;margin-top:8px;padding:10px;background:rgba(15,26,46,0.95);border:0.5px solid rgba(99,102,241,0.2);border-radius:10px;">
+                    <div style="display:flex;gap:6px;">
+                        <button onclick="setupShareAction('download')" style="flex:1;padding:8px;border:0.5px solid rgba(255,255,255,0.1);border-radius:8px;background:rgba(255,255,255,0.03);color:#CBD5E1;font-size:10px;font-weight:500;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818CF8" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            ${isEn ? 'Save' : 'Скачать'}
+                        </button>
+                        <button onclick="setupShareAction('copy')" style="flex:1;padding:8px;border:0.5px solid rgba(255,255,255,0.1);border-radius:8px;background:rgba(255,255,255,0.03);color:#CBD5E1;font-size:10px;font-weight:500;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818CF8" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                            ${isEn ? 'Copy' : 'Копировать'}
+                        </button>
+                        <button onclick="setupShareAction('share')" style="flex:1;padding:8px;border:0.5px solid rgba(255,255,255,0.1);border-radius:8px;background:rgba(255,255,255,0.03);color:#CBD5E1;font-size:10px;font-weight:500;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818CF8" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                            ${isEn ? 'Share' : 'Отправить'}
+                        </button>
+                    </div>
+                    <div id="setupShareStatus" style="text-align:center;font-size:10px;color:#64748B;margin-top:6px;min-height:14px;"></div>
                 </div>
             </div>
         </div>
         `;
+    };
+
+    // ── Setup Share Functions ──
+    window.openSetupShareMenu = function() {
+        const menu = document.getElementById('setupShareMenu');
+        if (!menu) return;
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    };
+
+    window._getSetupCardElement = function() {
+        const body = document.getElementById('setupScannerBody');
+        if (!body) return null;
+        return body.querySelector('div[style*="border-radius:18px"]') || body.firstElementChild;
+    };
+
+    window._renderSetupCard = async function() {
+        const card = window._getSetupCardElement();
+        if (!card || typeof html2canvas === 'undefined') return null;
+        // Скрываем меню шаринга и футер перед рендером
+        const shareMenu = document.getElementById('setupShareMenu');
+        const shareBtn = document.getElementById('setupShareBtn');
+        const footer = shareBtn ? shareBtn.closest('div') : null;
+        if (shareMenu) shareMenu.style.display = 'none';
+        if (footer) footer.style.display = 'none';
+        const canvas = await html2canvas(card, {
+            backgroundColor: '#0B1222',
+            scale: 2,
+            useCORS: true,
+            logging: false,
+        });
+        // Восстанавливаем
+        if (footer) footer.style.display = 'flex';
+        return canvas;
+    };
+
+    window.setupShareAction = async function(action) {
+        const status = document.getElementById('setupShareStatus');
+        const isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        if (status) status.textContent = isEn ? 'Rendering...' : 'Рендеринг...';
+
+        try {
+            const canvas = await window._renderSetupCard();
+            if (!canvas) {
+                if (status) status.textContent = isEn ? 'Error rendering' : 'Ошибка рендеринга';
+                return;
+            }
+
+            if (action === 'download') {
+                const link = document.createElement('a');
+                const coinName = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.symbol : 'BTC';
+                link.download = `ThinkingTrader_${coinName}_setup.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                if (status) status.textContent = isEn ? 'Saved!' : 'Сохранено!';
+            }
+
+            else if (action === 'copy') {
+                canvas.toBlob(async (blob) => {
+                    try {
+                        await navigator.clipboard.write([
+                            new ClipboardItem({ 'image/png': blob })
+                        ]);
+                        if (status) status.textContent = isEn ? 'Copied to clipboard!' : 'Скопировано в буфер!';
+                    } catch (e) {
+                        if (status) status.textContent = isEn ? 'Copy failed' : 'Не удалось скопировать';
+                    }
+                }, 'image/png');
+            }
+
+            else if (action === 'share') {
+                canvas.toBlob(async (blob) => {
+                    const coinName = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.symbol : 'BTC';
+                    const file = new File([blob], `ThinkingTrader_${coinName}_setup.png`, { type: 'image/png' });
+
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        try {
+                            await navigator.share({ files: [file] });
+                            if (status) status.textContent = isEn ? 'Shared!' : 'Отправлено!';
+                        } catch (e) {
+                            if (e.name !== 'AbortError') {
+                                if (status) status.textContent = isEn ? 'Share cancelled' : 'Отмена';
+                            }
+                        }
+                    } else {
+                        // Фоллбэк — копируем в буфер
+                        try {
+                            await navigator.clipboard.write([
+                                new ClipboardItem({ 'image/png': blob })
+                            ]);
+                            if (status) status.textContent = isEn ? 'Copied (share not supported)' : 'Скопировано (отправка не поддерживается)';
+                        } catch {
+                            if (status) status.textContent = isEn ? 'Share not supported' : 'Отправка не поддерживается';
+                        }
+                    }
+                }, 'image/png');
+            }
+
+            setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+        } catch (e) {
+            if (status) status.textContent = (isEn ? 'Error: ' : 'Ошибка: ') + e.message;
+        }
     };
 
     // ── Filter dropdown toggle ──
@@ -16122,6 +16415,9 @@
         }
     });
     document.getElementById('filterDropdownApp').addEventListener('click', (e) => e.stopPropagation());
+    document.querySelectorAll('#filterDropdownApp input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => { if (window.smallScanActive && window.runSmallScan) window.runSmallScan(); });
+    });
     document.getElementById('pfAll').addEventListener('click', () => {
         document.querySelectorAll('#filterDropdownApp input[type="checkbox"]').forEach(c => c.checked = true);
     });
@@ -16654,6 +16950,9 @@
                 <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="fsGroupChart">Графические</div>
                 <label class="pf-item"><input type="checkbox" data-fspat="Двойная вершина" checked><span data-i18n="fsPatDoubleTop">Двойная вершина</span></label>
                 <label class="pf-item"><input type="checkbox" data-fspat="Двойное дно" checked><span data-i18n="fsPatDoubleBottom">Двойное дно</span></label>
+                <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
+                <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="pfGroupLevels">Уровни</div>
+                <label class="pf-item"><input type="checkbox" id="filterLevelsFs" checked><span data-i18n="pfLevels">Поддержка / Сопротивление</span></label>
             </div>
         </div>
 
@@ -16882,7 +17181,7 @@
     function getEnabledFilters() {
         const enabled = [];
         document.querySelectorAll('#fsFilterDropdown input[type="checkbox"]').forEach(cb => {
-            if (cb.checked) enabled.push(cb.dataset.fspat.toLowerCase());
+            if (cb.checked && cb.dataset.fspat) enabled.push(cb.dataset.fspat.toLowerCase());
         });
         return enabled;
     }
@@ -17018,6 +17317,32 @@
             }
         }
         fsCandleSeries.setMarkers(allMarkers);
+
+        // --- Уровни поддержки/сопротивления на большом графике ---
+        const fsLevelsFilterOn = document.getElementById('filterLevelsFs');
+        if (typeof PatternScanner.scanLevels === 'function' && (!fsLevelsFilterOn || fsLevelsFilterOn.checked)) {
+            const lvls = PatternScanner.scanLevels(allCandles, fsCurrentDays);
+            if (lvls) {
+                const startT = lvls.rangeStartTime;
+                const endT = allCandles[allCandles.length - 1].time;
+
+                // Линия поддержки
+                const sl = fsChart.addLineSeries({
+                    color: '#10B981', lineWidth: 1.5, lineStyle: 0,
+                    crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+                });
+                sl.setData([{ time: startT, value: lvls.support }, { time: endT, value: lvls.support }]);
+                fsDoubleLines.push(sl);
+
+                // Линия сопротивления
+                const rl = fsChart.addLineSeries({
+                    color: '#EF4444', lineWidth: 1.5, lineStyle: 0,
+                    crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+                });
+                rl.setData([{ time: startT, value: lvls.resistance }, { time: endT, value: lvls.resistance }]);
+                fsDoubleLines.push(rl);
+            }
+        }
 
         // ── Панель статистики ──
         const stats = {};
