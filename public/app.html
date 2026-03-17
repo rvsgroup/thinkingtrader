@@ -1025,7 +1025,7 @@
             min-height: 200px; 
             flex-direction: column;
         }
-        .chart-column .chart-container { position: relative; height: 420px; width: 100%; overflow: hidden; flex: 1; }
+        .chart-column .chart-container { position: relative; height: 360px; width: 100%; overflow: hidden; }
         .chart-column #lwPriceChart { width: 100%; height: 100%; }
         .chart-coin-bar {
             display: flex;
@@ -1454,6 +1454,28 @@
         .setup-scanner-body::-webkit-scrollbar { width: 3px; }
         .setup-scanner-body::-webkit-scrollbar-track { background: transparent; }
         .setup-scanner-body::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 6px; }
+
+        /* Mobile responsive for setup card */
+        @media (max-width: 600px) {
+            .setup-card-ring {
+                position: static !important;
+                display: flex !important;
+                justify-content: center;
+                margin: 8px 0 12px;
+                gap: 10px !important;
+            }
+            .setup-card-ring svg {
+                width: 80px !important;
+                height: 80px !important;
+            }
+            .setup-card-verdict {
+                padding-right: 0 !important;
+                text-align: center;
+            }
+            .setup-card-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
 
         .calc-section {
             background: rgba(17, 25, 40, 0.95);
@@ -3340,7 +3362,7 @@
         .input-large label { font-size: 15px; }
         
         .chart-container { height: 180px; }
-        .chart-loading { height: 180px; font-size: 12px; }
+        .chart-loading { height: 300px; font-size: 12px; }
         .chart-title h3 { font-size: 15px; }
         .period-btn { padding: 5px 10px; font-size: 11px; }
         
@@ -4078,7 +4100,7 @@
             .left-column { gap: 8px; }
             .chart-column { padding: 12px; border-radius: 8px; overflow: visible !important; height: auto !important; }
             .chart-container { height: 180px !important; }
-            .chart-loading { height: 180px !important; }
+            .chart-loading { height: 300px !important; }
             .chart-title h3 { font-size: 13px; }
             .chart-header { flex-wrap: wrap; gap: 6px; }
             #ourChartControls { flex-wrap: wrap; gap: 4px; }
@@ -16245,13 +16267,13 @@
                 <div style="font-size:8px;letter-spacing:1.5px;color:#818CF8;text-transform:uppercase;margin-bottom:8px;">${isEn ? 'Setup scanner' : 'Сканер сетапов'} · ${periodLabel}</div>
 
                 <!-- Verdict row -->
-                <div style="margin-bottom:16px;padding-right:220px;">
+                <div class="setup-card-verdict" style="margin-bottom:16px;padding-right:220px;">
                     <div style="font-size:20px;font-weight:700;color:${verdictColor};margin-bottom:3px;">${verdict}</div>
                     <div style="font-size:11px;color:#94A3B8;">${isEn ? 'Matched' : 'Совпало'} ${Math.max(bull,bear)} ${isEn ? 'of' : 'из'} ${total} ${isEn ? 'signals' : 'сигналов'}</div>
                 </div>
 
-                <!-- Ring + legend — absolute top right -->
-                <div style="position:absolute;top:20px;right:22px;display:flex;align-items:center;gap:14px;z-index:2;">
+                <!-- Ring + legend — absolute top right (responsive) -->
+                <div class="setup-card-ring" style="position:absolute;top:20px;right:22px;display:flex;align-items:center;gap:14px;z-index:2;">
                     <svg width="100" height="100" viewBox="0 0 100 100">
                         <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="6"/>
                         <circle cx="50" cy="50" r="42" fill="none" stroke="${verdictColor}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${Math.round(264 * ringPct)} ${264 - Math.round(264 * ringPct)}" transform="rotate(-90 50 50)"/>
@@ -16268,7 +16290,7 @@
                 <div style="height:0.5px;background:rgba(255,255,255,0.06);margin-bottom:12px;"></div>
 
                 <!-- Signals grid 2 columns -->
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+                <div class="setup-card-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
                     ${gridHtml}
                     ${lastHtml}
                 </div>
