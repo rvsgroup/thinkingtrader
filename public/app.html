@@ -16083,6 +16083,40 @@
         const priceFmt = price > 0 ? '$' + price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
         const periodBtn = document.querySelector('.chart-period-buttons .period-btn.active');
         const periodLabel = periodBtn ? periodBtn.textContent.trim() : '1Д';
+        const periodDays = periodBtn ? parseFloat(periodBtn.dataset.period) || 1 : 1;
+
+        // Загружаем win rate если нет или другой таймфрейм/монета
+        let wrInterval, wrLimit;
+        if (periodDays <= 0.04) { wrInterval = '1h'; wrLimit = 1000; }
+        else if (periodDays <= 0.17) { wrInterval = '4h'; wrLimit = 1000; }
+        else if (periodDays <= 1) { wrInterval = '1d'; wrLimit = 730; }
+        else if (periodDays <= 7) { wrInterval = '1w'; wrLimit = 200; }
+        else { wrInterval = '1M'; wrLimit = 100; }
+        const wrCacheKey = `${coinId}_${wrInterval}`;
+
+        if ((!window._fsWinRateCache || window._fsWinRateCacheKey !== wrCacheKey) && !window._fsWinRateLoading && typeof PatternScanner !== 'undefined' && typeof PatternScanner.calcWinRate === 'function') {
+            const sym = typeof BINANCE_SYMBOLS !== 'undefined' ? BINANCE_SYMBOLS[coinId] : null;
+            if (sym) {
+                window._fsWinRateLoading = true;
+                fetch(`/api/ohlc?symbol=${sym}&interval=${wrInterval}&limit=${wrLimit}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (Array.isArray(data) && data.length > 50) {
+                            const wrCandles = data.map(k => ({
+                                time: Math.floor(k[0] / 1000),
+                                open: parseFloat(k[1]), high: parseFloat(k[2]),
+                                low: parseFloat(k[3]), close: parseFloat(k[4]),
+                            }));
+                            window._fsWinRateCache = PatternScanner.calcWinRate(wrCandles, periodDays);
+                            window._fsWinRateCacheKey = wrCacheKey;
+                            // Перерисовываем карточку с win rate
+                            if (window.runSetupAnalysis) window.runSetupAnalysis();
+                        }
+                    })
+                    .catch(() => {})
+                    .finally(() => { window._fsWinRateLoading = false; });
+            }
+        }
         const isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
 
         // --- Сбор сигналов ---
@@ -16156,7 +16190,13 @@
             const allPatterns = [...candlePatterns, ...doublePatterns].sort((a, b) => a.time - b.time);
             const last3 = allPatterns.slice(-3);
             last3.forEach(p => {
-                signals.push({ name: p.name, dir: p.dir, cat: isEn ? 'pattern' : 'паттерн', icon: p.icon });
+                // Добавляем win rate если есть
+                let wrSuffix = '';
+                if (window._fsWinRateCache) {
+                    const wrData = window._fsWinRateCache[p.name];
+                    if (wrData) wrSuffix = ` (WR ${wrData.pct}%)`;
+                }
+                signals.push({ name: p.name + wrSuffix, dir: p.dir, cat: isEn ? 'pattern' : 'паттерн', icon: p.icon });
             });
         }
 
