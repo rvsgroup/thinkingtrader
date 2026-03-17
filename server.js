@@ -675,40 +675,44 @@ const TIMEZONE_OFFSET = 3; // МСК = UTC+3
 const scheduledPosts = [];
 const postSentToday = {}; // in-memory фоллбэк, если Firestore недоступен
 
-// Проверка/установка флага отправки через Firestore (общий для всех экземпляров)
+// Проверка/установка флага отправки через файл (переживает рестарт, не зависит от Firestore)
+const fs = require('fs');
+const LOCK_DIR = '/tmp/tt-post-locks';
+try { fs.mkdirSync(LOCK_DIR, { recursive: true }); } catch {}
+
+function lockFilePath(key) {
+    return `${LOCK_DIR}/${key.replace(/[^a-zA-Z0-9_:-]/g, '_')}`;
+}
+
 async function markPostSent(sentKey) {
-    // Сначала пробуем Firestore — он общий для всех инстансов
-    if (adminDb) {
-        const docRef = adminDb.collection('_postLocks').doc(sentKey);
-        try {
-            const snap = await docRef.get();
-            if (snap.exists) return false; // уже отправлено другим экземпляром
-            await docRef.set({ sentAt: new Date().toISOString(), instance: process.env.RAILWAY_REPLICA_ID || 'default' });
-            return true; // мы первые — отправляем
-        } catch (e) {
-            console.warn('⚠️ Firestore lock error, falling back to memory:', e.message);
+    const filePath = lockFilePath(sentKey);
+    try {
+        if (fs.existsSync(filePath)) {
+            console.log(`🔒 Пост уже отправлен (lock exists): ${sentKey}`);
+            return false;
         }
+        fs.writeFileSync(filePath, new Date().toISOString());
+        console.log(`🔓 Lock создан: ${sentKey}`);
+        return true;
+    } catch (e) {
+        console.warn('⚠️ File lock error, falling back to memory:', e.message);
     }
-    // Фоллбэк на in-memory (если Firestore недоступен)
+    // Фоллбэк на in-memory
     if (postSentToday[sentKey]) return false;
     postSentToday[sentKey] = true;
     return true;
 }
 
-// Очистка старых локов из Firestore (вызывается раз в день)
-async function cleanOldPostLocks(dateKey) {
-    if (!adminDb) return;
+// Очистка старых локов (вчерашних)
+function cleanOldPostLocks(dateKey) {
     try {
-        const snap = await adminDb.collection('_postLocks').get();
-        const batch = adminDb.batch();
-        let count = 0;
-        snap.forEach(doc => {
-            if (!doc.id.endsWith(dateKey)) { batch.delete(doc.ref); count++; }
+        const files = fs.readdirSync(LOCK_DIR);
+        files.forEach(f => {
+            if (!f.includes(dateKey)) {
+                try { fs.unlinkSync(`${LOCK_DIR}/${f}`); } catch {}
+            }
         });
-        if (count > 0) await batch.commit();
-    } catch (e) {
-        console.warn('⚠️ cleanOldPostLocks error:', e.message);
-    }
+    } catch {}
 }
 
 function scheduleDaily(hour, minute, fn, label, fnEn = null) {
@@ -757,20 +761,19 @@ const alertPrices = { BTCUSDT: [], ETHUSDT: [] };
 const alertLastSent = { BTCUSDT: 0, ETHUSDT: 0 }; // in-memory фоллбэк
 const alertSettings = { BTCUSDT: 3, ETHUSDT: 5 }; // пороги %
 
-// Проверка/установка лока для алерта через Firestore
+// Проверка/установка лока для алерта через файл
 async function canSendAlert(sym) {
     const now = Date.now();
-    if (adminDb) {
-        try {
-            const docRef = adminDb.collection('_alertLocks').doc(sym);
-            const snap = await docRef.get();
-            const lastSent = snap.exists ? snap.data().sentAt || 0 : 0;
-            if (now - lastSent <= 7200000) return false; // 2 часа не прошло
-            await docRef.set({ sentAt: now, instance: process.env.RAILWAY_REPLICA_ID || 'default' });
-            return true;
-        } catch (e) {
-            console.warn('⚠️ Alert lock Firestore error, fallback to memory:', e.message);
+    const filePath = lockFilePath(`alert_${sym}`);
+    try {
+        if (fs.existsSync(filePath)) {
+            const ts = parseInt(fs.readFileSync(filePath, 'utf8')) || 0;
+            if (now - ts <= 7200000) return false;
         }
+        fs.writeFileSync(filePath, String(now));
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Alert file lock error, fallback to memory:', e.message);
     }
     // Фоллбэк
     if (now - alertLastSent[sym] <= 7200000) return false;
