@@ -270,6 +270,7 @@ const TG_CHAT_ID_EN = process.env.TG_CHAT_ID_EN;
 const TG_API        = `https://api.telegram.org/bot${TG_TOKEN}`;
 
 async function tgSend(text, chatId = TG_CHAT_ID) {
+    console.log(`📨 tgSend → chat_id: ${chatId}, text length: ${text.length}, time: ${new Date().toISOString()}`);
     const r = await fetch(`${TG_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -722,7 +723,11 @@ function scheduleDaily(hour, minute, fn, label, fnEn = null) {
 }
 
 // Проверяем каждые 30 секунд — пора ли отправить пост
+let _cronBusy = false;
 setInterval(async () => {
+    if (_cronBusy) return;
+    _cronBusy = true;
+    try {
     const now = new Date();
     // Текущее время в МСК
     const mskHour   = (now.getUTCHours() + TIMEZONE_OFFSET) % 24;
@@ -737,7 +742,7 @@ setInterval(async () => {
             if (!canSend) continue; // уже отправлено (этим или другим экземпляром)
 
             try {
-                console.log(`📤 Отправка: ${job.label}`);
+                console.log(`📤 Отправка: ${job.label} (${new Date().toISOString()})`);
                 const text = await job.fn();
                 const textEn = job.fnEn ? await job.fnEn() : null;
                 await tgSendBoth(text, textEn);
@@ -745,7 +750,6 @@ setInterval(async () => {
                 console.log(`✅ ${job.label} отправлен (RU + EN)`);
             } catch (e) {
                 console.error(`❌ ${job.label} ошибка:`, e.message);
-                // НЕ удаляем флаг из Firestore — лучше пропустить, чем дублировать
             }
         }
     }
@@ -755,6 +759,7 @@ setInterval(async () => {
         if (!key.endsWith(dateKey)) delete postSentToday[key];
     }
     cleanOldPostLocks(dateKey);
+    } finally { _cronBusy = false; }
 }, 30 * 1000);
 
 // ── CRON — алерты каждые 5 минут ─────────────────────────────

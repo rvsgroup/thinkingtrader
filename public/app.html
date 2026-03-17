@@ -16916,6 +16916,7 @@
         </div>
 
         <div class="fs-periods">
+            <button class="fs-period-btn" data-fs-days="0.04">1H</button>
             <button class="fs-period-btn" data-fs-days="0.17">4H</button>
             <button class="fs-period-btn active" data-fs-days="1">1D</button>
             <button class="fs-period-btn" data-fs-days="7">1W</button>
@@ -17376,18 +17377,74 @@
             fsPatternsList.innerHTML = `<div class="fs-no-patterns">${currentLang === 'en' ? 'No patterns found' : 'Паттерны не найдены'}</div>`;
         } else {
             const countLabel = currentLang === 'en' ? 'pcs.' : 'шт.';
+            const wrLabel = currentLang === 'en' ? 'WR' : 'WR';
+            // Получаем кэшированный win rate
+            const wr = window._fsWinRateCache || {};
             fsPatternsList.innerHTML = Object.keys(stats).map(key => {
                 const s = stats[key];
                 const dotClass = s.direction === 'bearish' ? 'bearish' : (s.direction === 'neutral' ? 'neutral' : 'bullish');
+                // Win rate для этого паттерна (если есть)
+                const wrData = wr[key];
+                const isNeutral = s.direction === 'neutral';
+                let wrHtml = '';
+                if (wrData) {
+                    wrHtml = `<span style="font-size:10px;font-weight:500;margin-left:6px;opacity:0.8;${
+                        wrData.pct >= 60 ? 'color:#10B981;' :
+                        wrData.pct >= 40 ? 'color:#FBBF24;' :
+                        'color:#F87171;'
+                    }">WR ${wrData.pct}%</span>`;
+                } else if (!isNeutral && Object.keys(wr).length > 0) {
+                    const fewLabel = currentLang === 'en' ? 'few data' : 'мало данных';
+                    wrHtml = `<span style="font-size:9px;margin-left:6px;opacity:0.4;color:#94A3B8;">${fewLabel}</span>`;
+                }
                 return `<div class="fs-pat-item">
                     <div class="fs-pat-dot ${dotClass}"></div>
                     <span class="fs-pat-name">${key}</span>
-                    <span class="fs-pat-count">${s.count} ${countLabel}</span>
+                    <span class="fs-pat-count">${s.count} ${countLabel}${wrHtml}</span>
                 </div>`;
             }).join('');
         }
 
         fsPatternsPanel.classList.add('active');
+
+        // Загружаем win rate в фоне (адаптивно по таймфрейму)
+        if (!window._fsWinRateLoading && typeof PatternScanner.calcWinRate === 'function') {
+            const coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+            // Определяем интервал и лимит по таймфрейму
+            let wrInterval, wrLimit;
+            if (fsCurrentDays <= 0.04) { wrInterval = '1h'; wrLimit = 1000; }       // 1Ч → часовые
+            else if (fsCurrentDays <= 0.17) { wrInterval = '4h'; wrLimit = 1000; }   // 4Ч → 4-часовые
+            else if (fsCurrentDays <= 1) { wrInterval = '1d'; wrLimit = 730; }       // 1Д → дневные за 2 года
+            else if (fsCurrentDays <= 7) { wrInterval = '1w'; wrLimit = 200; }       // 7Д → недельные за ~4 года
+            else { wrInterval = '1M'; wrLimit = 100; }                               // 30Д, 90Д → месячные
+
+            const cacheKey = `${coinId}_${wrInterval}`;
+            if (!window._fsWinRateCache || window._fsWinRateCacheKey !== cacheKey) {
+                window._fsWinRateLoading = true;
+                const sym = typeof BINANCE_SYMBOLS !== 'undefined' ? BINANCE_SYMBOLS[coinId] : null;
+                if (sym) {
+                    fetch(`/api/ohlc?symbol=${sym}&interval=${wrInterval}&limit=${wrLimit}`)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (Array.isArray(data) && data.length > 50) {
+                                const wrCandles = data.map(k => ({
+                                    time: Math.floor(k[0] / 1000),
+                                    open: parseFloat(k[1]), high: parseFloat(k[2]),
+                                    low: parseFloat(k[3]), close: parseFloat(k[4]),
+                                }));
+                                window._fsWinRateCache = PatternScanner.calcWinRate(wrCandles, fsCurrentDays);
+                                window._fsWinRateCacheKey = cacheKey;
+                                // Перерисовываем панель с win rate
+                                if (fsScannerActive) runFsScan();
+                            }
+                        })
+                        .catch(() => {})
+                        .finally(() => { window._fsWinRateLoading = false; });
+                } else {
+                    window._fsWinRateLoading = false;
+                }
+            }
+        }
     }
 
     function clearFsMarkers() {

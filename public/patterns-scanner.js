@@ -689,6 +689,239 @@ const PatternScanner = (function() {
     }
 
     // ═══════════════════════════════════════════
+    // WIN RATE CALCULATION
+    // ═══════════════════════════════════════════
+
+    function calcWinRate(candles, days) {
+        if (candles.length < 10) return {};
+
+        const patterns = detectPatterns(candles);
+        const results = {};
+
+        // Бычье поглощение
+        const bullEngulf = patterns.filter(p => p.type === 'Бычье поглощение');
+        if (bullEngulf.length > 0) {
+            let win = 0, total = 0;
+            bullEngulf.forEach(p => {
+                const idx = p.index;
+                if (idx + 2 >= candles.length) return;
+                const body = Math.abs(candles[idx].close - candles[idx].open);
+                const target = candles[idx].close + 0.5 * body;
+                const maxClose = Math.max(candles[idx + 1].close, candles[idx + 2].close);
+                total++;
+                if (maxClose >= target) win++;
+            });
+            if (total >= 2) {
+                results['Бычье поглощение'] = { win, total, pct: Math.round((win / total) * 100) };
+            }
+        }
+
+        // Медвежье поглощение
+        const bearEngulf = patterns.filter(p => p.type === 'Медвежье поглощение');
+        if (bearEngulf.length > 0) {
+            let win = 0, total = 0;
+            bearEngulf.forEach(p => {
+                const idx = p.index;
+                if (idx + 2 >= candles.length) return;
+                const body = Math.abs(candles[idx].close - candles[idx].open);
+                const target = candles[idx].close - 0.5 * body;
+                const minClose = Math.min(candles[idx + 1].close, candles[idx + 2].close);
+                total++;
+                if (minClose <= target) win++;
+            });
+            if (total >= 2) {
+                results['Медвежье поглощение'] = { win, total, pct: Math.round((win / total) * 100) };
+            }
+        }
+
+        // Бычий марибозу — следующие 3 свечи не закрылись ниже low паттерна
+        const bullMar = patterns.filter(p => p.type === 'Бычий марибозу');
+        if (bullMar.length > 0) {
+            let win = 0, total = 0;
+            bullMar.forEach(p => {
+                const idx = p.index;
+                if (idx + 3 >= candles.length) return;
+                const broken = [1,2,3].some(n => candles[idx + n].close < candles[idx].low);
+                total++;
+                if (!broken) win++;
+            });
+            if (total >= 2) {
+                results['Бычий марибозу'] = { win, total, pct: Math.round((win / total) * 100) };
+            }
+        }
+
+        // Медвежий марибозу — следующие 3 свечи не закрылись выше high паттерна
+        const bearMar = patterns.filter(p => p.type === 'Медвежий марибозу');
+        if (bearMar.length > 0) {
+            let win = 0, total = 0;
+            bearMar.forEach(p => {
+                const idx = p.index;
+                if (idx + 3 >= candles.length) return;
+                const broken = [1,2,3].some(n => candles[idx + n].close > candles[idx].high);
+                total++;
+                if (!broken) win++;
+            });
+            if (total >= 2) {
+                results['Медвежий марибозу'] = { win, total, pct: Math.round((win / total) * 100) };
+            }
+        }
+
+        // Бычьи: Молот, Перевёрнутый молот — два условия (30% от глубины ИЛИ направление)
+        ['Молот', 'Перевёрнутый молот'].forEach(type => {
+            const pts = patterns.filter(p => p.type === type);
+            if (pts.length > 0) {
+                let win = 0, total = 0;
+                pts.forEach(p => {
+                    const idx = p.index;
+                    if (idx < 3 || idx + 5 >= candles.length) return;
+                    let preHigh = 0;
+                    for (let n = 3; n <= Math.min(6, idx); n++) {
+                        if (candles[idx - n].high > preHigh) preHigh = candles[idx - n].high;
+                    }
+                    const depth = preHigh - candles[idx].low;
+                    let worked = false;
+
+                    // Условие 1: 30% от глубины падения
+                    if (depth > 0) {
+                        const target = candles[idx].low + depth * 0.3;
+                        let maxClose = 0;
+                        for (let n = 1; n <= 5; n++) {
+                            if (idx + n < candles.length && candles[idx + n].close > maxClose) maxClose = candles[idx + n].close;
+                        }
+                        if (maxClose >= target) worked = true;
+                    }
+
+                    // Условие 2: минимум 3 из 5 свечей закрылись выше close
+                    if (!worked) {
+                        let aboveCount = 0;
+                        for (let n = 1; n <= 5; n++) {
+                            if (idx + n < candles.length && candles[idx + n].close > candles[idx].close) aboveCount++;
+                        }
+                        if (aboveCount >= 3) worked = true;
+                    }
+
+                    total++;
+                    if (worked) win++;
+                });
+                if (total >= 2) {
+                    results[type] = { win, total, pct: Math.round((win / total) * 100) };
+                }
+            }
+        });
+
+        // Медвежьи: Повешенный, Падающая звезда — два условия (30% от глубины ИЛИ направление)
+        ['Повешенный', 'Падающая звезда'].forEach(type => {
+            const pts = patterns.filter(p => p.type === type);
+            if (pts.length > 0) {
+                let win = 0, total = 0;
+                pts.forEach(p => {
+                    const idx = p.index;
+                    if (idx < 3 || idx + 5 >= candles.length) return;
+                    let preLow = Infinity;
+                    for (let n = 3; n <= Math.min(6, idx); n++) {
+                        if (candles[idx - n].low < preLow) preLow = candles[idx - n].low;
+                    }
+                    const rise = candles[idx].high - preLow;
+                    let worked = false;
+
+                    // Условие 1: 30% от глубины роста
+                    if (rise > 0) {
+                        const target = candles[idx].high - rise * 0.3;
+                        let minClose = Infinity;
+                        for (let n = 1; n <= 5; n++) {
+                            if (idx + n < candles.length && candles[idx + n].close < minClose) minClose = candles[idx + n].close;
+                        }
+                        if (minClose <= target) worked = true;
+                    }
+
+                    // Условие 2: минимум 3 из 5 свечей закрылись ниже close
+                    if (!worked) {
+                        let belowCount = 0;
+                        for (let n = 1; n <= 5; n++) {
+                            if (idx + n < candles.length && candles[idx + n].close < candles[idx].close) belowCount++;
+                        }
+                        if (belowCount >= 3) worked = true;
+                    }
+
+                    total++;
+                    if (worked) win++;
+                });
+                if (total >= 2) {
+                    results[type] = { win, total, pct: Math.round((win / total) * 100) };
+                }
+            }
+        });
+
+        // Двойная вершина / Двойное дно — 35% от глубины ямки/пика за 7-14 свечей
+        if (days) {
+            const doubles = detectDoublePatterns(candles, days);
+
+            function findIdx(time) {
+                for (let i = 0; i < candles.length; i++) {
+                    if (candles[i].time === time) return i;
+                }
+                return -1;
+            }
+
+            // Двойная вершина
+            const dTops = doubles.filter(p => p.type === 'double_top');
+            if (dTops.length > 0) {
+                let win = 0, total = 0;
+                dTops.forEach(p => {
+                    const idx2 = findIdx(p.time2);
+                    const idx1 = findIdx(p.time1);
+                    if (idx2 < 0 || idx1 < 0 || idx2 + 14 >= candles.length) return;
+                    let valleyLow = Infinity;
+                    for (let i = idx1; i <= idx2; i++) {
+                        if (candles[i].low < valleyLow) valleyLow = candles[i].low;
+                    }
+                    const depth = p.level - valleyLow;
+                    if (depth <= 0) return;
+                    const target = p.level - depth * 0.35;
+                    let minClose = Infinity;
+                    for (let n = 7; n <= 14; n++) {
+                        if (idx2 + n < candles.length && candles[idx2 + n].close < minClose) minClose = candles[idx2 + n].close;
+                    }
+                    total++;
+                    if (minClose <= target) win++;
+                });
+                if (total >= 2) {
+                    results['Двойная вершина'] = { win, total, pct: Math.round((win / total) * 100) };
+                }
+            }
+
+            // Двойное дно
+            const dBots = doubles.filter(p => p.type === 'double_bottom');
+            if (dBots.length > 0) {
+                let win = 0, total = 0;
+                dBots.forEach(p => {
+                    const idx2 = findIdx(p.time2);
+                    const idx1 = findIdx(p.time1);
+                    if (idx2 < 0 || idx1 < 0 || idx2 + 14 >= candles.length) return;
+                    let peakHigh = 0;
+                    for (let i = idx1; i <= idx2; i++) {
+                        if (candles[i].high > peakHigh) peakHigh = candles[i].high;
+                    }
+                    const depth = peakHigh - p.level;
+                    if (depth <= 0) return;
+                    const target = p.level + depth * 0.35;
+                    let maxClose = 0;
+                    for (let n = 7; n <= 14; n++) {
+                        if (idx2 + n < candles.length && candles[idx2 + n].close > maxClose) maxClose = candles[idx2 + n].close;
+                    }
+                    total++;
+                    if (maxClose >= target) win++;
+                });
+                if (total >= 2) {
+                    results['Двойное дно'] = { win, total, pct: Math.round((win / total) * 100) };
+                }
+            }
+        }
+
+        return results;
+    }
+
+    // ═══════════════════════════════════════════
     // PUBLIC API
     // ═══════════════════════════════════════════
 
@@ -735,6 +968,11 @@ const PatternScanner = (function() {
         /** Scan for support/resistance levels in the current sideways range */
         scanLevels(candles, days) {
             return detectLevels(candles, days);
+        },
+
+        /** Calculate win rate for patterns on historical data */
+        calcWinRate(candles, days) {
+            return calcWinRate(candles, days);
         },
 
         /** Get human-readable group names */
