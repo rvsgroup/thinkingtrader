@@ -290,13 +290,24 @@ async function tgSend(text, chatId = TG_CHAT_ID) {
 }
 
 async function tgSendBoth(textRu, textEn) {
-    const results = await Promise.allSettled([
-        tgSend(textRu, TG_CHAT_ID),
-        TG_CHAT_ID_EN ? tgSend(textEn || textRu, TG_CHAT_ID_EN) : Promise.resolve(),
-    ]);
-    const failed = results.filter(r => r.status === 'rejected');
-    if (failed.length === 2) throw new Error(failed[0].reason.message);
-    if (failed.length === 1) console.warn('⚠️ Один канал не получил пост:', failed[0].reason.message);
+    // Retry до 3 раз при ошибке
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            const results = await Promise.allSettled([
+                tgSend(textRu, TG_CHAT_ID),
+                TG_CHAT_ID_EN ? tgSend(textEn || textRu, TG_CHAT_ID_EN) : Promise.resolve(),
+            ]);
+            const failed = results.filter(r => r.status === 'rejected');
+            if (failed.length > 0) {
+                throw new Error(failed.map(f => f.reason.message).join('; '));
+            }
+            return; // успех
+        } catch (e) {
+            console.warn(`⚠️ tgSendBoth попытка ${attempt}/3 ошибка: ${e.message}`);
+            if (attempt === 3) throw e;
+            await new Promise(r => setTimeout(r, 3000));
+        }
+    }
 }
 
 async function tgSendPhotoBuffer(buffer, filename, caption) {
@@ -762,29 +773,33 @@ function msUntilMsk(targetHour, targetMinute) {
 async function executeScheduledPost(job) {
     const { dateKey } = getMskNow();
     const sentKey = `${job.label}:${dateKey}`;
-
-    // Файловый лок
     const filePath = lockFilePath(sentKey);
+
+    // Файловый лок — создаём ПОСЛЕ отправки, не до
+    // Сначала проверяем существует ли лок
     try {
-        const fd = fs.openSync(filePath, 'wx');
-        fs.writeSync(fd, `${Date.now()}:${process.pid}`);
-        fs.closeSync(fd);
-    } catch (e) {
-        if (e.code === 'EEXIST') {
+        if (fs.existsSync(filePath)) {
             console.log(`🔒 Пост уже отправлен: ${sentKey}`);
             scheduleNextRun(job);
             return;
         }
-    }
+    } catch {}
 
     try {
         console.log(`📤 Отправка: ${job.label} (pid: ${process.pid}, ${new Date().toISOString()})`);
         const text = await job.fn();
         const textEn = job.fnEn ? await job.fnEn() : null;
         await tgSendBoth(text, textEn);
+        
+        // Лок создаём ПОСЛЕ успешной отправки
+        try {
+            fs.writeFileSync(filePath, `${Date.now()}:${process.pid}`);
+        } catch {}
+        
         logPost(job.label, text);
         console.log(`✅ ${job.label} отправлен (RU + EN)`);
     } catch (e) {
+        // НЕ создаём лок — следующая попытка сможет отправить
         console.error(`❌ ${job.label} ошибка:`, e.message);
     }
 
@@ -792,9 +807,9 @@ async function executeScheduledPost(job) {
 }
 
 function scheduleNextRun(job) {
-    // Планируем на следующий день (или через ~24 часа)
+    // Всегда планируем на следующий день
     const ms = msUntilMsk(job.hour, job.minute);
-    const delay = ms < 60000 ? ms + 86400000 : ms; // если до цели < 1 мин — следующий день
+    const delay = ms + 86400000; // +24 часа от расчётного времени
     console.log(`⏱️ Следующий ${job.label}: через ${Math.round(delay / 60000)} мин`);
     setTimeout(() => executeScheduledPost(job), delay);
 }
@@ -1277,7 +1292,7 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(14, 10, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
+    scheduleDaily(14, 35, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
     startScheduler();
 
     // Алерты каждые 5 минут
