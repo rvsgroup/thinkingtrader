@@ -716,11 +716,20 @@ function lockFilePath(key) {
 async function markPostSent(sentKey) {
     const filePath = lockFilePath(sentKey);
     try {
-        // wx = exclusive create — атомарная операция, только один процесс сможет создать файл
+        // wx = exclusive create — атомарная операция
         const fd = fs.openSync(filePath, 'wx');
-        fs.writeSync(fd, new Date().toISOString());
+        fs.writeSync(fd, `${Date.now()}:${process.pid}`);
         fs.closeSync(fd);
-        console.log(`🔓 Lock создан: ${sentKey}`);
+        
+        // Ждём 3 секунды и перечитываем — наш ли pid внутри?
+        await new Promise(r => setTimeout(r, 3000));
+        const content = fs.readFileSync(filePath, 'utf8');
+        if (!content.includes(String(process.pid))) {
+            console.log(`🔒 Lock перезаписан другим процессом: ${sentKey}`);
+            return false;
+        }
+        
+        console.log(`🔓 Lock создан и подтверждён: ${sentKey} (pid: ${process.pid})`);
         return true;
     } catch (e) {
         if (e.code === 'EEXIST') {
@@ -753,9 +762,17 @@ function scheduleDaily(hour, minute, fn, label, fnEn = null) {
 }
 
 // Проверяем каждые 30 секунд — пора ли отправить пост
+// Случайная задержка при первом тике (0-20 сек) чтобы разнести контейнеры Railway
+const _cronStartDelay = Math.floor(Math.random() * 20000);
+let _cronFirstRun = true;
 let _cronBusy = false;
 setInterval(async () => {
     if (_cronBusy) return;
+    if (_cronFirstRun) {
+        _cronFirstRun = false;
+        await new Promise(r => setTimeout(r, _cronStartDelay));
+        console.log(`⏱️ Cron стартовал с задержкой ${_cronStartDelay}ms`);
+    }
     _cronBusy = true;
     try {
     const now = new Date();
@@ -1251,7 +1268,7 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(13, 35, buildEveningPost, '📊 Вечерний срез',      buildEveningPostEN);
+    scheduleDaily(13, 50, buildEveningPost, '📊 Вечерний срез',      buildEveningPostEN);
 
     // Алерты каждые 5 минут
     setInterval(checkPriceAlerts, 5 * 60 * 1000);
