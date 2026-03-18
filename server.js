@@ -290,30 +290,6 @@ async function tgSend(text, chatId = TG_CHAT_ID) {
 }
 
 async function tgSendBoth(textRu, textEn) {
-    // Проверяем — не было ли уже такого поста в канале за последние 2 минуты
-    try {
-        const checkR = await fetch(`${TG_API}/getUpdates?offset=-5&limit=5&allowed_updates=["channel_post"]`);
-        const checkD = await checkR.json();
-        if (checkD.ok && checkD.result) {
-            const twoMinAgo = Math.floor(Date.now() / 1000) - 120;
-            const recent = checkD.result.filter(u =>
-                u.channel_post && u.channel_post.date >= twoMinAgo &&
-                u.channel_post.text && u.channel_post.text.length > 100
-            );
-            if (recent.length > 0) {
-                // Проверяем совпадение по первым 80 символам
-                const newTextStart = textRu.slice(0, 80);
-                const duplicate = recent.some(u => u.channel_post.text.slice(0, 80) === newTextStart);
-                if (duplicate) {
-                    console.log('🛑 Дубль обнаружен через Telegram API — пропускаем отправку');
-                    return;
-                }
-            }
-        }
-    } catch (e) {
-        console.warn('⚠️ Telegram dedup check failed:', e.message);
-    }
-
     const results = await Promise.allSettled([
         tgSend(textRu, TG_CHAT_ID),
         TG_CHAT_ID_EN ? tgSend(textEn || textRu, TG_CHAT_ID_EN) : Promise.resolve(),
@@ -321,6 +297,70 @@ async function tgSendBoth(textRu, textEn) {
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length === 2) throw new Error(failed[0].reason.message);
     if (failed.length === 1) console.warn('⚠️ Один канал не получил пост:', failed[0].reason.message);
+
+    // Собираем message_id отправленных постов
+    const sentIds = {};
+    results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value && r.value.result) {
+            const chatId = r.value.result.chat.id;
+            sentIds[chatId] = r.value.result.message_id;
+        }
+    });
+
+    // Через 15 секунд удаляем дубли — оставляем только ПЕРВЫЙ пост (наименьший message_id)
+    setTimeout(async () => {
+        for (const [chatId, myMsgId] of Object.entries(sentIds)) {
+            try {
+                // Проверяем несколько сообщений после нашего
+                for (let offset = 1; offset <= 5; offset++) {
+                    const checkId = myMsgId + offset;
+                    // Пытаемся удалить — если это наш дубль, он удалится
+                    // Telegram не даст удалить чужое сообщение, так что безопасно
+                    await fetch(`${TG_API}/deleteMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chat_id: chatId, message_id: checkId }),
+                    }).catch(() => {});
+                }
+                // Также проверяем — может МЫ дубль, а первый пост раньше
+                for (let offset = 1; offset <= 5; offset++) {
+                    const checkId = myMsgId - offset;
+                    if (checkId <= 0) break;
+                    try {
+                        // Пересылаем сообщение себе чтобы прочитать его текст
+                        const fwdR = await fetch(`${TG_API}/forwardMessage`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ chat_id: chatId, from_chat_id: chatId, message_id: checkId }),
+                        });
+                        const fwdD = await fwdR.json();
+                        if (fwdD.ok && fwdD.result.text) {
+                            const fwdText = fwdD.result.text.slice(0, 80);
+                            const myText = (chatId == TG_CHAT_ID ? textRu : textEn || textRu).slice(0, 80);
+                            // Удаляем forwarded
+                            await fetch(`${TG_API}/deleteMessage`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ chat_id: chatId, message_id: fwdD.result.message_id }),
+                            }).catch(() => {});
+                            if (fwdText === myText) {
+                                // Есть более ранний пост с таким же текстом — МЫ дубль, удаляем себя
+                                console.log(`🗑️ Удаляем свой дубль msgId:${myMsgId} в ${chatId}`);
+                                await fetch(`${TG_API}/deleteMessage`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ chat_id: chatId, message_id: myMsgId }),
+                                }).catch(() => {});
+                                break;
+                            }
+                        }
+                    } catch {}
+                }
+            } catch (e) {
+                console.warn('⚠️ Dedup cleanup error:', e.message);
+            }
+        }
+    }, 15000);
 }
 
 async function tgSendPhotoBuffer(buffer, filename, caption) {
@@ -1268,7 +1308,7 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(13, 50, buildEveningPost, '📊 Вечерний срез',      buildEveningPostEN);
+    scheduleDaily(14, 0, buildEveningPost, '📊 Вечерний срез',      buildEveningPostEN);
 
     // Алерты каждые 5 минут
     setInterval(checkPriceAlerts, 5 * 60 * 1000);
