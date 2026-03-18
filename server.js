@@ -775,32 +775,31 @@ async function executeScheduledPost(job) {
     const sentKey = `${job.label}:${dateKey}`;
     const filePath = lockFilePath(sentKey);
 
-    // Файловый лок — создаём ПОСЛЕ отправки, не до
-    // Сначала проверяем существует ли лок
+    // Атомарный лок ДО отправки — wx гарантирует что только один процесс пройдёт
     try {
-        if (fs.existsSync(filePath)) {
+        const fd = fs.openSync(filePath, 'wx');
+        fs.writeSync(fd, `${Date.now()}:${process.pid}`);
+        fs.closeSync(fd);
+        console.log(`🔓 Lock создан: ${sentKey} (pid: ${process.pid})`);
+    } catch (e) {
+        if (e.code === 'EEXIST') {
             console.log(`🔒 Пост уже отправлен: ${sentKey}`);
             scheduleNextRun(job);
             return;
         }
-    } catch {}
+    }
 
     try {
         console.log(`📤 Отправка: ${job.label} (pid: ${process.pid}, ${new Date().toISOString()})`);
         const text = await job.fn();
         const textEn = job.fnEn ? await job.fnEn() : null;
         await tgSendBoth(text, textEn);
-        
-        // Лок создаём ПОСЛЕ успешной отправки
-        try {
-            fs.writeFileSync(filePath, `${Date.now()}:${process.pid}`);
-        } catch {}
-        
         logPost(job.label, text);
         console.log(`✅ ${job.label} отправлен (RU + EN)`);
     } catch (e) {
-        // НЕ создаём лок — следующая попытка сможет отправить
-        console.error(`❌ ${job.label} ошибка:`, e.message);
+        // Удаляем лок при ошибке — чтобы retry мог отправить
+        try { fs.unlinkSync(filePath); } catch {}
+        console.error(`❌ ${job.label} ошибка (лок удалён):`, e.message);
     }
 
     scheduleNextRun(job);
@@ -1292,7 +1291,7 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(14, 35, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
+    scheduleDaily(14, 50, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
     startScheduler();
 
     // Алерты каждые 5 минут
