@@ -279,7 +279,7 @@ async function tgSend(text, chatId = TG_CHAT_ID) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             chat_id: chatId,
-            text: text + `\n\n<code>dbg:${sendId}</code>`,
+            text,
             parse_mode: 'HTML',
             disable_web_page_preview: true,
         }),
@@ -297,70 +297,6 @@ async function tgSendBoth(textRu, textEn) {
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length === 2) throw new Error(failed[0].reason.message);
     if (failed.length === 1) console.warn('⚠️ Один канал не получил пост:', failed[0].reason.message);
-
-    // Собираем message_id отправленных постов
-    const sentIds = {};
-    results.forEach(r => {
-        if (r.status === 'fulfilled' && r.value && r.value.result) {
-            const chatId = r.value.result.chat.id;
-            sentIds[chatId] = r.value.result.message_id;
-        }
-    });
-
-    // Через 15 секунд удаляем дубли — оставляем только ПЕРВЫЙ пост (наименьший message_id)
-    setTimeout(async () => {
-        for (const [chatId, myMsgId] of Object.entries(sentIds)) {
-            try {
-                // Проверяем несколько сообщений после нашего
-                for (let offset = 1; offset <= 5; offset++) {
-                    const checkId = myMsgId + offset;
-                    // Пытаемся удалить — если это наш дубль, он удалится
-                    // Telegram не даст удалить чужое сообщение, так что безопасно
-                    await fetch(`${TG_API}/deleteMessage`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chat_id: chatId, message_id: checkId }),
-                    }).catch(() => {});
-                }
-                // Также проверяем — может МЫ дубль, а первый пост раньше
-                for (let offset = 1; offset <= 5; offset++) {
-                    const checkId = myMsgId - offset;
-                    if (checkId <= 0) break;
-                    try {
-                        // Пересылаем сообщение себе чтобы прочитать его текст
-                        const fwdR = await fetch(`${TG_API}/forwardMessage`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ chat_id: chatId, from_chat_id: chatId, message_id: checkId }),
-                        });
-                        const fwdD = await fwdR.json();
-                        if (fwdD.ok && fwdD.result.text) {
-                            const fwdText = fwdD.result.text.slice(0, 80);
-                            const myText = (chatId == TG_CHAT_ID ? textRu : textEn || textRu).slice(0, 80);
-                            // Удаляем forwarded
-                            await fetch(`${TG_API}/deleteMessage`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ chat_id: chatId, message_id: fwdD.result.message_id }),
-                            }).catch(() => {});
-                            if (fwdText === myText) {
-                                // Есть более ранний пост с таким же текстом — МЫ дубль, удаляем себя
-                                console.log(`🗑️ Удаляем свой дубль msgId:${myMsgId} в ${chatId}`);
-                                await fetch(`${TG_API}/deleteMessage`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ chat_id: chatId, message_id: myMsgId }),
-                                }).catch(() => {});
-                                break;
-                            }
-                        }
-                    } catch {}
-                }
-            } catch (e) {
-                console.warn('⚠️ Dedup cleanup error:', e.message);
-            }
-        }
-    }, 15000);
 }
 
 async function tgSendPhotoBuffer(buffer, filename, caption) {
@@ -796,58 +732,94 @@ function cleanOldPostLocks(dateKey) {
     } catch {}
 }
 
+// ── Точное планирование через setTimeout (без setInterval race conditions) ──
+const TIMEZONE_OFFSET = 3; // МСК = UTC+3
+const scheduledPosts = [];
+const postSentToday = {};
+
 function scheduleDaily(hour, minute, fn, label, fnEn = null) {
     scheduledPosts.push({ hour, minute, fn, label, fnEn });
     console.log(`⏰ ${label} запланирован на ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} МСК`);
 }
 
-// Проверяем каждые 30 секунд — пора ли отправить пост
-// Случайная задержка при первом тике (0-20 сек) чтобы разнести контейнеры Railway
-const _cronStartDelay = Math.floor(Math.random() * 20000);
-let _cronFirstRun = true;
-let _cronBusy = false;
-setInterval(async () => {
-    if (_cronBusy) return;
-    if (_cronFirstRun) {
-        _cronFirstRun = false;
-        await new Promise(r => setTimeout(r, _cronStartDelay));
-        console.log(`⏱️ Cron стартовал с задержкой ${_cronStartDelay}ms`);
-    }
-    _cronBusy = true;
-    try {
+function getMskNow() {
     const now = new Date();
-    // Текущее время в МСК
-    const mskHour   = (now.getUTCHours() + TIMEZONE_OFFSET) % 24;
-    const mskMinute = now.getUTCMinutes();
-    const dateKey   = now.toISOString().slice(0, 10); // "2026-03-10"
+    return {
+        hour: (now.getUTCHours() + TIMEZONE_OFFSET) % 24,
+        minute: now.getUTCMinutes(),
+        second: now.getUTCSeconds(),
+        dateKey: now.toISOString().slice(0, 10),
+        ts: now.getTime(),
+    };
+}
 
-    for (const job of scheduledPosts) {
-        if (mskHour === job.hour && mskMinute === job.minute) {
-            const sentKey = `${job.label}:${dateKey}`;
+function msUntilMsk(targetHour, targetMinute) {
+    const now = new Date();
+    const utcTarget = new Date(now);
+    utcTarget.setUTCHours(targetHour - TIMEZONE_OFFSET, targetMinute, 0, 0);
+    let diff = utcTarget.getTime() - now.getTime();
+    if (diff < -30000) diff += 86400000; // уже прошло — следующий день
+    return diff;
+}
 
-            const canSend = await markPostSent(sentKey);
-            if (!canSend) continue; // уже отправлено (этим или другим экземпляром)
+async function executeScheduledPost(job) {
+    const { dateKey } = getMskNow();
+    const sentKey = `${job.label}:${dateKey}`;
 
-            try {
-                console.log(`📤 Отправка: ${job.label} (${new Date().toISOString()})`);
-                const text = await job.fn();
-                const textEn = job.fnEn ? await job.fnEn() : null;
-                await tgSendBoth(text, textEn);
-                logPost(job.label, text);
-                console.log(`✅ ${job.label} отправлен (RU + EN)`);
-            } catch (e) {
-                console.error(`❌ ${job.label} ошибка:`, e.message);
-            }
+    // Файловый лок
+    const filePath = lockFilePath(sentKey);
+    try {
+        const fd = fs.openSync(filePath, 'wx');
+        fs.writeSync(fd, `${Date.now()}:${process.pid}`);
+        fs.closeSync(fd);
+    } catch (e) {
+        if (e.code === 'EEXIST') {
+            console.log(`🔒 Пост уже отправлен: ${sentKey}`);
+            scheduleNextRun(job);
+            return;
         }
     }
 
-    // Очищаем старые записи (вчерашние)
-    for (const key of Object.keys(postSentToday)) {
-        if (!key.endsWith(dateKey)) delete postSentToday[key];
+    try {
+        console.log(`📤 Отправка: ${job.label} (pid: ${process.pid}, ${new Date().toISOString()})`);
+        const text = await job.fn();
+        const textEn = job.fnEn ? await job.fnEn() : null;
+        await tgSendBoth(text, textEn);
+        logPost(job.label, text);
+        console.log(`✅ ${job.label} отправлен (RU + EN)`);
+    } catch (e) {
+        console.error(`❌ ${job.label} ошибка:`, e.message);
     }
+
+    scheduleNextRun(job);
+}
+
+function scheduleNextRun(job) {
+    // Планируем на следующий день (или через ~24 часа)
+    const ms = msUntilMsk(job.hour, job.minute);
+    const delay = ms < 60000 ? ms + 86400000 : ms; // если до цели < 1 мин — следующий день
+    console.log(`⏱️ Следующий ${job.label}: через ${Math.round(delay / 60000)} мин`);
+    setTimeout(() => executeScheduledPost(job), delay);
+}
+
+function startScheduler() {
+    // Очищаем старые локи
+    const { dateKey } = getMskNow();
     cleanOldPostLocks(dateKey);
-    } finally { _cronBusy = false; }
-}, 30 * 1000);
+
+    for (const job of scheduledPosts) {
+        const ms = msUntilMsk(job.hour, job.minute);
+        if (ms < -30000) {
+            // Уже прошло сегодня — планируем на завтра
+            const delay = ms + 86400000;
+            console.log(`⏱️ ${job.label}: уже прошло, следующий через ${Math.round(delay / 60000)} мин`);
+            setTimeout(() => executeScheduledPost(job), delay);
+        } else {
+            console.log(`⏱️ ${job.label}: через ${Math.round(ms / 60000)} мин`);
+            setTimeout(() => executeScheduledPost(job), Math.max(ms, 1000));
+        }
+    }
+}
 
 // ── CRON — алерты каждые 5 минут ─────────────────────────────
 const alertPrices = { BTCUSDT: [], ETHUSDT: [] };
@@ -1308,7 +1280,8 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(14, 0, buildEveningPost, '📊 Вечерний срез',      buildEveningPostEN);
+    scheduleDaily(14, 10, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
+    startScheduler();
 
     // Алерты каждые 5 минут
     setInterval(checkPriceAlerts, 5 * 60 * 1000);
