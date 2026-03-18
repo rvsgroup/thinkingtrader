@@ -269,14 +269,17 @@ const TG_CHAT_ID    = process.env.TG_CHAT_ID;
 const TG_CHAT_ID_EN = process.env.TG_CHAT_ID_EN;
 const TG_API        = `https://api.telegram.org/bot${TG_TOKEN}`;
 
+let _tgSendCounter = 0;
 async function tgSend(text, chatId = TG_CHAT_ID) {
-    console.log(`📨 tgSend → chat_id: ${chatId}, text length: ${text.length}, time: ${new Date().toISOString()}`);
+    _tgSendCounter++;
+    const sendId = `S${_tgSendCounter}-${Date.now()}`;
+    console.log(`📨 tgSend #${sendId} → chat_id: ${chatId}, text length: ${text.length}, time: ${new Date().toISOString()}`);
     const r = await fetch(`${TG_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             chat_id: chatId,
-            text,
+            text: text + `\n\n<code>dbg:${sendId}</code>`,
             parse_mode: 'HTML',
             disable_web_page_preview: true,
         }),
