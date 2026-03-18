@@ -692,14 +692,17 @@ function lockFilePath(key) {
 async function markPostSent(sentKey) {
     const filePath = lockFilePath(sentKey);
     try {
-        if (fs.existsSync(filePath)) {
-            console.log(`🔒 Пост уже отправлен (lock exists): ${sentKey}`);
-            return false;
-        }
-        fs.writeFileSync(filePath, new Date().toISOString());
+        // wx = exclusive create — атомарная операция, только один процесс сможет создать файл
+        const fd = fs.openSync(filePath, 'wx');
+        fs.writeSync(fd, new Date().toISOString());
+        fs.closeSync(fd);
         console.log(`🔓 Lock создан: ${sentKey}`);
         return true;
     } catch (e) {
+        if (e.code === 'EEXIST') {
+            console.log(`🔒 Пост уже отправлен (lock exists): ${sentKey}`);
+            return false;
+        }
         console.warn('⚠️ File lock error, falling back to memory:', e.message);
     }
     // Фоллбэк на in-memory
@@ -1224,6 +1227,7 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
+    scheduleDaily(13, 20, buildEveningPost, '🧪 ТЕСТ 13:20',        buildEveningPostEN);
     scheduleDaily(19, 0, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
 
     // Алерты каждые 5 минут

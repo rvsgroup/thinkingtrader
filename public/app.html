@@ -16186,11 +16186,33 @@
                     icon: isTop ? 'doubleTop' : 'doubleBottom'
                 };
             });
-            // Объединяем, сортируем по времени, берём последние 3
+            // Объединяем, фильтруем по свежести и WR, дедуплицируем по типу, берём последние 3
             const allPatterns = [...candlePatterns, ...doublePatterns].sort((a, b) => a.time - b.time);
-            const last3 = allPatterns.slice(-3);
+
+            // Лимит свежести по таймфрейму (в днях)
+            const pd = typeof currentPeriod !== 'undefined' ? currentPeriod : 1;
+            let maxAgeDays;
+            if (pd <= 0.04) maxAgeDays = 2;        // 1Ч → 2 дня
+            else if (pd <= 0.17) maxAgeDays = 4;    // 4Ч → 4 дня
+            else if (pd <= 1) maxAgeDays = 5;       // 1Д → 5 дней
+            else if (pd <= 7) maxAgeDays = 14;      // 7Д → 2 недели
+            else if (pd <= 30) maxAgeDays = 60;     // 30Д → 2 месяца
+            else maxAgeDays = 150;                   // 90Д → 5 месяцев
+            const nowTs = Math.floor(Date.now() / 1000);
+            const cutoffTs = nowTs - maxAgeDays * 86400;
+
+            // Фильтр: свежие + есть WR
+            const recentWr = allPatterns.filter(p => {
+                if (p.time < cutoffTs) return false;
+                if (!window._fsWinRateCache) return false;
+                return !!window._fsWinRateCache[p.name];
+            });
+            // Дедупликация по имени — оставляем последний (самый свежий)
+            const uniqueMap = new Map();
+            recentWr.forEach(p => uniqueMap.set(p.name, p));
+            const uniquePatterns = [...uniqueMap.values()].sort((a, b) => a.time - b.time);
+            const last3 = uniquePatterns.slice(-3);
             last3.forEach(p => {
-                // Добавляем win rate если есть
                 let wrSuffix = '';
                 if (window._fsWinRateCache) {
                     const wrData = window._fsWinRateCache[p.name];
