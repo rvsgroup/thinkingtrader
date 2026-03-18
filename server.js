@@ -733,9 +733,6 @@ function cleanOldPostLocks(dateKey) {
 }
 
 // ── Точное планирование через setTimeout (без setInterval race conditions) ──
-const TIMEZONE_OFFSET = 3; // МСК = UTC+3
-const scheduledPosts = [];
-const postSentToday = {};
 
 function scheduleDaily(hour, minute, fn, label, fnEn = null) {
     scheduledPosts.push({ hour, minute, fn, label, fnEn });
