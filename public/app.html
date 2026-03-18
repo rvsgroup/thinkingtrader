@@ -1025,7 +1025,7 @@
             min-height: 200px; 
             flex-direction: column;
         }
-        .chart-column .chart-container { position: relative; height: 360px; width: 100%; overflow: hidden; }
+        .chart-column .chart-container { position: relative; height: 420px; width: 100%; overflow: hidden; flex: 1; }
         .chart-column #lwPriceChart { width: 100%; height: 100%; }
         .chart-coin-bar {
             display: flex;
@@ -1454,6 +1454,13 @@
         .setup-scanner-body::-webkit-scrollbar { width: 3px; }
         .setup-scanner-body::-webkit-scrollbar-track { background: transparent; }
         .setup-scanner-body::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 6px; }
+
+        @keyframes favBorderShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+        .setup-fav-card { position:relative;cursor:pointer;transition:transform 0.15s; }
+        .setup-fav-card:hover { transform:scale(1.01); }
+        .setup-fav-card.loaded::before { content:'';position:absolute;inset:-1px;border-radius:15px;padding:1px;background:linear-gradient(135deg,rgba(99,102,241,0.4),rgba(16,185,129,0.3),rgba(139,92,246,0.3),rgba(99,102,241,0.4));background-size:300% 300%;animation:favBorderShift 6s ease infinite;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;z-index:1; }
+        .setup-fav-card.bear::before { background:linear-gradient(135deg,rgba(239,68,68,0.4),rgba(200,130,60,0.3),rgba(239,68,68,0.3),rgba(200,80,80,0.4));background-size:300% 300%;animation:favBorderShift 6s ease infinite; }
+        .setup-fav-card.neutral::before { background:linear-gradient(135deg,rgba(251,191,36,0.4),rgba(99,102,241,0.25),rgba(251,191,36,0.3),rgba(139,92,246,0.3));background-size:300% 300%;animation:favBorderShift 6s ease infinite; }
 
         /* Mobile responsive for setup card */
         @media (max-width: 600px) {
@@ -2684,9 +2691,9 @@
 
         .watchlist-item {
             display: grid;
-            grid-template-columns: 36px 1fr 64px auto 16px;
+            grid-template-columns: 16px 36px 1fr 64px auto 16px;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             padding: 10px 14px;
             cursor: pointer;
             transition: background 0.2s;
@@ -2734,6 +2741,9 @@
         }
         .watchlist-item:hover .wl-del { opacity: 1; }
         .wl-del:hover { color: #EF4444; background: rgba(239,68,68,0.1); }
+        .wl-fav { font-size:15px;color:#334155;cursor:pointer;flex-shrink:0;transition:color 0.2s;line-height:1;text-align:center; }
+        .wl-fav:hover { color:#FBBF24; }
+        .wl-fav.active { color:#FBBF24; }
 
         .results-section { 
             display: flex; 
@@ -4099,7 +4109,7 @@
             /* Левая колонка */
             .left-column { gap: 8px; }
             .chart-column { padding: 12px; border-radius: 8px; overflow: visible !important; height: auto !important; }
-            .chart-container { height: 180px !important; }
+            .chart-container { height: 250px !important; flex: none !important; }
             .chart-loading { height: 300px !important; }
             .chart-title h3 { font-size: 13px; }
             .chart-header { flex-wrap: wrap; gap: 6px; }
@@ -4170,17 +4180,27 @@
             #tab-patterns { overflow: hidden; flex-direction: column; gap: 0; flex: 1; min-height: 0; }
             #patternsGrid { overflow-y: auto !important; flex: 1 !important; min-height: 0 !important; height: auto !important; max-height: none !important; }
 
-            /* Результаты */
+            /* Результаты — скрываем по умолчанию, показываем только при калькуляторе */
             .results-section {
                 overflow: visible !important;
                 height: auto !important;
                 max-height: none !important;
             }
-            .watchlist { display: none !important; }
-            .results-top { display: flex !important; height: auto !important; }
-            #progressToGoal { display: block !important; }
-            #tpslCard { display: flex !important; }
+            .watchlist { display: block; }
+            .results-section.calc-active .watchlist { display: none !important; }
+            .results-top { display: none !important; height: auto !important; }
+            #progressToGoal { display: none !important; }
+            #tpslCard { display: none !important; }
+            .results-section.calc-active .results-top { display: flex !important; }
+            .results-section.calc-active #progressToGoal { display: block !important; }
+            .results-section.calc-active #tpslCard { display: flex !important; }
             .results-scroll { overflow: visible !important; flex: none !important; height: auto !important; max-height: none !important; }
+
+            /* Сканер сетапов — ограниченная высота со скроллом на мобилке */
+            .setup-scanner-panel.open .setup-scanner-body {
+                max-height: 50vh !important;
+                overflow-y: auto !important;
+            }
             .main-result { padding: 14px 16px; border-radius: 8px; }
             .result-label { font-size: 11px; margin-bottom: 6px; }
             .result-amount { font-size: 28px; margin-bottom: 10px; }
@@ -12866,14 +12886,16 @@
         });
 
         // Touch swipe — только горизонтальный, не мешает вертикальному скроллу
-        let touchStartX = 0, touchStartY = 0, touchLocked = false;
+        let touchStartX = 0, touchStartY = 0, touchLocked = false, touchOnChart = false;
         document.addEventListener('touchstart', e => {
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
             touchLocked = false;
+            // Проверяем — начался ли свайп на графике
+            touchOnChart = !!(e.target.closest('.chart-container') || e.target.closest('.tv-lightweight-charts') || e.target.tagName === 'CANVAS');
         }, { passive: true });
         document.addEventListener('touchmove', e => {
-            if (touchLocked) return;
+            if (touchLocked || touchOnChart) return;
             const dx = Math.abs(e.touches[0].clientX - touchStartX);
             const dy = Math.abs(e.touches[0].clientY - touchStartY);
             // Если движение больше горизонтальное — блокируем вертикальный скролл
@@ -12882,10 +12904,11 @@
             }
         }, { passive: true });
         document.addEventListener('touchend', e => {
+            if (touchOnChart) return; // Свайп на графике — игнорируем
             const dx = e.changedTouches[0].clientX - touchStartX;
             const dy = e.changedTouches[0].clientY - touchStartY;
-            // Свайп только если горизонталь > 60px И больше вертикали в 1.5 раза
-            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            // Свайп только если горизонталь > 120px И больше вертикали в 2 раза
+            if (Math.abs(dx) > 90 && Math.abs(dx) > Math.abs(dy) * 2) {
                 goToPage(dx < 0 ? currentPage + 1 : currentPage - 1);
             }
         }, { passive: true });
@@ -13929,6 +13952,18 @@
                 const container = document.getElementById('watchlistItems');
                 if (!container) return;
 
+                // Favorites helper functions
+                if (!window._ttFavFns) {
+                    window._ttFavFns = true;
+                    window.getFavCoins = function() { try { return JSON.parse(localStorage.getItem('tt_fav_coins') || '[]'); } catch(e) { return []; } };
+                    window.toggleFavCoin = function(id) {
+                        var f = getFavCoins(), i = f.indexOf(id);
+                        if (i >= 0) f.splice(i, 1); else f.push(id);
+                        localStorage.setItem('tt_fav_coins', JSON.stringify(f));
+                    };
+                    window.isFavCoin = function(id) { return getFavCoins().includes(id); };
+                }
+
                 container.innerHTML = wlCoins.map(id => {
                     const sym = BINANCE_SYMBOLS[id];
                     const data = sym && bySymbol[sym];
@@ -13942,7 +13977,9 @@
                     const chgStr = isNaN(chg) ? '—' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
                     const spark = _wlSparkCache[id]?.closes;
                     const sparkHtml = wlSparkSVG(spark, chg >= 0);
+                    const favClass = isFavCoin(id) ? 'wl-fav active' : 'wl-fav';
                     return `<div class="watchlist-item" onclick="wlSelectCoin('${id}')">
+                        <span class="${favClass}" onclick="event.stopPropagation();toggleFavCoin('${id}');this.classList.toggle('active');if(typeof renderFavBlock==='function'){renderFavBlock();if(typeof scanFavCoins==='function')setTimeout(scanFavCoins,300);}">&#9733;</span>
                         ${icon ? `<img class="wl-icon" src="${icon}" alt="${coin?.symbol||''}" loading="lazy" onerror="this.style.display='none'">` : '<div style="width:36px"></div>'}
                         <div class="wl-name">
                             <span class="wl-symbol">${coin?.symbol || id.toUpperCase()}</span>
@@ -13969,6 +14006,9 @@
             if (rt) rt.style.display = '';
             if (pg) pg.style.display = '';
             if (tp) tp.style.display = '';
+            // Добавляем класс для мобилки
+            const rs = document.querySelector('.results-section');
+            if (rs) rs.classList.add('calc-active');
             // Collapse watchlist but keep bar visible
             const wl = document.getElementById('watchlist');
             const wrap = document.getElementById('watchlistWrap');
@@ -13985,6 +14025,9 @@
             if (wl) wl.classList.add('open');
             if (wrap) wrap.style.flex = '1';
             if (rt) rt.style.display = 'none';
+            // Убираем класс для мобилки
+            const rs = document.querySelector('.results-section');
+            if (rs) rs.classList.remove('calc-active');
             if (pg) pg.style.display = 'none';
             if (tp) tp.style.display = 'none';
         }
@@ -16186,33 +16229,11 @@
                     icon: isTop ? 'doubleTop' : 'doubleBottom'
                 };
             });
-            // Объединяем, фильтруем по свежести и WR, дедуплицируем по типу, берём последние 3
+            // Объединяем, сортируем по времени, берём последние 3
             const allPatterns = [...candlePatterns, ...doublePatterns].sort((a, b) => a.time - b.time);
-
-            // Лимит свежести по таймфрейму (в днях)
-            const pd = typeof currentPeriod !== 'undefined' ? currentPeriod : 1;
-            let maxAgeDays;
-            if (pd <= 0.04) maxAgeDays = 2;        // 1Ч → 2 дня
-            else if (pd <= 0.17) maxAgeDays = 4;    // 4Ч → 4 дня
-            else if (pd <= 1) maxAgeDays = 5;       // 1Д → 5 дней
-            else if (pd <= 7) maxAgeDays = 14;      // 7Д → 2 недели
-            else if (pd <= 30) maxAgeDays = 60;     // 30Д → 2 месяца
-            else maxAgeDays = 150;                   // 90Д → 5 месяцев
-            const nowTs = Math.floor(Date.now() / 1000);
-            const cutoffTs = nowTs - maxAgeDays * 86400;
-
-            // Фильтр: свежие + есть WR
-            const recentWr = allPatterns.filter(p => {
-                if (p.time < cutoffTs) return false;
-                if (!window._fsWinRateCache) return false;
-                return !!window._fsWinRateCache[p.name];
-            });
-            // Дедупликация по имени — оставляем последний (самый свежий)
-            const uniqueMap = new Map();
-            recentWr.forEach(p => uniqueMap.set(p.name, p));
-            const uniquePatterns = [...uniqueMap.values()].sort((a, b) => a.time - b.time);
-            const last3 = uniquePatterns.slice(-3);
+            const last3 = allPatterns.slice(-3);
             last3.forEach(p => {
+                // Добавляем win rate если есть
                 let wrSuffix = '';
                 if (window._fsWinRateCache) {
                     const wrData = window._fsWinRateCache[p.name];
@@ -16383,7 +16404,226 @@
                 </div>
             </div>
         </div>
+        <div id="setupFavList" style="margin-top:12px;"></div>
         `;
+
+        // Рендер блока избранных монет (если есть)
+        renderFavBlock();
+        // Запускаем фоновый скан избранных
+        if (typeof scanFavCoins === 'function') setTimeout(scanFavCoins, 500);
+    };
+
+    // ── Блок "Избранные монеты" под карточкой ──
+    window.renderFavBlock = function() {
+        const container = document.getElementById('setupFavList');
+        if (!container) return;
+        const favs = (typeof getFavCoins === 'function') ? getFavCoins() : [];
+        if (!favs.length) {
+            container.innerHTML = '';
+            return;
+        }
+        const isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        const title = isEn ? 'Favorites' : 'Избранные монеты';
+        const cache = window._favScanCache || {};
+
+        // Если контейнер уже есть — обновляем только если список избранных изменился
+        const cardsEl = document.getElementById('setupFavCards');
+        if (cardsEl) {
+            const existing = [].slice.call(cardsEl.querySelectorAll('.setup-fav-card')).map(function(el){ return el.dataset.favId; });
+            const same = favs.length === existing.length && favs.every(function(id, i){ return id === existing[i]; });
+            if (same) {
+                // Список не изменился — просто обновляем из кэша
+                favs.forEach(function(id) { if (cache[id] && cache[id].data) renderFavCard(id, cache[id].data); });
+                return;
+            }
+        }
+
+        // Создаём заново только если список изменился
+        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 2px;">'
+            + '<span style="font-size:12px;font-weight:600;color:#CBD5E1;">' + title + '</span>'
+            + '<span style="font-size:9px;color:#475569;">' + favs.length + ' ' + (isEn ? 'coins' : 'монет') + '</span>'
+            + '</div>'
+            + '<div id="setupFavCards" style="display:flex;flex-direction:column;gap:6px;">'
+            + favs.map(function(id) {
+                var coin = (typeof COINS !== 'undefined') ? COINS.find(function(c){ return c.id === id; }) : null;
+                var name = coin ? coin.symbol : id.toUpperCase();
+                return '<div class="setup-fav-card" data-fav-id="' + id + '" style="background:#0F1A2E;border:1px solid rgba(255,255,255,0.05);border-radius:14px;padding:12px 14px;position:relative;overflow:hidden;">'
+                    + '<div style="display:flex;align-items:center;gap:8px;">'
+                    + '<div style="width:24px;height:24px;border-radius:50%;background:#1E293B;display:flex;align-items:center;justify-content:center;">'
+                    + '<span style="font-size:9px;color:#64748B;font-weight:600;">' + name.slice(0,3) + '</span>'
+                    + '</div>'
+                    + '<span style="font-size:12px;font-weight:600;color:#94A3B8;">' + name + '</span>'
+                    + '<span style="font-size:10px;color:#475569;margin-left:auto;">' + (isEn ? 'Scanning...' : 'Сканирование...') + '</span>'
+                    + '</div></div>';
+            }).join('')
+            + '</div>';
+
+        // Сразу рендерим из кэша
+        favs.forEach(function(id) {
+            if (cache[id] && cache[id].data) renderFavCard(id, cache[id].data);
+        });
+    };
+
+    // ── Фоновый скан избранных монет ──
+    window._favScanCache = {};
+    const FAV_CACHE_TTL = 20 * 60 * 1000;
+
+    window.scanFavCoins = async function() {
+        var favs = (typeof getFavCoins === 'function') ? getFavCoins() : [];
+        if (!favs.length) return;
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        var curId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : '';
+        var pd = (typeof currentPeriod !== 'undefined') ? currentPeriod : 1;
+        var intv, lim;
+        if (pd <= 0.04) { intv='1h'; lim=200; } else if (pd <= 0.17) { intv='4h'; lim=200; }
+        else if (pd <= 1) { intv='1d'; lim=200; } else if (pd <= 7) { intv='1w'; lim=1000; }
+        else { intv='1M'; lim=1000; }
+
+        for (var fi = 0; fi < favs.length; fi++) {
+            var coinId = favs[fi];
+            // Не пропускаем текущую монету — она тоже в списке избранных
+            var cached = window._favScanCache[coinId];
+            if (cached && (Date.now() - cached.ts < FAV_CACHE_TTL) && cached.intv === intv) {
+                renderFavCard(coinId, cached.data); continue;
+            }
+            var sym = (typeof BINANCE_SYMBOLS !== 'undefined') ? BINANCE_SYMBOLS[coinId] : null;
+            if (!sym) continue;
+            try {
+                var r = await fetch('/api/ohlc?symbol='+sym+'&interval='+intv+'&limit='+lim);
+                var raw = await r.json();
+                if (!Array.isArray(raw) || raw.length < 20) continue;
+                var candles = raw.map(function(k){ return [k[0],parseFloat(k[1]),parseFloat(k[2]),parseFloat(k[3]),parseFloat(k[4])]; });
+                var closes = candles.map(function(k){ return k[4]; });
+                var sigs = [];
+
+                // RSI
+                if (closes.length >= 15 && typeof calculateRSI === 'function') {
+                    var rv = calculateRSI(candles.map(function(k){return [k[0],k[4]];}));
+                    if (rv !== null && !isNaN(rv)) { var rr=Math.round(rv); sigs.push({name:'RSI '+rr, dir: rr<30?'bull':rr>70?'bear':'neutral'}); }
+                }
+                // MACD
+                if (typeof calcMACD === 'function' && closes.length >= 35) {
+                    var m = calcMACD(closes);
+                    if (m) { sigs.push({name:'MACD', dir: m.currentMACD>m.currentSignal&&m.currentHist>0?'bull':m.currentMACD<m.currentSignal&&m.currentHist<0?'bear':'neutral'}); }
+                }
+                // BB
+                if (typeof calcBB === 'function' && closes.length >= 20) {
+                    var bb = calcBB(closes);
+                    if (bb) { sigs.push({name:'BB', dir: bb.pctB>0.8?'bear':bb.pctB<0.2?'bull':'neutral'}); }
+                }
+                // Stoch RSI
+                if (typeof calcStochRSI === 'function' && closes.length >= 30) {
+                    var st = calcStochRSI(closes);
+                    if (st && st.k != null) { sigs.push({name:'Stoch', dir: st.k<20?'bull':st.k>80?'bear':'neutral'}); }
+                }
+                // CCI
+                if (typeof calcCCI === 'function' && candles.length >= 20) {
+                    var cc = calcCCI(candles);
+                    if (cc !== null && !isNaN(cc)) { sigs.push({name:'CCI', dir: cc<-100?'bull':cc>100?'bear':'neutral'}); }
+                }
+                // Williams %R
+                if (typeof calcWilliamsR === 'function' && candles.length >= 14) {
+                    var wr = calcWilliamsR(candles);
+                    var wv = (wr && typeof wr === 'object') ? wr.current : wr;
+                    if (wv != null && !isNaN(wv)) { sigs.push({name:'W%R', dir: wv<-80?'bull':wv>-20?'bear':'neutral'}); }
+                }
+                // EMA
+                if (typeof calcEMA === 'function' && closes.length >= 200) {
+                    var e50=calcEMA(closes,50), e200=calcEMA(closes,200);
+                    if (e50&&e200) { var l5=e50[e50.length-1],l2=e200[e200.length-1]; sigs.push({name:'EMA', dir:l5>l2*1.01?'bull':l5<l2*0.99?'bear':'neutral'}); }
+                }
+                // Паттерны
+                if (typeof PatternScanner !== 'undefined') {
+                    var pc = candles.map(function(k){return {time:Math.floor(k[0]/1000),open:k[1],high:k[2],low:k[3],close:k[4]};});
+                    PatternScanner.enableAll();
+                    var pts = PatternScanner.scan(pc);
+                    var dbl = PatternScanner.scanDouble(pc, pd);
+                    var allP = pts.map(function(p){return {name:(isEn&&p.typeEn)?p.typeEn:p.type, dir:p.direction==='bullish'?'bull':p.direction==='bearish'?'bear':'neutral', time:p.time};})
+                        .concat(dbl.map(function(p){return {name:p.type==='double_top'?(isEn?'Double top':'Дв. верш.'):(isEn?'Double bottom':'Дв. дно'), dir:p.type==='double_top'?'bear':'bull', time:p.time2};}));
+                    var wrc = window._fsWinRateCache || {};
+                    var withWr = allP.filter(function(p){return wrc[p.name];}).sort(function(a,b){return a.time-b.time;});
+                    if (withWr.length > 0) { var lp=withWr[withWr.length-1]; var lpwr=wrc[lp.name]; sigs.push({name:lp.name+(lpwr?' '+lpwr.pct+'%':''), dir:lp.dir}); }
+                }
+
+                var bull=sigs.filter(function(s){return s.dir==='bull';}).length;
+                var bear=sigs.filter(function(s){return s.dir==='bear';}).length;
+                var tot=sigs.length;
+                var score=tot>0?Math.round(((bull-bear)/tot+1)*5):5;
+                score=Math.max(1,Math.min(10,score));
+
+                var verdict,vColor,cClass;
+                if(bull>=tot*0.7){verdict=isEn?'Bullish reversal':'Бычий разворот';vColor='#10B981';cClass='loaded';}
+                else if(bull>=tot*0.55){verdict=isEn?'Moderately bullish':'Умеренно бычий';vColor='#10B981';cClass='loaded';}
+                else if(bear>=tot*0.7){verdict=isEn?'Bearish reversal':'Медвежий разворот';vColor='#EF4444';cClass='loaded bear';}
+                else if(bear>=tot*0.55){verdict=isEn?'Moderately bearish':'Умеренно медвежий';vColor='#EF4444';cClass='loaded bear';}
+                else{verdict=isEn?'Uncertainty':'Неопределённость';vColor='#FBBF24';cClass='loaded neutral';}
+
+                var priceFmt='';
+                try { var tr=await fetch('/api/ticker?symbols='+encodeURIComponent('["'+sym+'"]')); var td=await tr.json();
+                    if(Array.isArray(td)&&td[0]){var p=parseFloat(td[0].lastPrice),chg=parseFloat(td[0].priceChangePercent);
+                    priceFmt='$'+p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+                    +' <span style="color:'+(chg>=0?'#10B981':'#EF4444')+';font-weight:600;">'+(chg>=0?'+':'')+chg.toFixed(2)+'%</span>';}} catch(e){}
+
+                var result={signals:sigs,bull:bull,bear:bear,total:tot,score:score,verdict:verdict,verdictColor:vColor,cardClass:cClass,priceFmt:priceFmt};
+                window._favScanCache[coinId]={data:result,ts:Date.now(),intv:intv};
+                renderFavCard(coinId, result);
+            } catch(e){ console.warn('Fav scan error:',coinId,e.message); }
+        }
+        // Порядок карточек сохраняется как пользователь добавил
+    };
+
+    window.renderFavCard = function(coinId, d) {
+        var card=document.querySelector('.setup-fav-card[data-fav-id="'+coinId+'"]');
+        if(!card) return;
+        var coin=(typeof COINS!=='undefined')?COINS.find(function(c){return c.id===coinId;}):null;
+        var icon=(typeof ICONS!=='undefined')?ICONS[coinId]:'';
+        var name=coin?coin.name:coinId;
+        var isEn=(typeof currentLang!=='undefined')&&currentLang==='en';
+        var bullPct=d.total>0?Math.round(d.bull/d.total*100):33;
+        var bearPct=d.total>0?Math.round(d.bear/d.total*100):33;
+        var neutPct=100-bullPct-bearPct;
+        var tags=d.signals.slice(0,6).map(function(s){
+            var c=s.dir==='bull'?'color:#10B981;background:rgba(16,185,129,0.12)':s.dir==='bear'?'color:#EF4444;background:rgba(239,68,68,0.08)':'color:#FBBF24;background:rgba(251,191,36,0.1)';
+            return '<span style="font-size:9px;padding:3px 8px;border-radius:10px;'+c+'">'+s.name+'</span>';
+        }).join('');
+        card.className='setup-fav-card '+d.cardClass;
+        card.dataset.score=d.score;
+        card.onclick=function(){
+            // Переключаем монету
+            if(typeof wlSelectCoin==='function') wlSelectCoin(coinId);
+            // Обновляем карточку сетапа всегда (данные из кэша)
+            if(typeof runSetupAnalysis==='function') setTimeout(runSetupAnalysis, 800);
+            // Обновляем сканер на графике только если активен
+            if(window.smallScanActive && typeof runSmallScan==='function') setTimeout(runSmallScan, 300);
+        };
+        card.style.cssText='background:#0F1A2E;border:1px solid rgba(255,255,255,0.05);border-radius:14px;padding:14px 16px;position:relative;overflow:hidden;cursor:pointer;';
+        var dashArr=Math.round(151*d.score/10);
+        card.innerHTML='<div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#10B981 '+bullPct+'%,#FBBF24 '+bullPct+'%,#FBBF24 '+(bullPct+neutPct)+'%,#EF4444 '+(bullPct+neutPct)+'%);z-index:2;"></div>'
+            +'<div style="display:flex;align-items:flex-start;gap:12px;position:relative;z-index:2;">'
+            +'<div style="flex:1;">'
+            +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+            +(icon?'<img src="'+icon+'" style="width:30px;height:30px;border-radius:50%;" onerror="this.style.display=\'none\'">':'')
+            +'<span style="font-size:14px;font-weight:700;color:#F1F5F9;">'+name+'</span>'
+            +'<span style="font-size:10px;color:#64748B;">'+(d.priceFmt||'')+'</span>'
+            +'</div>'
+            +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
+            +'<span style="font-size:14px;font-weight:700;color:'+d.verdictColor+';">'+d.verdict+'</span>'
+            +'<span style="font-size:9px;color:#475569;background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:3px;">'+d.bull+'/'+d.total+' '+(isEn?'signals':'сигналов')+'</span>'
+            +'</div>'
+            +'<div style="display:flex;flex-wrap:wrap;gap:3px;">'+tags+'</div>'
+            +'</div>'
+            +'<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">'
+            +'<svg width="58" height="58" viewBox="0 0 58 58">'
+            +'<circle cx="29" cy="29" r="24" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/>'
+            +'<circle cx="29" cy="29" r="24" fill="none" stroke="'+d.verdictColor+'" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+dashArr+'" stroke-dashoffset="24" transform="rotate(-90 29 29)"/>'
+            +'<text x="29" y="27" text-anchor="middle" fill="#F1F5F9" font-size="18" font-weight="700">'+d.score+'</text>'
+            +'<text x="29" y="39" text-anchor="middle" fill="#64748B" font-size="8">'+(isEn?'of 10':'из 10')+'</text>'
+            +'</svg>'
+            +'<div style="width:100%;height:3px;background:rgba(255,255,255,0.04);border-radius:2px;overflow:hidden;">'
+            +'<div style="height:100%;width:'+d.score*10+'%;background:'+d.verdictColor+';border-radius:2px;"></div>'
+            +'</div>'
+            +'</div>'
+            +'</div>';
     };
 
     // ── Setup Share Functions ──

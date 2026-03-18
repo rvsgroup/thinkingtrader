@@ -1291,7 +1291,7 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(14, 50, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
+    scheduleDaily(19, 0, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
     startScheduler();
 
     // Алерты каждые 5 минут
