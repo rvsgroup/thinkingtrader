@@ -290,6 +290,30 @@ async function tgSend(text, chatId = TG_CHAT_ID) {
 }
 
 async function tgSendBoth(textRu, textEn) {
+    // Проверяем — не было ли уже такого поста в канале за последние 2 минуты
+    try {
+        const checkR = await fetch(`${TG_API}/getUpdates?offset=-5&limit=5&allowed_updates=["channel_post"]`);
+        const checkD = await checkR.json();
+        if (checkD.ok && checkD.result) {
+            const twoMinAgo = Math.floor(Date.now() / 1000) - 120;
+            const recent = checkD.result.filter(u =>
+                u.channel_post && u.channel_post.date >= twoMinAgo &&
+                u.channel_post.text && u.channel_post.text.length > 100
+            );
+            if (recent.length > 0) {
+                // Проверяем совпадение по первым 80 символам
+                const newTextStart = textRu.slice(0, 80);
+                const duplicate = recent.some(u => u.channel_post.text.slice(0, 80) === newTextStart);
+                if (duplicate) {
+                    console.log('🛑 Дубль обнаружен через Telegram API — пропускаем отправку');
+                    return;
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('⚠️ Telegram dedup check failed:', e.message);
+    }
+
     const results = await Promise.allSettled([
         tgSend(textRu, TG_CHAT_ID),
         TG_CHAT_ID_EN ? tgSend(textEn || textRu, TG_CHAT_ID_EN) : Promise.resolve(),
@@ -1227,7 +1251,7 @@ app.listen(PORT, () => {
     // Автопостинг по расписанию
     scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
     scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(13, 25, buildEveningPost, '📊 Вечерний срез',      buildEveningPostEN);
+    scheduleDaily(13, 35, buildEveningPost, '📊 Вечерний срез',      buildEveningPostEN);
 
     // Алерты каждые 5 минут
     setInterval(checkPriceAlerts, 5 * 60 * 1000);
