@@ -1288,11 +1288,12 @@ app.listen(PORT, () => {
     console.log(`✅ Thinking Trader server running on http://localhost:${PORT}`);
     console.log(`📦 Cache: prices 30s · charts 5m · news 15m · feargreed 30m · translate 24h`);
 
-    // Автопостинг по расписанию
-    scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
-    scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
-    scheduleDaily(19, 0, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
-    startScheduler();
+    // Автопостинг ОТКЛЮЧЕН — отправка только вручную через админку
+    // scheduleDaily(7,  0, buildMorningPost,  '☀️ Утренний дайджест', buildMorningPostEN);
+    // scheduleDaily(13, 0, buildNoonPost,     '📰 Дневной срез',       buildNoonPostEN);
+    // scheduleDaily(19, 0, buildEveningPost,  '📊 Вечерний срез',      buildEveningPostEN);
+    // startScheduler();
+    console.log('📭 Автопостинг отключён — используйте админку для ручной отправки');
 
     // Алерты каждые 5 минут
     setInterval(checkPriceAlerts, 5 * 60 * 1000);
