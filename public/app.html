@@ -683,14 +683,9 @@
         /* ── MACD ── */
         .macd-hist-wrap {
             width: 100%;
-            height: 44px;
+            height: 76px;
             position: relative;
-            overflow: hidden;
-        }
-        .macd-hist-wrap canvas {
-            width: 100% !important;
-            height: 100% !important;
-            display: block;
+            margin-bottom: 8px;
         }
         /* ── Fear & Greed ── */
         .fg-gauge-wrap {
@@ -7077,6 +7072,192 @@
                 <div class="ind-hint" data-i18n="stochHint">%K пересекает %D снизу — покупка, сверху — продажа</div>
             </div>
 
+            <!-- Williams %R -->
+            <div class="ind-card" id="willrCard">
+                <div class="ind-card-header">
+                    <div class="ind-card-title"><span class="ind-icon">⚡</span>Williams %R <span class="ind-period">(14)</span></div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="ind-badge" id="willrBadge">—</span>
+                        <i class="ind-help" data-tipkey="tipWillR" data-tip="Осциллятор Уильямса — показывает положение цены относительно максимума за период. Выше −20 — перекуплен. Ниже −80 — перепродан. Похож на Stochastic, но шкала инвертирована.">?</i>
+                    </div>
+                </div>
+
+                <div class="atr-loading" id="willrLoading">
+                    <div class="atr-spinner"></div>
+                </div>
+
+                <div id="willrContent" style="display:none">
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <!-- Большое значение -->
+                        <div class="ind-value-row">
+                            <span class="ind-big-value" id="willrValue">—</span>
+                            <span class="ind-sub-value" id="willrZoneLabel">—</span>
+                        </div>
+                        <!-- Шкала -100..0 -->
+                        <div style="display:flex;flex-direction:column;gap:4px;">
+                            <div style="position:relative;height:7px;border-radius: 4px;display:flex;overflow:visible;">
+                                <div style="width:20%;background:rgba(239,68,68,0.4);border-radius: 4px 0 0 4px;"></div>
+                                <div style="width:60%;background:rgba(100,116,139,0.15);"></div>
+                                <div style="width:20%;background:rgba(16,185,129,0.4);border-radius: 0 4px 4px 0;"></div>
+                                <div class="stoch-needle stoch-needle-k" id="willrNeedle"></div>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;">
+                                <span>−100</span><span>−80</span><span>−50</span><span>−20</span><span>0</span>
+                            </div>
+                        </div>
+                        <div class="ind-rows">
+                            <div class="ind-row">
+                                <span class="ind-row-label" data-i18n="rowZone">Зона</span>
+                                <span class="ind-row-value" id="willrZone">—</span>
+                            </div>
+                            <div class="ind-row">
+                                <span class="ind-row-label" data-i18n="rowSignal">Сигнал</span>
+                                <span class="ind-row-value" id="willrSignal">—</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="ind-hint" data-i18n="willrHint">−80 и ниже — перепродан, −20 и выше — перекуплен</div>
+            </div>
+
+            <!-- Bollinger Bands -->
+            <div class="ind-card" id="bbCard">
+                <div class="ind-card-header">
+                    <div class="ind-card-title"><span class="ind-icon">〽️</span>Bollinger <span class="ind-period">(20, ±2σ)</span></div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="ind-badge" id="bbBadge">—</span>
+                        <i class="ind-help" data-tipkey="tipBB" data-tip="Полосы Боллинджера — каналы волатильности. Цена у верхней полосы — перекуплена. У нижней — перепродана. Сужение полос (сквиз) предвещает сильное движение.">?</i>
+                    </div>
+                </div>
+
+                <!-- Спиннер -->
+                <div class="atr-loading" id="bbLoading">
+                    <div class="atr-spinner"></div>
+                </div>
+
+                <!-- Визуальная шкала BB -->
+                <div class="bb-wrap" id="bbWrap" style="display:none">
+
+                    <!-- %B — где цена внутри полос (0=нижняя, 1=верхняя) -->
+                    <div class="bb-pctb-row">
+                        <span class="bb-pctb-label">%B</span>
+                        <span class="bb-pctb-val" id="bbPctBVal">—</span>
+                    </div>
+                    <div class="bb-track">
+                        <div class="bb-zone-low"></div>
+                        <div class="bb-zone-mid"></div>
+                        <div class="bb-zone-high"></div>
+                        <div class="bb-needle" id="bbNeedle"></div>
+                    </div>
+                    <div class="bb-track-labels">
+                        <span data-i18n="bbLower">Нижняя</span><span>SMA 20</span><span data-i18n="bbUpper">Верхняя</span>
+                    </div>
+
+                    <!-- Ширина полос — индикатор сжатия/расширения -->
+                    <div class="bb-bandwidth-row">
+                        <span class="bb-bw-label" data-i18n="bbBandwidth">Ширина полос</span>
+                        <div class="bb-bw-bar-wrap">
+                            <div class="bb-bw-bar" id="bbBwBar"></div>
+                        </div>
+                        <span class="bb-bw-val" id="bbBwVal">—</span>
+                    </div>
+                </div>
+
+                <!-- Строки -->
+                <div class="ind-rows" id="bbRows" style="display:none">
+                    <div class="ind-row">
+                        <span class="ind-row-label" data-i18n="bbUpperBand">Верхняя полоса</span>
+                        <span class="ind-row-value" id="bbUpper">—</span>
+                    </div>
+                    <div class="ind-row">
+                        <span class="ind-row-label">SMA 20</span>
+                        <span class="ind-row-value" id="bbMiddle">—</span>
+                    </div>
+                    <div class="ind-row">
+                        <span class="ind-row-label" data-i18n="bbLowerBand">Нижняя полоса</span>
+                        <span class="ind-row-value" id="bbLower">—</span>
+                    </div>
+                    <div class="ind-row">
+                        <span class="ind-row-label" data-i18n="rowSignal">Сигнал</span>
+                        <span class="ind-row-value" id="bbSignal">—</span>
+                    </div>
+                </div>
+                <div class="ind-hint" data-i18n="bbHint">Сжатие полос — затишье перед движением; касание — возможный разворот</div>
+            </div>
+
+            <!-- OBV -->
+            <div class="ind-card" id="obvCard">
+                <div class="ind-card-header">
+                    <div class="ind-card-title"><span class="ind-icon">📦</span>OBV <span class="ind-period" data-i18n="obvPeriod">объём</span></div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="ind-badge" id="obvBadge">—</span>
+                        <i class="ind-help" data-tipkey="tipOBV" data-tip="On-Balance Volume — накопленный объём. Растёт когда объём в дни роста превышает объём в дни падения. Подтверждает тренд: если цена и OBV растут вместе — тренд сильный.">?</i>
+                    </div>
+                </div>
+
+                <!-- Спиннер -->
+                <div class="atr-loading" id="obvLoading">
+                    <div class="atr-spinner"></div>
+                </div>
+
+                <!-- Контент -->
+                <div id="obvContent" style="display:none">
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <!-- Сигнал -->
+                        <div class="ema-signal" id="obvSignalBox">
+                            <div class="ema-signal-icon" id="obvSignalIcon"></div>
+                            <div>
+                                <div class="ema-signal-label" id="obvSignalLabel">—</div>
+                                <div class="ema-signal-sub" id="obvSignalSub">—</div>
+                            </div>
+                        </div>
+                        <!-- Мини-график OBV -->
+                        <div class="atr-chart-wrap">
+                            <canvas id="obvMiniChart" height="36"></canvas>
+                        </div>
+                        <!-- Строки -->
+                        <div class="ind-rows">
+                            <div class="ind-row">
+                                <span class="ind-row-label" data-i18n="obvTrend">Тренд OBV</span>
+                                <span class="ind-row-value" id="obvTrend">—</span>
+                            </div>
+                            <div class="ind-row">
+                                <span class="ind-row-label" data-i18n="rowDivergenceShort">Дивергенция</span>
+                                <span class="ind-row-value" id="obvDivergence">—</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="ind-hint" data-i18n="obvHint">Объём подтверждает движение — рост OBV при росте цены = сила тренда</div>
+            </div>
+
+            <!-- Fear & Greed Index -->
+            <div class="ind-card" id="fgCard">
+                <div class="ind-card-header">
+                    <div class="ind-card-title"><span class="ind-icon">🧠</span>Fear & Greed</div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="ind-badge" id="fgBadge">—</span>
+                        <i class="ind-help" data-tipkey="tipFG" data-tip="Индекс страха и жадности от 0 до 100. 0–25 — extreme fear (хорошее время для покупки). 75–100 — extreme greed (рынок перегрет). Составляется из волатильности, объёмов, соцсетей и опросов.">?</i>
+                    </div>
+                </div>
+
+                <!-- Спиннер -->
+                <div class="atr-loading" id="fgLoading">
+                    <div class="atr-spinner"></div>
+                </div>
+
+                <!-- Спидометр -->
+                <div class="fg-gauge-wrap" id="fgWrap" style="display:none">
+                    <div class="fg-gauge-container">
+                        <canvas id="fgCanvas" width="180" height="105"></canvas>
+                        <div class="fg-gauge-center">
+                            <div class="fg-value" id="fgValue">—</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
             <!-- RSI Extended -->
             <div class="ind-card" id="rsiExtCard">
                 <div class="ind-card-header">
@@ -7153,245 +7334,51 @@
                 <div class="ind-hint" data-i18n="rsiExtHint">Три периода дают более надёжный сигнал чем один RSI</div>
             </div>
 
-            <!-- Bollinger Bands -->
-            <div class="ind-card" id="bbCard">
+            <!-- MFI -->
+            <div class="ind-card" id="mfiCard">
                 <div class="ind-card-header">
-                    <div class="ind-card-title"><span class="ind-icon">〽️</span>Bollinger <span class="ind-period">(20, ±2σ)</span></div>
+                    <div class="ind-card-title"><span class="ind-icon">💸</span>MFI <span class="ind-period">(14)</span></div>
                     <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="ind-badge" id="bbBadge">—</span>
-                        <i class="ind-help" data-tipkey="tipBB" data-tip="Полосы Боллинджера — каналы волатильности. Цена у верхней полосы — перекуплена. У нижней — перепродана. Сужение полос (сквиз) предвещает сильное движение.">?</i>
+                        <span class="ind-badge" id="mfiBadge">—</span>
+                        <i class="ind-help" data-tipkey="tipMFI" data-tip="Money Flow Index — RSI с учётом объёма. Выше 80 — перекуплен, деньги выходят. Ниже 20 — перепродан, деньги входят. Дивергенция с ценой — сильный сигнал разворота.">?</i>
                     </div>
                 </div>
 
-                <!-- Спиннер -->
-                <div class="atr-loading" id="bbLoading">
+                <div class="atr-loading" id="mfiLoading">
                     <div class="atr-spinner"></div>
                 </div>
 
-                <!-- Визуальная шкала BB -->
-                <div class="bb-wrap" id="bbWrap" style="display:none">
-
-                    <!-- %B — где цена внутри полос (0=нижняя, 1=верхняя) -->
-                    <div class="bb-pctb-row">
-                        <span class="bb-pctb-label">%B</span>
-                        <span class="bb-pctb-val" id="bbPctBVal">—</span>
-                    </div>
-                    <div class="bb-track">
-                        <div class="bb-zone-low"></div>
-                        <div class="bb-zone-mid"></div>
-                        <div class="bb-zone-high"></div>
-                        <div class="bb-needle" id="bbNeedle"></div>
-                    </div>
-                    <div class="bb-track-labels">
-                        <span data-i18n="bbLower">Нижняя</span><span>SMA 20</span><span data-i18n="bbUpper">Верхняя</span>
-                    </div>
-
-                    <!-- Ширина полос — индикатор сжатия/расширения -->
-                    <div class="bb-bandwidth-row">
-                        <span class="bb-bw-label" data-i18n="bbBandwidth">Ширина полос</span>
-                        <div class="bb-bw-bar-wrap">
-                            <div class="bb-bw-bar" id="bbBwBar"></div>
-                        </div>
-                        <span class="bb-bw-val" id="bbBwVal">—</span>
-                    </div>
-                </div>
-
-                <!-- Строки -->
-                <div class="ind-rows" id="bbRows" style="display:none">
-                    <div class="ind-row">
-                        <span class="ind-row-label" data-i18n="bbUpperBand">Верхняя полоса</span>
-                        <span class="ind-row-value" id="bbUpper">—</span>
-                    </div>
-                    <div class="ind-row">
-                        <span class="ind-row-label">SMA 20</span>
-                        <span class="ind-row-value" id="bbMiddle">—</span>
-                    </div>
-                    <div class="ind-row">
-                        <span class="ind-row-label" data-i18n="bbLowerBand">Нижняя полоса</span>
-                        <span class="ind-row-value" id="bbLower">—</span>
-                    </div>
-                    <div class="ind-row">
-                        <span class="ind-row-label" data-i18n="rowSignal">Сигнал</span>
-                        <span class="ind-row-value" id="bbSignal">—</span>
-                    </div>
-                </div>
-                <div class="ind-hint" data-i18n="bbHint">Сжатие полос — затишье перед движением; касание — возможный разворот</div>
-            </div>
-
-            <!-- MACD -->
-            <div class="ind-card" id="macdCard">
-                <div class="ind-card-header">
-                    <div class="ind-card-title"><span class="ind-icon">〜</span>MACD <span class="ind-period">(12,26,9)</span></div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="ind-badge" id="macdBadge">—</span>
-                        <i class="ind-help" data-tipkey="tipMACD" data-tip="Moving Average Convergence Divergence — разница быстрой и медленной EMA. Пересечение сигнальной линии снизу вверх — покупка. Сверху вниз — продажа. Гистограмма показывает силу сигнала.">?</i>
-                    </div>
-                </div>
-
-                <!-- Спиннер -->
-                <div class="atr-loading" id="macdLoading">
-                    <div class="atr-spinner"></div>
-                </div>
-
-                <!-- Сигнал -->
-                <div class="ema-signal-wrap" id="macdSignalWrap" style="display:none">
-                    <div class="ema-signal" id="macdSignalBox">
-                        <div class="ema-signal-icon" id="macdSignalIcon"></div>
-                        <div>
-                            <div class="ema-signal-label" id="macdSignalLabel">—</div>
-                            <div class="ema-signal-sub" id="macdSignalSub">—</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Мини-гистограмма -->
-                <div class="macd-hist-wrap" id="macdHistWrap" style="display:none">
-                    <canvas id="macdHistChart" height="44"></canvas>
-                </div>
-
-                <!-- Строки -->
-                <div class="ind-rows" id="macdRows" style="display:none">
-                    <div class="ind-row">
-                        <span class="ind-row-label">MACD</span>
-                        <span class="ind-row-value" id="macdLine">—</span>
-                    </div>
-                    <div class="ind-row">
-                        <span class="ind-row-label" data-i18n="macdSignalLine">Сигнальная</span>
-                        <span class="ind-row-value" id="macdSignalLine">—</span>
-                    </div>
-                    <div class="ind-row">
-                        <span class="ind-row-label" data-i18n="macdHistogram">Гистограмма</span>
-                        <span class="ind-row-value" id="macdHist">—</span>
-                    </div>
-                    <div class="ind-row">
-                        <span class="ind-row-label" data-i18n="macdMomentum">Импульс</span>
-                        <span class="ind-row-value" id="macdMomentum">—</span>
-                    </div>
-                </div>
-                <div class="ind-hint" data-i18n="macdHint">Пересечение MACD и сигнальной линии — ключевой сигнал входа</div>
-            </div>
-
-            <!-- Fear & Greed Index -->
-            <div class="ind-card" id="fgCard">
-                <div class="ind-card-header">
-                    <div class="ind-card-title"><span class="ind-icon">🧠</span>Fear & Greed</div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="ind-badge" id="fgBadge">—</span>
-                        <i class="ind-help" data-tipkey="tipFG" data-tip="Индекс страха и жадности от 0 до 100. 0–25 — extreme fear (хорошее время для покупки). 75–100 — extreme greed (рынок перегрет). Составляется из волатильности, объёмов, соцсетей и опросов.">?</i>
-                    </div>
-                </div>
-
-                <!-- Спиннер -->
-                <div class="atr-loading" id="fgLoading">
-                    <div class="atr-spinner"></div>
-                </div>
-
-                <!-- Спидометр -->
-                <div class="fg-gauge-wrap" id="fgWrap" style="display:none">
-                    <div class="fg-gauge-container">
-                        <canvas id="fgCanvas" width="180" height="105"></canvas>
-                        <div class="fg-gauge-center">
-                            <div class="fg-value" id="fgValue">—</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-
-            <!-- Williams %R -->
-            <div class="ind-card" id="willrCard">
-                <div class="ind-card-header">
-                    <div class="ind-card-title"><span class="ind-icon">⚡</span>Williams %R <span class="ind-period">(14)</span></div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="ind-badge" id="willrBadge">—</span>
-                        <i class="ind-help" data-tipkey="tipWillR" data-tip="Осциллятор Уильямса — показывает положение цены относительно максимума за период. Выше −20 — перекуплен. Ниже −80 — перепродан. Похож на Stochastic, но шкала инвертирована.">?</i>
-                    </div>
-                </div>
-
-                <div class="atr-loading" id="willrLoading">
-                    <div class="atr-spinner"></div>
-                </div>
-
-                <div id="willrContent" style="display:none">
+                <div id="mfiContent" style="display:none">
                     <div style="display:flex;flex-direction:column;gap:6px;">
-                        <!-- Большое значение -->
                         <div class="ind-value-row">
-                            <span class="ind-big-value" id="willrValue">—</span>
-                            <span class="ind-sub-value" id="willrZoneLabel">—</span>
+                            <span class="ind-big-value" id="mfiValue">—</span>
+                            <span class="ind-sub-value" id="mfiZoneLabel">—</span>
                         </div>
-                        <!-- Шкала -100..0 -->
                         <div style="display:flex;flex-direction:column;gap:4px;">
                             <div style="position:relative;height:7px;border-radius: 4px;display:flex;overflow:visible;">
-                                <div style="width:20%;background:rgba(239,68,68,0.4);border-radius: 4px 0 0 4px;"></div>
+                                <div style="width:20%;background:rgba(16,185,129,0.4);border-radius: 4px 0 0 4px;"></div>
                                 <div style="width:60%;background:rgba(100,116,139,0.15);"></div>
-                                <div style="width:20%;background:rgba(16,185,129,0.4);border-radius: 0 4px 4px 0;"></div>
-                                <div class="stoch-needle stoch-needle-k" id="willrNeedle"></div>
+                                <div style="width:20%;background:rgba(239,68,68,0.4);border-radius: 0 4px 4px 0;"></div>
+                                <div class="stoch-needle stoch-needle-k" id="mfiNeedle"></div>
                             </div>
                             <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;">
-                                <span>−100</span><span>−80</span><span>−50</span><span>−20</span><span>0</span>
+                                <span>0</span><span>20</span><span>50</span><span>80</span><span>100</span>
                             </div>
                         </div>
                         <div class="ind-rows">
                             <div class="ind-row">
                                 <span class="ind-row-label" data-i18n="rowZone">Зона</span>
-                                <span class="ind-row-value" id="willrZone">—</span>
+                                <span class="ind-row-value" id="mfiZone">—</span>
                             </div>
                             <div class="ind-row">
                                 <span class="ind-row-label" data-i18n="rowSignal">Сигнал</span>
-                                <span class="ind-row-value" id="willrSignal">—</span>
+                                <span class="ind-row-value" id="mfiSignal">—</span>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="ind-hint" data-i18n="willrHint">−80 и ниже — перепродан, −20 и выше — перекуплен</div>
+                <div class="ind-hint" data-i18n="mfiHint">RSI с учётом объёма — &lt;20 перепродан, &gt;80 перекуплен</div>
             </div>
-
-            <!-- OBV -->
-            <div class="ind-card" id="obvCard">
-                <div class="ind-card-header">
-                    <div class="ind-card-title"><span class="ind-icon">📦</span>OBV <span class="ind-period" data-i18n="obvPeriod">объём</span></div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="ind-badge" id="obvBadge">—</span>
-                        <i class="ind-help" data-tipkey="tipOBV" data-tip="On-Balance Volume — накопленный объём. Растёт когда объём в дни роста превышает объём в дни падения. Подтверждает тренд: если цена и OBV растут вместе — тренд сильный.">?</i>
-                    </div>
-                </div>
-
-                <!-- Спиннер -->
-                <div class="atr-loading" id="obvLoading">
-                    <div class="atr-spinner"></div>
-                </div>
-
-                <!-- Контент -->
-                <div id="obvContent" style="display:none">
-                    <div style="display:flex;flex-direction:column;gap:6px;">
-                        <!-- Сигнал -->
-                        <div class="ema-signal" id="obvSignalBox">
-                            <div class="ema-signal-icon" id="obvSignalIcon"></div>
-                            <div>
-                                <div class="ema-signal-label" id="obvSignalLabel">—</div>
-                                <div class="ema-signal-sub" id="obvSignalSub">—</div>
-                            </div>
-                        </div>
-                        <!-- Мини-график OBV -->
-                        <div class="atr-chart-wrap">
-                            <canvas id="obvMiniChart" height="36"></canvas>
-                        </div>
-                        <!-- Строки -->
-                        <div class="ind-rows">
-                            <div class="ind-row">
-                                <span class="ind-row-label" data-i18n="obvTrend">Тренд OBV</span>
-                                <span class="ind-row-value" id="obvTrend">—</span>
-                            </div>
-                            <div class="ind-row">
-                                <span class="ind-row-label" data-i18n="rowDivergenceShort">Дивергенция</span>
-                                <span class="ind-row-value" id="obvDivergence">—</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="ind-hint" data-i18n="obvHint">Объём подтверждает движение — рост OBV при росте цены = сила тренда</div>
-            </div>
-
             <!-- CCI -->
             <div class="ind-card" id="cciCard">
                 <div class="ind-card-header">
@@ -7483,51 +7470,59 @@
                 <div class="ind-hint" data-i18n="vwapHint">Выше VWAP — покупатели контролируют рынок, ниже — продавцы</div>
             </div>
 
-            <!-- MFI -->
-            <div class="ind-card" id="mfiCard">
+            <!-- MACD -->
+            <div class="ind-card" id="macdCard">
                 <div class="ind-card-header">
-                    <div class="ind-card-title"><span class="ind-icon">💸</span>MFI <span class="ind-period">(14)</span></div>
+                    <div class="ind-card-title"><span class="ind-icon">〜</span>MACD <span class="ind-period">(12,26,9)</span></div>
                     <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="ind-badge" id="mfiBadge">—</span>
-                        <i class="ind-help" data-tipkey="tipMFI" data-tip="Money Flow Index — RSI с учётом объёма. Выше 80 — перекуплен, деньги выходят. Ниже 20 — перепродан, деньги входят. Дивергенция с ценой — сильный сигнал разворота.">?</i>
+                        <span class="ind-badge" id="macdBadge">—</span>
+                        <i class="ind-help" data-tipkey="tipMACD" data-tip="Moving Average Convergence Divergence — разница быстрой и медленной EMA. Пересечение сигнальной линии снизу вверх — покупка. Сверху вниз — продажа. Гистограмма показывает силу сигнала.">?</i>
                     </div>
                 </div>
 
-                <div class="atr-loading" id="mfiLoading">
+                <!-- Спиннер -->
+                <div class="atr-loading" id="macdLoading">
                     <div class="atr-spinner"></div>
                 </div>
 
-                <div id="mfiContent" style="display:none">
-                    <div style="display:flex;flex-direction:column;gap:6px;">
-                        <div class="ind-value-row">
-                            <span class="ind-big-value" id="mfiValue">—</span>
-                            <span class="ind-sub-value" id="mfiZoneLabel">—</span>
-                        </div>
-                        <div style="display:flex;flex-direction:column;gap:4px;">
-                            <div style="position:relative;height:7px;border-radius: 4px;display:flex;overflow:visible;">
-                                <div style="width:20%;background:rgba(16,185,129,0.4);border-radius: 4px 0 0 4px;"></div>
-                                <div style="width:60%;background:rgba(100,116,139,0.15);"></div>
-                                <div style="width:20%;background:rgba(239,68,68,0.4);border-radius: 0 4px 4px 0;"></div>
-                                <div class="stoch-needle stoch-needle-k" id="mfiNeedle"></div>
-                            </div>
-                            <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;">
-                                <span>0</span><span>20</span><span>50</span><span>80</span><span>100</span>
-                            </div>
-                        </div>
-                        <div class="ind-rows">
-                            <div class="ind-row">
-                                <span class="ind-row-label" data-i18n="rowZone">Зона</span>
-                                <span class="ind-row-value" id="mfiZone">—</span>
-                            </div>
-                            <div class="ind-row">
-                                <span class="ind-row-label" data-i18n="rowSignal">Сигнал</span>
-                                <span class="ind-row-value" id="mfiSignal">—</span>
-                            </div>
+                <!-- Сигнал -->
+                <div class="ema-signal-wrap" id="macdSignalWrap" style="display:none">
+                    <div class="ema-signal" id="macdSignalBox">
+                        <div class="ema-signal-icon" id="macdSignalIcon"></div>
+                        <div>
+                            <div class="ema-signal-label" id="macdSignalLabel">—</div>
+                            <div class="ema-signal-sub" id="macdSignalSub">—</div>
                         </div>
                     </div>
                 </div>
-                <div class="ind-hint" data-i18n="mfiHint">RSI с учётом объёма — &lt;20 перепродан, &gt;80 перекуплен</div>
+
+                <!-- Мини-гистограмма -->
+                <div class="macd-hist-wrap" id="macdHistWrap" style="display:none">
+                    <canvas id="macdHistChart"></canvas>
+                </div>
+
+                <!-- Строки -->
+                <div class="ind-rows" id="macdRows" style="display:none">
+                    <div class="ind-row">
+                        <span class="ind-row-label">MACD</span>
+                        <span class="ind-row-value" id="macdLine">—</span>
+                    </div>
+                    <div class="ind-row">
+                        <span class="ind-row-label" data-i18n="macdSignalLine">Сигнальная</span>
+                        <span class="ind-row-value" id="macdSignalLine">—</span>
+                    </div>
+                    <div class="ind-row">
+                        <span class="ind-row-label" data-i18n="macdHistogram">Гистограмма</span>
+                        <span class="ind-row-value" id="macdHist">—</span>
+                    </div>
+                    <div class="ind-row">
+                        <span class="ind-row-label" data-i18n="macdMomentum">Импульс</span>
+                        <span class="ind-row-value" id="macdMomentum">—</span>
+                    </div>
+                </div>
+                <div class="ind-hint" data-i18n="macdHint">Пересечение MACD и сигнальной линии — ключевой сигнал входа</div>
             </div>
+
 
         </div><!-- /page2-grid -->
     </div><!-- /page2-container -->
@@ -12831,6 +12826,7 @@
         let currentPage = 0;
         let totalPages = 4;
         const ADMIN_EMAIL = 'bayramov0506@gmail.com';
+        let isAdminUser = false;
 
         function goToPage(page) {
             if (page < 0 || page >= totalPages) return;
@@ -16172,49 +16168,152 @@
         // --- Сбор сигналов ---
         const signals = [];
 
-        // RSI
+        // RSI — динамический вес по значению
         const rsiEl = document.getElementById('rsiValue');
         const rsiVal = rsiEl ? parseFloat(rsiEl.textContent) : null;
         if (rsiVal !== null && !isNaN(rsiVal)) {
             let dir = 'neutral';
             let label = isEn ? `RSI neutral (${rsiVal})` : `RSI нейтрален (${rsiVal})`;
-            if (rsiVal < 30) { dir = 'bull'; label = isEn ? `RSI oversold (${rsiVal})` : `RSI перепродан (${rsiVal})`; }
-            else if (rsiVal > 70) { dir = 'bear'; label = isEn ? `RSI overbought (${rsiVal})` : `RSI перекуплен (${rsiVal})`; }
-            signals.push({ name: label, dir, cat: isEn ? 'momentum' : 'моментум', icon: 'rsi' });
+            let rsiWeight = 0.5;
+            if (rsiVal < 20) { dir = 'bull'; rsiWeight = 2.5; label = isEn ? `RSI oversold (${rsiVal})` : `RSI перепродан (${rsiVal})`; }
+            else if (rsiVal < 30) { dir = 'bull'; rsiWeight = 2.0; label = isEn ? `RSI oversold (${rsiVal})` : `RSI перепродан (${rsiVal})`; }
+            else if (rsiVal < 40) { dir = 'bull'; rsiWeight = 1.5; label = isEn ? `RSI low (${rsiVal})` : `RSI низкий (${rsiVal})`; }
+            else if (rsiVal > 80) { dir = 'bear'; rsiWeight = 2.5; label = isEn ? `RSI overbought (${rsiVal})` : `RSI перекуплен (${rsiVal})`; }
+            else if (rsiVal > 70) { dir = 'bear'; rsiWeight = 2.0; label = isEn ? `RSI overbought (${rsiVal})` : `RSI перекуплен (${rsiVal})`; }
+            else if (rsiVal > 60) { dir = 'bear'; rsiWeight = 1.5; label = isEn ? `RSI high (${rsiVal})` : `RSI высокий (${rsiVal})`; }
+            else { rsiWeight = 0.5; }
+            signals.push({ name: label, dir, cat: isEn ? 'momentum' : 'моментум', icon: 'rsi', weight: rsiWeight });
         }
 
-        // Z-Score
+        // Z-Score — динамический вес
         const zEl = document.getElementById('zscoreValue');
         const zVal = zEl ? parseFloat(zEl.textContent) : null;
         if (zVal !== null && !isNaN(zVal)) {
             let dir = 'neutral';
             let label = isEn ? `Z-Score neutral (${zVal})` : `Z-Score нейтрален (${zVal})`;
+            let zWeight = 0.3;
+            var absZ = Math.abs(zVal);
+            if (absZ > 2.5) { zWeight = 2.0; }
+            else if (absZ > 1.5) { zWeight = 1.5; }
+            else if (absZ > 0.5) { zWeight = 0.8; }
+            else { zWeight = 0.3; }
             if (zVal < -1.5) { dir = 'bull'; label = isEn ? `Z-Score low (${zVal})` : `Z-Score низкий (${zVal})`; }
             else if (zVal > 1.5) { dir = 'bear'; label = isEn ? `Z-Score high (${zVal})` : `Z-Score высокий (${zVal})`; }
-            signals.push({ name: label, dir, cat: isEn ? 'volatility' : 'волатильн.', icon: 'zscore' });
+            signals.push({ name: label, dir, cat: isEn ? 'volatility' : 'волатильн.', icon: 'zscore', weight: zWeight });
         }
 
-        // Индикаторы страницы 2
-        const badgeMap = {
-            emaBadge:   { name: 'EMA 50/200',  nameEn: 'EMA 50/200',  cat: 'тренд',      catEn: 'trend',      icon: 'ema' },
-            macdBadge:  { name: 'MACD',         nameEn: 'MACD',         cat: 'моментум',   catEn: 'momentum',   icon: 'macd' },
-            bbBadge:    { name: 'Боллинджер',   nameEn: 'Bollinger',    cat: 'волатильн.', catEn: 'volatility', icon: 'bb' },
-            obvBadge:   { name: 'OBV',          nameEn: 'OBV',          cat: 'объём',      catEn: 'volume',     icon: 'obv' },
-            stochBadge: { name: 'Stoch RSI',    nameEn: 'Stoch RSI',    cat: 'моментум',   catEn: 'momentum',   icon: 'stoch' },
-            mfiBadge:   { name: 'MFI',          nameEn: 'MFI',          cat: 'объём',      catEn: 'volume',     icon: 'mfi' },
-            cciBadge:   { name: 'CCI',          nameEn: 'CCI',          cat: 'моментум',   catEn: 'momentum',   icon: 'cci' },
-            willrBadge: { name: 'Williams %R',  nameEn: 'Williams %R',  cat: 'моментум',   catEn: 'momentum',   icon: 'willr' },
-        };
-        for (const [id, meta] of Object.entries(badgeMap)) {
-            const el = document.getElementById(id);
-            if (!el) continue;
-            const cls = el.className || '';
-            let dir = 'neutral';
-            if (cls.includes('bullish')) dir = 'bull';
-            else if (cls.includes('bearish')) dir = 'bear';
-            const nm = isEn ? meta.nameEn : meta.name;
-            const dl = dir === 'bull' ? (isEn ? ' bullish' : ' бычий') : dir === 'bear' ? (isEn ? ' bearish' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
-            signals.push({ name: nm + dl, dir, cat: isEn ? meta.catEn : meta.cat, icon: meta.icon });
+        // Индикаторы страницы 2 — динамические веса по значениям
+        // EMA — из бейджа (нет числового значения)
+        var emaBdg = document.getElementById('emaBadge');
+        if (emaBdg) {
+            var cls = emaBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' bullish' : ' бычий') : dir === 'bear' ? (isEn ? ' bearish' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            signals.push({ name: 'EMA 50/200' + dl, dir: dir, cat: isEn ? 'trend' : 'тренд', icon: 'ema', weight: dir === 'neutral' ? 1.0 : 2.5 });
+        }
+
+        // MACD — из бейджа
+        var macdBdg = document.getElementById('macdBadge');
+        if (macdBdg) {
+            var cls = macdBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' bullish' : ' бычий') : dir === 'bear' ? (isEn ? ' bearish' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            signals.push({ name: 'MACD' + dl, dir: dir, cat: isEn ? 'momentum' : 'моментум', icon: 'macd', weight: dir === 'neutral' ? 0.8 : 2.0 });
+        }
+
+        // Bollinger Bands — по %B значению
+        var bbPctEl = document.getElementById('bbPctBVal');
+        var bbBdg = document.getElementById('bbBadge');
+        if (bbBdg) {
+            var cls = bbBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' bullish' : ' бычий') : dir === 'bear' ? (isEn ? ' bearish' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            var bbW = 0.8;
+            var bbVal = bbPctEl ? parseFloat(bbPctEl.textContent) : null;
+            if (bbVal !== null && !isNaN(bbVal)) {
+                if (bbVal > 0.95 || bbVal < 0.05) bbW = 2.0;
+                else if (bbVal > 0.8 || bbVal < 0.2) bbW = 1.5;
+                else if (bbVal > 0.65 || bbVal < 0.35) bbW = 1.0;
+                else bbW = 0.5;
+            }
+            signals.push({ name: (isEn ? 'Bollinger' : 'Боллинджер') + dl, dir: dir, cat: isEn ? 'volatility' : 'волатильн.', icon: 'bb', weight: bbW });
+        }
+
+        // OBV — из бейджа
+        var obvBdg = document.getElementById('obvBadge');
+        if (obvBdg) {
+            var cls = obvBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' bullish' : ' бычий') : dir === 'bear' ? (isEn ? ' bearish' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            signals.push({ name: 'OBV' + dl, dir: dir, cat: isEn ? 'volume' : 'объём', icon: 'obv', weight: dir === 'neutral' ? 0.5 : 1.5 });
+        }
+
+        // Stoch RSI — по K значению
+        var stochKEl = document.getElementById('stochKVal');
+        var stochBdg = document.getElementById('stochBadge');
+        if (stochBdg) {
+            var cls = stochBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' oversold' : ' перепродан') : dir === 'bear' ? (isEn ? ' overbought' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            var stW = 0.5;
+            var stVal = stochKEl ? parseFloat(stochKEl.textContent) : null;
+            if (stVal !== null && !isNaN(stVal)) {
+                if (stVal < 10 || stVal > 90) stW = 1.5;
+                else if (stVal < 20 || stVal > 80) stW = 1.0;
+                else stW = 0.5;
+            }
+            signals.push({ name: 'Stoch RSI' + dl, dir: dir, cat: isEn ? 'momentum' : 'моментум', icon: 'stoch', weight: stW });
+        }
+
+        // MFI — по значению
+        var mfiEl = document.getElementById('mfiValue');
+        var mfiBdg = document.getElementById('mfiBadge');
+        if (mfiBdg) {
+            var cls = mfiBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' oversold' : ' перепродан') : dir === 'bear' ? (isEn ? ' overbought' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            var mfW = 0.5;
+            var mfVal = mfiEl ? parseFloat(mfiEl.textContent) : null;
+            if (mfVal !== null && !isNaN(mfVal)) {
+                if (mfVal < 15 || mfVal > 85) mfW = 1.5;
+                else if (mfVal < 25 || mfVal > 75) mfW = 1.0;
+                else mfW = 0.5;
+            }
+            signals.push({ name: 'MFI' + dl, dir: dir, cat: isEn ? 'volume' : 'объём', icon: 'mfi', weight: mfW });
+        }
+
+        // CCI — по значению
+        var cciEl = document.getElementById('cciValue');
+        var cciBdg = document.getElementById('cciBadge');
+        if (cciBdg) {
+            var cls = cciBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' oversold' : ' перепродан') : dir === 'bear' ? (isEn ? ' overbought' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            var ccW = 0.5;
+            var ccVal = cciEl ? parseFloat(cciEl.textContent) : null;
+            if (ccVal !== null && !isNaN(ccVal)) {
+                if (Math.abs(ccVal) > 200) ccW = 1.5;
+                else if (Math.abs(ccVal) > 100) ccW = 0.8;
+                else ccW = 0.3;
+            }
+            signals.push({ name: 'CCI' + dl, dir: dir, cat: isEn ? 'momentum' : 'моментум', icon: 'cci', weight: ccW });
+        }
+
+        // Williams %R — по значению
+        var wrEl = document.getElementById('willrValue');
+        var wrBdg = document.getElementById('willrBadge');
+        if (wrBdg) {
+            var cls = wrBdg.className || '';
+            var dir = cls.includes('bullish') ? 'bull' : cls.includes('bearish') ? 'bear' : 'neutral';
+            var dl = dir === 'bull' ? (isEn ? ' oversold' : ' перепродан') : dir === 'bear' ? (isEn ? ' overbought' : ' медвежий') : (isEn ? ' neutral' : ' нейтрален');
+            var wrW = 0.3;
+            var wrVal = wrEl ? parseFloat(wrEl.textContent) : null;
+            if (wrVal !== null && !isNaN(wrVal)) {
+                if (wrVal < -90 || wrVal > -10) wrW = 1.0;
+                else if (wrVal < -80 || wrVal > -20) wrW = 0.5;
+                else wrW = 0.3;
+            }
+            signals.push({ name: 'Williams %R' + dl, dir: dir, cat: isEn ? 'momentum' : 'моментум', icon: 'willr', weight: wrW });
         }
 
         // Паттерны — последние 3 любых (свечные + двойные вместе, отсортированы по времени)
@@ -16236,44 +16335,125 @@
                     icon: isTop ? 'doubleTop' : 'doubleBottom'
                 };
             });
-            // Объединяем, сортируем по времени, берём последние 3
+            // Объединяем, фильтруем по свежести с WR, дедуплицируем
             const allPatterns = [...candlePatterns, ...doublePatterns].sort((a, b) => a.time - b.time);
-            const last3 = allPatterns.slice(-3);
+
+            // Cutoff: 4 свечи для обычных паттернов, 6 для двойных
+            const cutoff4 = candles[Math.max(0, candles.length - 5)].time;
+            const cutoff6 = candles[Math.max(0, candles.length - 7)].time;
+
+            // Фильтр: свежие + есть WR
+            const withWr = allPatterns.filter(p => {
+                var isDouble = p.icon === 'doubleTop' || p.icon === 'doubleBottom';
+                var cutoff = isDouble ? cutoff6 : cutoff4;
+                if (p.time < cutoff) return false;
+                if (!window._fsWinRateCache) return false;
+                return !!window._fsWinRateCache[p.name];
+            });
+            // Дедупликация по имени — оставляем последний
+            const uniqueMap = new Map();
+            withWr.forEach(p => uniqueMap.set(p.name, p));
+            const uniquePatterns = [...uniqueMap.values()].sort((a, b) => a.time - b.time);
+            const last3 = uniquePatterns.slice(-3);
             last3.forEach(p => {
-                // Добавляем win rate если есть
                 let wrSuffix = '';
+                let patWeight = 1.0;
                 if (window._fsWinRateCache) {
                     const wrData = window._fsWinRateCache[p.name];
-                    if (wrData) wrSuffix = ` (WR ${wrData.pct}%)`;
+                    if (wrData) {
+                        wrSuffix = ` (WR ${wrData.pct}%)`;
+                        if (wrData.pct > 80) patWeight = 2.5;
+                        else if (wrData.pct > 60) patWeight = 2.0;
+                        else if (wrData.pct > 40) patWeight = 1.0;
+                        else patWeight = 0.5;
+                    }
                 }
-                signals.push({ name: p.name + wrSuffix, dir: p.dir, cat: isEn ? 'pattern' : 'паттерн', icon: p.icon });
+                signals.push({ name: p.name + wrSuffix, dir: p.dir, cat: isEn ? 'pattern' : 'паттерн', icon: p.icon, weight: patWeight });
             });
         }
 
-        // --- Уровни поддержки/сопротивления ---
-        if (window._lastLevels) {
+        // --- Уровни поддержки/сопротивления с контекстом ---
+        if (window._lastLevels && typeof rawOhlcCache !== 'undefined' && rawOhlcCache.length >= 6) {
             const lv = window._lastLevels;
             const lvIcon = 'level';
+            const pct = lv.positionPct;
+
+            // Определяем контекст: откуда пришла цена за последние свечи
+            const recentCloses = rawOhlcCache.slice(-6).map(k => parseFloat(k[4]));
+            const currentClose = recentCloses[recentCloses.length - 1];
+            let candlesFromDir = 0; // за сколько свечей пришла
+            let cameFromBelow = false; // снизу вверх
+            for (var ci = recentCloses.length - 2; ci >= 0; ci--) {
+                candlesFromDir++;
+                if (recentCloses[ci] < currentClose * 0.995) { cameFromBelow = true; break; }
+                if (recentCloses[ci] > currentClose * 1.005) { cameFromBelow = false; break; }
+            }
+            var inContext = candlesFromDir <= 5; // есть контекст движения
+
+            var lvDir = 'neutral';
+            var lvWeight = 0.5;
+
+            if (pct >= 100) {
+                // Пробой сопротивления
+                lvDir = 'bull';
+                if (inContext && candlesFromDir <= 3) lvWeight = 2.5;
+                else if (inContext) lvWeight = 2.0;
+                else lvWeight = 1.0;
+            } else if (pct >= 80) {
+                // У сопротивления
+                if (inContext && cameFromBelow) { lvDir = 'bull'; lvWeight = 2.5; }
+                else if (inContext && !cameFromBelow) { lvDir = 'bear'; lvWeight = 2.0; }
+                else { lvDir = 'neutral'; lvWeight = 1.0; }
+            } else if (pct >= 20) {
+                // Середина
+                if (inContext && cameFromBelow) { lvDir = 'bull'; lvWeight = 1.5; }
+                else if (inContext && !cameFromBelow) { lvDir = 'bear'; lvWeight = 1.5; }
+                else { lvDir = 'neutral'; lvWeight = 0.5; }
+            } else if (pct >= 0) {
+                // У поддержки
+                if (inContext && !cameFromBelow) { lvDir = 'bear'; lvWeight = 2.0; }
+                else if (inContext && cameFromBelow) { lvDir = 'bull'; lvWeight = 1.5; }
+                else { lvDir = 'neutral'; lvWeight = 0.5; }
+            } else {
+                // Пробой поддержки
+                lvDir = 'bear';
+                if (inContext && candlesFromDir <= 3) lvWeight = 2.5;
+                else if (inContext) lvWeight = 1.5;
+                else lvWeight = 0.5;
+            }
+
             signals.push({
                 name: isEn ? lv.signalTextEn : lv.signalText,
-                dir: lv.signal,
+                dir: lvDir,
                 cat: isEn ? 'level' : 'уровень',
-                icon: lvIcon
+                icon: lvIcon,
+                weight: lvWeight
             });
         }
 
-        // --- Подсчёт ---
+        // --- Подсчёт с весами ---
+        let bullWeight = 0, bearWeight = 0, neutWeight = 0, totalWeight = 0;
+        signals.forEach(s => {
+            const w = s.weight || 1;
+            totalWeight += w;
+            if (s.dir === 'bull') bullWeight += w;
+            else if (s.dir === 'bear') bearWeight += w;
+            else neutWeight += w;
+        });
         const bull = signals.filter(s => s.dir === 'bull').length;
         const bear = signals.filter(s => s.dir === 'bear').length;
         const neut = signals.filter(s => s.dir === 'neutral').length;
         const total = signals.length;
-        const score = total > 0 ? Math.min(10, Math.max(1, Math.round(((Math.max(bull, bear) / total) * 10)))) : 0;
+        // Score 1-10 на основе весов
+        const score = totalWeight > 0 ? Math.min(10, Math.max(1, Math.round(((bullWeight - bearWeight) / totalWeight + 1) * 5))) : 0;
 
         let verdict, verdictColor;
-        if (bull >= bear + 2 && bull > neut) { verdict = isEn ? 'Bullish reversal' : 'Бычий разворот'; verdictColor = '#10B981'; }
-        else if (bear >= bull + 2 && bear > neut) { verdict = isEn ? 'Bearish reversal' : 'Медвежий разворот'; verdictColor = '#EF4444'; }
-        else if (bull > bear) { verdict = isEn ? 'Moderately bullish' : 'Умеренно бычий'; verdictColor = '#34D399'; }
-        else if (bear > bull) { verdict = isEn ? 'Moderately bearish' : 'Умеренно медвежий'; verdictColor = '#F87171'; }
+        const bullPct = totalWeight > 0 ? bullWeight / totalWeight : 0;
+        const bearPct = totalWeight > 0 ? bearWeight / totalWeight : 0;
+        if (bullPct >= 0.65) { verdict = isEn ? 'Bullish reversal' : 'Бычий разворот'; verdictColor = '#10B981'; }
+        else if (bearPct >= 0.65) { verdict = isEn ? 'Bearish reversal' : 'Медвежий разворот'; verdictColor = '#EF4444'; }
+        else if (bullPct > bearPct + 0.1) { verdict = isEn ? 'Moderately bullish' : 'Умеренно бычий'; verdictColor = '#34D399'; }
+        else if (bearPct > bullPct + 0.1) { verdict = isEn ? 'Moderately bearish' : 'Умеренно медвежий'; verdictColor = '#F87171'; }
         else { verdict = isEn ? 'Uncertainty' : 'Неопределённость'; verdictColor = '#FBBF24'; }
 
         const ringPct = total > 0 ? (score / 10) : 0;
@@ -16886,10 +17066,16 @@
 
         // Show admin page if admin email
         if (user.email === ADMIN_EMAIL) {
+            isAdminUser = true;
             document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
             totalPages = 5;
-            // Fix arrow visibility
             arrowRight.classList.toggle('hidden', currentPage === totalPages - 1);
+        } else {
+            isAdminUser = false;
+            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+            totalPages = 4;
+            // Если сейчас на скрытой странице — перекинуть
+            if (currentPage === 1) goToPage(0);
         }
     });
 
