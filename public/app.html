@@ -25,12 +25,44 @@
         }
 
         body {
-            background: #0B1120;
+            background: #070B14;
             height: 100vh;
             max-height: 100vh;
             overflow: hidden;
             position: relative;
             padding-top: env(safe-area-inset-top);
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           BACKGROUND — same as landing page
+        ═══════════════════════════════════════════════════════════ */
+        .bg-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+        .bg-gradients {
+            background:
+                radial-gradient(ellipse 60% 80% at -8% 50%, rgba(99,102,241,0.22) 0%, transparent 70%),
+                radial-gradient(ellipse 50% 60% at 108% 75%, rgba(139,92,246,0.15) 0%, transparent 65%),
+                radial-gradient(ellipse 40% 50% at 55% 115%, rgba(0,229,160,0.08) 0%, transparent 60%);
+        }
+        .bg-grid {
+            background-image:
+                linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(99,102,241,0.04) 1px, transparent 1px);
+            background-size: 52px 52px;
+            mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 20%, transparent 70%);
+        }
+        .particles { position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; clip-path: inset(0); }
+        .particle {
+            position: absolute; width: 2px; height: 2px;
+            background: rgba(99,102,241,0.5); border-radius: 50%;
+            animation: float 20s infinite linear;
+            animation-fill-mode: both;
+        }
+        @keyframes float {
+            0%   { transform: translateY(110vh); opacity: 0; }
+            8%   { opacity: 1; }
+            70%  { opacity: 1; }
+            88%  { opacity: 0; }
+            100% { transform: translateY(-120vh); opacity: 0; }
         }
 
         /* ── Слайдер ── */
@@ -5655,6 +5687,27 @@
         .fs-chart-area { flex: 1; position: relative; background: #0B1525; }
 
         /* OHLC legend (like TradingView) */
+        .lw-ohlc-legend {
+            position: absolute; top: 6px; left: 8px;
+            z-index: 15; pointer-events: none;
+            font-family: 'Inter', -apple-system, sans-serif;
+            font-size: 11px; font-weight: 500;
+            color: #94A3B8;
+            line-height: 1.7;
+        }
+        .lw-ohlc-legend .ohlc-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            display: inline-block; margin-right: 3px;
+        }
+        .lw-ohlc-legend .ohlc-label { color: #64748B; margin-right: 2px; }
+        .lw-ohlc-legend .ohlc-val { font-weight: 600; margin-right: 6px; }
+        .lw-ohlc-legend .ohlc-val.up { color: #10B981; }
+        .lw-ohlc-legend .ohlc-val.down { color: #EF4444; }
+        .lw-ohlc-legend .ohlc-change { font-weight: 600; }
+        .lw-ohlc-legend .ohlc-change.up { color: #10B981; }
+        .lw-ohlc-legend .ohlc-change.down { color: #EF4444; }
+        .lw-ohlc-legend .ohlc-vol { color: #94A3B8; font-weight: 600; }
+
         .fs-ohlc-legend {
             position: absolute; top: 8px; left: 12px;
             z-index: 15; pointer-events: none;
@@ -5728,6 +5781,11 @@
   <script src="patterns-scanner.js"></script>
 </head>
 <body>
+    <!-- Background layers (same as landing page) -->
+    <div class="bg-layer bg-gradients"></div>
+    <div class="bg-layer bg-grid"></div>
+    <div class="particles" id="particles"></div>
+
     <!-- Auth loading -->
     <div class="auth-loading" id="authLoading"><div class="auth-spinner"></div></div>
 
@@ -5889,6 +5947,7 @@
                     <!-- Наш график -->
                     <div id="ourChartWrap" style="width:100%;height:100%;position:absolute;top:0;left:0;">
                         <div id="lwPriceChart" style="width:100%;height:100%;"></div>
+                        <div id="lwOhlcLegend" class="lw-ohlc-legend" style="display:none;"></div>
                         <div class="chart-loading" id="chartLoading" data-i18n="chartLoading">Загрузка графика...</div>
                     </div>
                 </div>
@@ -8994,6 +9053,7 @@
         let isUpdatingFromPrice = false;
         let lwChart      = null;   // Lightweight Charts instance
         let lwSeries     = null;   // активная серия (area или candlestick)
+        let lwVolumeSeries = null; // серия объёмов
         let lwLevelLines = [];     // массив priceLine объектов
         let currentPeriod = 1;
         let usdToRub = 77;
@@ -10471,7 +10531,7 @@
                 const r = await fetch(`/api/ohlc?symbol=${symbol}&interval=${interval}&limit=${limit}`);
                 const d = await r.json();
                 if (!Array.isArray(d)) return [];
-                return d.map(k => [k[0], parseFloat(k[1]), parseFloat(k[2]), parseFloat(k[3]), parseFloat(k[4])]);
+                return d.map(k => [k[0], parseFloat(k[1]), parseFloat(k[2]), parseFloat(k[3]), parseFloat(k[4]), parseFloat(k[5])]);
             } catch { return []; }
         }
 
@@ -10700,6 +10760,17 @@
                 }
             });
             ro.observe(lwChartContainer);
+
+            // Серия объёмов (показывается только в свечном режиме)
+            lwVolumeSeries = lwChart.addHistogramSeries({
+                priceFormat:    { type: 'volume' },
+                priceScaleId:   'volume',
+                color:          'rgba(99,102,241,0.35)',
+            });
+            lwChart.priceScale('volume').applyOptions({
+                scaleMargins: { top: 0.8, bottom: 0 },
+                visible: false,
+            });
         }
 
         // ── Рисуем уровни через priceLine ──────────────────────
@@ -10762,6 +10833,14 @@
                 .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
 
             lwSeries.setData(data);
+
+            // В линейном режиме прячем объёмы и легенду
+            if (lwVolumeSeries) {
+                lwVolumeSeries.setData([]);
+                lwChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
+            }
+            const lwLegendEl = document.getElementById('lwOhlcLegend');
+            if (lwLegendEl) lwLegendEl.style.display = 'none';
         }
 
         function createLWCandles(ohlc) {
@@ -10788,6 +10867,86 @@
                 .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
 
             lwSeries.setData(data);
+
+            // В свечном режиме показываем объёмы
+            if (lwVolumeSeries) {
+                const volData = ohlc
+                    .filter(k => k[5] !== undefined)
+                    .map(([t, o, h, l, c, v]) => ({
+                        time:  Math.floor(t / 1000),
+                        value: v,
+                        color: c >= o ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)',
+                    }))
+                    .sort((a, b) => a.time - b.time)
+                    .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
+                lwVolumeSeries.setData(volData);
+                lwChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
+            }
+
+            // Легенда OHLC для маленького графика
+            const lwLegendEl = document.getElementById('lwOhlcLegend');
+            if (lwLegendEl) {
+                lwLegendEl.style.display = 'block';
+
+                const fmtP = (v) => {
+                    if (v >= 1000) return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    if (v >= 1) return v.toFixed(2);
+                    if (v >= 0.01) return v.toFixed(4);
+                    return v.toFixed(6);
+                };
+                const fmtV = (v) => {
+                    if (!v && v !== 0) return '—';
+                    if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+                    if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+                    if (v >= 1e3) return (v / 1e3).toFixed(2) + 'K';
+                    return v.toFixed(2);
+                };
+
+                function updateLwLegend(d, vol) {
+                    const isBull = d.close >= d.open;
+                    const cls = isBull ? 'up' : 'down';
+                    const dot = isBull ? '#10B981' : '#EF4444';
+                    const ch = d.close - d.open;
+                    const pct = d.open > 0 ? ((ch / d.open) * 100).toFixed(2) : '0.00';
+                    const sign = ch >= 0 ? '+' : '';
+                    const isRu = (typeof currentLang !== 'undefined' && currentLang === 'ru');
+                    lwLegendEl.innerHTML = `
+                        <div>
+                            <span class="ohlc-dot" style="background:${dot}"></span>
+                            <span class="ohlc-label">${isRu?'О':'O'}</span><span class="ohlc-val ${cls}">${fmtP(d.open)}</span>
+                            <span class="ohlc-label">${isRu?'М':'H'}</span><span class="ohlc-val ${cls}">${fmtP(d.high)}</span>
+                            <span class="ohlc-label">${isRu?'м':'L'}</span><span class="ohlc-val ${cls}">${fmtP(d.low)}</span>
+                            <span class="ohlc-label">${isRu?'З':'C'}</span><span class="ohlc-val ${cls}">${fmtP(d.close)}</span>
+                            <span class="ohlc-change ${cls}">${sign}${fmtP(Math.abs(ch))} (${sign}${pct}%)</span>
+                        </div>
+                        <div>
+                            <span class="ohlc-label">${isRu?'ОБЪ':'VOL'}</span>
+                            <span class="ohlc-vol">${fmtV(vol)}</span>
+                        </div>`;
+                }
+
+                // Показать последнюю свечу сразу
+                const lastOhlc = ohlc[ohlc.length - 1];
+                if (lastOhlc) updateLwLegend(
+                    { open: lastOhlc[1], high: lastOhlc[2], low: lastOhlc[3], close: lastOhlc[4] },
+                    lastOhlc[5]
+                );
+
+                // Обновлять при наведении
+                lwChart.subscribeCrosshairMove((param) => {
+                    if (lwLegendEl.style.display === 'none') return;
+                    if (!param || !param.time || !param.seriesData) {
+                        const last = ohlc[ohlc.length - 1];
+                        if (last) updateLwLegend({ open: last[1], high: last[2], low: last[3], close: last[4] }, last[5]);
+                        return;
+                    }
+                    const d = param.seriesData.get(lwSeries);
+                    if (d && d.open !== undefined) {
+                        const raw = ohlc.find(k => Math.floor(k[0] / 1000) === param.time);
+                        updateLwLegend(d, raw ? raw[5] : null);
+                    }
+                });
+            }
         }
 
         // ── Основная функция createChart (вызывается из loadChartData) ─
@@ -17509,6 +17668,7 @@
 
     let fsChart = null;
     let fsCandleSeries = null;
+    let fsVolumeSeries = null;
     let fsCandleData = [];
     let fsOhlcData = [];
     let fsScannerActive = false;
@@ -17530,12 +17690,21 @@
             grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
             crosshair: { mode: 0, vertLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 }, horzLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 } },
             timeScale: { timeVisible: true, secondsVisible: false, borderColor: 'rgba(255,255,255,0.06)' },
-            rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)' },
+            rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.08, bottom: 0.25 } },
         });
         fsCandleSeries = fsChart.addCandlestickSeries({
             upColor: '#10B981', downColor: '#EF4444',
             borderUpColor: '#10B981', borderDownColor: '#EF4444',
             wickUpColor: '#10B981', wickDownColor: '#EF4444',
+        });
+        fsVolumeSeries = fsChart.addHistogramSeries({
+            priceFormat:  { type: 'volume' },
+            priceScaleId: 'fs-volume',
+            color:        'rgba(99,102,241,0.35)',
+        });
+        fsChart.priceScale('fs-volume').applyOptions({
+            scaleMargins: { top: 0.8, bottom: 0 },
+            visible: false,
         });
         let fsRangeChangeTimer = null;
         fsChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -17546,20 +17715,22 @@
         const ohlcLegend = document.getElementById('fsOhlcLegend');
         fsChart.subscribeCrosshairMove((param) => {
             if (!param || !param.time || !param.seriesData) {
-                // Show last candle data when not hovering
                 if (fsCandleData.length) {
                     const last = fsCandleData[fsCandleData.length - 1];
-                    updateOhlcLegend(last);
+                    const lastRaw = fsOhlcData[fsOhlcData.length - 1];
+                    updateOhlcLegend(last, lastRaw ? lastRaw[5] : null);
                 }
                 return;
             }
             const data = param.seriesData.get(fsCandleSeries);
             if (data && data.open !== undefined) {
-                updateOhlcLegend(data);
+                // Найти объём по времени из fsOhlcData
+                const matchRaw = fsOhlcData.find(k => Math.floor(k[0] / 1000) === param.time);
+                updateOhlcLegend(data, matchRaw ? matchRaw[5] : null);
             }
         });
 
-        function updateOhlcLegend(d) {
+        function updateOhlcLegend(d, vol) {
             const isBull = d.close >= d.open;
             const cls = isBull ? 'up' : 'down';
             const dotColor = isBull ? '#10B981' : '#EF4444';
@@ -17572,6 +17743,13 @@
                 if (v >= 0.01) return v.toFixed(4);
                 return v.toFixed(6);
             };
+            const fmtVol = (v) => {
+                if (!v && v !== 0) return '—';
+                if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+                if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+                if (v >= 1e3) return (v / 1e3).toFixed(2) + 'K';
+                return v.toFixed(2);
+            };
             const isRu = (typeof currentLang !== 'undefined' && currentLang === 'ru');
             ohlcLegend.innerHTML = `
                 <span class="ohlc-dot" style="background:${dotColor}"></span>
@@ -17580,6 +17758,8 @@
                 <span class="ohlc-label">${isRu ? 'МИН' : 'L'}</span><span class="ohlc-val ${cls}">${fmt(d.low)}</span>
                 <span class="ohlc-label">${isRu ? 'ЗАКР' : 'C'}</span><span class="ohlc-val ${cls}">${fmt(d.close)}</span>
                 <span class="ohlc-change ${cls}">${sign}${fmt(Math.abs(change))} (${sign}${changePct}%)</span>
+                <br>
+                <span class="ohlc-label" style="color:#64748B">${isRu ? 'ОБЪ' : 'VOL'}</span><span class="ohlc-val" style="color:#94A3B8">${fmtVol(vol)}</span>
             `;
         }
     }
@@ -17599,7 +17779,7 @@
             const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
             const d = await r.json();
             if (!Array.isArray(d)) return [];
-            return d.map(k => [+k[0], +k[1], +k[2], +k[3], +k[4]]);
+            return d.map(k => [+k[0], +k[1], +k[2], +k[3], +k[4], +k[5]]);
         } catch { return []; }
     }
 
@@ -17619,6 +17799,21 @@
 
         if (!fsChart) initFsChart();
         fsCandleSeries.setData(fsCandleData);
+
+        // Объёмы
+        if (fsVolumeSeries) {
+            const volData = fsOhlcData
+                .filter(k => k[5] !== undefined)
+                .map(([t, o, h, l, c, v]) => ({
+                    time:  Math.floor(t / 1000),
+                    value: v,
+                    color: c >= o ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)',
+                }))
+                .sort((a, b) => a.time - b.time)
+                .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
+            fsVolumeSeries.setData(volData);
+        }
+
         fsChart.timeScale().fitContent();
 
         // Price info — цена всегда последняя, pct считаем по периоду большого графика
@@ -18189,6 +18384,22 @@
       .then(reg => console.log('SW registered:', reg.scope))
       .catch(err => console.error('SW error:', err));
   }
+</script>
+
+<script>
+    // Generate floating particles
+    (function() {
+        const container = document.getElementById('particles');
+        if (!container) return;
+        for (let i = 0; i < 160; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = Math.random() * 100 + '%';
+            p.style.animationDelay = (Math.random() * 20) + 's';
+            p.style.animationDuration = (15 + Math.random() * 15) + 's';
+            container.appendChild(p);
+        }
+    })();
 </script>
 
 </body>
