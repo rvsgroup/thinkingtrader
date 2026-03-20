@@ -452,6 +452,23 @@
         .ind-mini-label { font-size: 10px; color: #64748B; margin-bottom: 3px; }
         .ind-mini-num { font-size: 16px; font-weight: 700; color: white; }
 
+        /* ── Ruler Tool ── */
+        .ruler-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 50;
+            border-radius: inherit;
+        }
+        .ruler-canvas.active { pointer-events: auto; cursor: crosshair; }
+        .ruler-btn-active {
+            background: linear-gradient(135deg, #F59E0B, #D97706) !important;
+            box-shadow: 0 0 12px rgba(245,158,11,0.4) !important;
+            color: #fff !important;
+            border-color: #F59E0B !important;
+        }
+
         /* ── ATR Card ── */
         .ind-period {
             font-size: 10px;
@@ -5911,6 +5928,9 @@
                         </div>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <button id="scanBtnApp" style="padding:5px 12px;font-size:11px;font-weight:600;background:linear-gradient(135deg,#6366F1,#8B5CF6);border:none;border-radius:6px;color:#fff;cursor:pointer;white-space:nowrap;transition:opacity 0.2s;">Scan</button>
+                            <button id="rulerBtnSmall" title="Линейка (Shift+клик)" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><line x1="7.5" y1="16.5" x2="10" y2="14"/><line x1="10.5" y1="13.5" x2="12" y2="12"/><line x1="13.5" y1="10.5" x2="16" y2="8"/></svg>
+                            </button>
                             <div style="position:relative;">
                                 <button id="filterBtnApp" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
                                 <div class="pattern-filter-dropdown" id="filterDropdownApp">
@@ -5947,6 +5967,7 @@
                     <!-- Наш график -->
                     <div id="ourChartWrap" style="width:100%;height:100%;position:absolute;top:0;left:0;">
                         <div id="lwPriceChart" style="width:100%;height:100%;"></div>
+                        <canvas id="rulerCanvasSmall" class="ruler-canvas"></canvas>
                         <div id="lwOhlcLegend" class="lw-ohlc-legend" style="display:none;"></div>
                         <div class="chart-loading" id="chartLoading" data-i18n="chartLoading">Загрузка графика...</div>
                     </div>
@@ -10363,6 +10384,7 @@
             chartLoading.style.display = 'flex';
             const ohlc = await fetchOhlcData(selectedCoin.id, currentPeriod);
             rawOhlcCache = ohlc;
+            window._lwOhlcData = rawOhlcCache;
             
             if (ohlc && ohlc.length) {
                 const prices = ohlc.map(([t, o, h, l, c]) => [t, c]);
@@ -11335,8 +11357,7 @@
                 const prices = ohlc.map(([t, o, h, l, c]) => [t, c]);
                 rawPricesCache = prices;
                 rawOhlcCache = ohlc;
-
-                // Сохраняем цену для расчётов, но НЕ обновляем отображение из истории
+                window._lwOhlcData = rawOhlcCache;
                 const lastPrice = prices[prices.length - 1][1];
                 if (lastPrice && lastPrice > 0) {
                     currentCoinPrice = lastPrice;
@@ -17601,6 +17622,9 @@
         </div>
 
         <button class="fs-scan-btn" id="fsScanBtn">Scan</button>
+        <button id="rulerBtnFs" class="fs-close-btn" title="Линейка (Shift+клик)" style="color:#94A3B8;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><line x1="7.5" y1="16.5" x2="10" y2="14"/><line x1="10.5" y1="13.5" x2="12" y2="12"/><line x1="13.5" y1="10.5" x2="16" y2="8"/></svg>
+        </button>
         <div style="position:relative;">
             <button class="fs-close-btn" id="fsFilterBtn" title="Фильтр" style="color:#818CF8;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -17641,6 +17665,7 @@
     <div class="fs-chart-area">
         <div id="fsOhlcLegend" class="fs-ohlc-legend"></div>
         <div id="fsChart"></div>
+        <canvas id="rulerCanvasFs" class="ruler-canvas"></canvas>
         <div class="fs-scanner-frame" id="fsScannerFrame">
             <div class="corner tl"></div><div class="corner tr"></div>
             <div class="corner bl"></div><div class="corner br"></div>
@@ -17697,6 +17722,8 @@
             borderUpColor: '#10B981', borderDownColor: '#EF4444',
             wickUpColor: '#10B981', wickDownColor: '#EF4444',
         });
+        window._fsChartRef  = fsChart;
+        window._fsCandleRef = fsCandleSeries;
         fsVolumeSeries = fsChart.addHistogramSeries({
             priceFormat:  { type: 'volume' },
             priceScaleId: 'fs-volume',
@@ -17790,6 +17817,7 @@
         fsClearDoubleLines();
         const coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
         fsOhlcData = await fetchFsOHLC(coinId, fsCurrentDays);
+        window._fsOhlcData = fsOhlcData;
         if (myId !== fsLoadId) return; // отменён — запустился новый loadFsChart
         if (!fsOhlcData.length) return;
 
@@ -18402,5 +18430,320 @@
     })();
 </script>
 
-</body>
+<script>
+// ═══════════════════════════════════════════════
+// RULER TOOL  (TradingView-style)
+// Button click OR Shift+Click → activate
+// First click on chart → set start
+// Move mouse freely → ruler follows
+// Second click → fix + auto-deactivate
+// Escape → clear
+// ═══════════════════════════════════════════════
+(function() {
+
+    // Shared state so both rulers (small + fs) cooperate
+    // Only one can be active at a time
+    const rulers = [];
+
+    function createRuler(opts) {
+        const canvas = document.getElementById(opts.canvasId);
+        const btn    = document.getElementById(opts.btnId);
+        if (!canvas) return;
+
+        // phase: 'off' | 'waiting' (btn active, no start yet) | 'drawing' | 'fixed'
+        let phase  = 'off';
+        let startX = 0, startY = 0;
+        let curX   = 0, curY   = 0;
+        const dpr  = window.devicePixelRatio || 1;
+
+        const ruler = { canvas, btn, getPhase: () => phase, clear };
+        rulers.push(ruler);
+
+        /* ── Resize ── */
+        function resize() {
+            const p = canvas.parentElement;
+            if (!p) return;
+            canvas.width        = p.clientWidth  * dpr;
+            canvas.height       = p.clientHeight * dpr;
+            canvas.style.width  = p.clientWidth  + 'px';
+            canvas.style.height = p.clientHeight + 'px';
+            redraw();
+        }
+
+        function setWaiting() {
+            // Deactivate other rulers first
+            rulers.forEach(r => { if (r !== ruler) r.clear(); });
+            phase = 'waiting';
+            canvas.classList.add('active');
+            canvas.style.cursor = 'crosshair';
+            if (btn) btn.classList.add('ruler-btn-active');
+        }
+
+        function clear() {
+            phase = 'off';
+            canvas.classList.remove('active');
+            canvas.style.cursor = '';
+            if (btn) btn.classList.remove('ruler-btn-active');
+            redraw();
+        }
+
+        /* ── Button click ── */
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (phase === 'off') setWaiting();
+                else clear();
+            });
+        }
+
+        /* ── Global mousedown ── */
+        document.addEventListener('mousedown', (e) => {
+            const r = canvas.getBoundingClientRect();
+            const onCanvas = e.clientX >= r.left && e.clientX <= r.right &&
+                             e.clientY >= r.top  && e.clientY <= r.bottom;
+
+            // Shift+Click on chart → activate + set start immediately
+            if (e.shiftKey && phase === 'off' && onCanvas) {
+                e.preventDefault(); e.stopPropagation();
+                setWaiting();
+                startX = e.clientX - r.left;
+                startY = e.clientY - r.top;
+                curX = startX; curY = startY;
+                phase = 'drawing';
+                redraw();
+                return;
+            }
+
+            // Waiting + click on canvas → set start
+            if (phase === 'waiting' && onCanvas) {
+                e.preventDefault(); e.stopPropagation();
+                startX = e.clientX - r.left;
+                startY = e.clientY - r.top;
+                curX = startX; curY = startY;
+                phase = 'drawing';
+                redraw();
+                return;
+            }
+
+            // Drawing + click → fix end point + AUTO-DEACTIVATE
+            if (phase === 'drawing' && onCanvas) {
+                e.preventDefault(); e.stopPropagation();
+                curX = e.clientX - r.left;
+                curY = e.clientY - r.top;
+                phase = 'fixed';
+                canvas.style.cursor = '';
+                if (btn) btn.classList.remove('ruler-btn-active');
+                redraw();
+                return;
+            }
+
+            // Any click while fixed → clear
+            if (phase === 'fixed') {
+                clear();
+            }
+        }, true);
+
+        document.addEventListener('mousemove', (e) => {
+            if (phase !== 'drawing') return;
+            const r = canvas.getBoundingClientRect();
+            curX = e.clientX - r.left;
+            curY = e.clientY - r.top;
+            redraw();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') clear();
+        });
+
+        /* ── Helpers ── */
+        function getPrice(y) {
+            try { return opts.getSeries().coordinateToPrice(y); } catch { return null; }
+        }
+
+        function getBarsAndVolume(x1, x2) {
+            try {
+                const chart = opts.getChart();
+                const data  = opts.getData();
+                if (!chart || !data || !data.length) return { bars: 0, volume: 0 };
+                const ts  = chart.timeScale();
+                const li1 = ts.coordinateToLogical(Math.min(x1, x2));
+                const li2 = ts.coordinateToLogical(Math.max(x1, x2));
+                if (li1 == null || li2 == null) return { bars: 0, volume: 0 };
+                const i1 = Math.max(0, Math.floor(li1));
+                const i2 = Math.min(data.length - 1, Math.ceil(li2));
+                if (i2 < i1) return { bars: 0, volume: 0 };
+                const bars = i2 - i1;
+                let volume = 0;
+                for (let i = i1; i <= i2; i++) {
+                    const v = parseFloat(data[i] && (data[i][5] !== undefined ? data[i][5] : data[i][6]) || 0);
+                    if (!isNaN(v)) volume += v;
+                }
+                return { bars, volume };
+            } catch(e) { return { bars: 0, volume: 0 }; }
+        }
+
+        function fmtPrice(v) {
+            if (v == null) return '—';
+            const a = Math.abs(v);
+            if (a >= 1000) return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            if (a >= 1)    return v.toFixed(2);
+            if (a >= 0.01) return v.toFixed(4);
+            return v.toFixed(6);
+        }
+
+        function fmtVol(v) {
+            if (!v) return '0';
+            if (v >= 1e9) return (v/1e9).toFixed(2) + 'B';
+            if (v >= 1e6) return (v/1e6).toFixed(2) + 'M';
+            if (v >= 1e3) return (v/1e3).toFixed(2) + 'K';
+            return v.toFixed(2);
+        }
+
+        function fmtPeriod(bars, data) {
+            if (!data || data.length < 2 || bars === 0) return `${bars}`;
+            const intervalMs = data[1][0] - data[0][0];
+            const totalMs = bars * intervalMs;
+            const d = Math.round(totalMs / 86400000);
+            const h = Math.round(totalMs / 3600000);
+            if (d >= 1) return `${bars}, ${d}d`;
+            if (h >= 1) return `${bars}, ${h}h`;
+            return `${bars}`;
+        }
+
+        /* ── Redraw ── */
+        function redraw() {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (phase === 'off' || phase === 'waiting') return;
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            const p1   = getPrice(startY);
+            const p2   = getPrice(curY);
+            const pct  = (p1 && p2 && p1 !== 0) ? ((p2 - p1) / p1) * 100 : null;
+            const diff = (p1 && p2) ? p2 - p1 : null;
+            const bv   = getBarsAndVolume(startX, curX);
+            drawMeasure(ctx, startX, startY, curX, curY, pct, diff, p1, p2, bv);
+            ctx.restore();
+        }
+
+        function roundRect(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+            ctx.arcTo(x+w,y,x+w,y+r,r); ctx.lineTo(x+w,y+h-r);
+            ctx.arcTo(x+w,y+h,x+w-r,y+h,r); ctx.lineTo(x+r,y+h);
+            ctx.arcTo(x,y+h,x,y+h-r,r); ctx.lineTo(x,y+r);
+            ctx.arcTo(x,y,x+r,y,r); ctx.closePath();
+        }
+
+        function drawMeasure(ctx, x1, y1, x2, y2, pct, diff, p1, p2, bv) {
+            const isUp  = pct !== null ? pct >= 0 : y2 < y1;
+            const color = isUp ? '#26A69A' : '#EF5350';
+            const fillC = isUp ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)';
+            const lx1 = Math.min(x1,x2), lx2 = Math.max(x1,x2);
+            const ly1 = Math.min(y1,y2), ly2 = Math.max(y1,y2);
+
+            ctx.fillStyle = fillC;
+            ctx.fillRect(lx1, ly1, lx2-lx1, ly2-ly1);
+
+            ctx.save();
+            ctx.setLineDash([5,4]);
+            ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+            ctx.beginPath(); ctx.moveTo(lx1,y1); ctx.lineTo(lx2,y1); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(lx1,y2); ctx.lineTo(lx2,y2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x1,ly1); ctx.lineTo(x1,ly2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x2,ly1); ctx.lineTo(x2,ly2); ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.setLineDash([]);
+            ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.9;
+            ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.fillStyle = color;
+            [[x1,y1],[x2,y2]].forEach(([px,py]) => {
+                ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2); ctx.fill();
+            });
+            ctx.restore();
+
+            if (pct === null) return;
+
+            const sign   = pct >= 0 ? '+' : '';
+            const data   = opts.getData();
+            const line1  = `${sign}${fmtPrice(Math.abs(diff))} (${sign}${pct.toFixed(2)}%)`;
+            const line2  = `Bars: ${fmtPeriod(bv.bars, data)}`;
+            const line3  = `Volume ${fmtVol(bv.volume)}`;
+
+            const pad=12, lh=20, boxW=220, boxH=lh*3+pad*2;
+            const cW=canvas.width/dpr, cH=canvas.height/dpr;
+
+            const midX = (lx1+lx2)/2;
+            const gap  = 10;
+            let lbx = midX - boxW/2;
+            let lby = isUp ? ly1-boxH-gap : ly2+gap;
+            if (lbx < 4)             lbx = 4;
+            if (lbx+boxW > cW-4)     lbx = cW-boxW-4;
+            if (lby < 4)             lby = 4;
+            if (lby+boxH > cH-4)     lby = cH-boxH-4;
+
+            const bgColor = isUp ? 'rgba(30,160,100,0.88)' : 'rgba(247,82,95,0.88)';
+            const bdColor = isUp ? 'rgba(60,220,150,0.3)'  : 'rgba(247,82,95,0.3)';
+
+            ctx.save();
+            ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=16; ctx.shadowOffsetY=4;
+            ctx.fillStyle=bgColor;
+            roundRect(ctx,lbx,lby,boxW,boxH,10); ctx.fill();
+            ctx.restore();
+
+            ctx.save();
+            ctx.strokeStyle=bdColor; ctx.lineWidth=1;
+            roundRect(ctx,lbx,lby,boxW,boxH,10); ctx.stroke();
+            ctx.restore();
+
+            const cx = lbx+boxW/2;
+            ctx.save();
+            ctx.font='bold 15px Inter,-apple-system,sans-serif';
+            ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(line1, cx, lby+pad+lh*0.5);
+            ctx.restore();
+
+            ctx.save();
+            ctx.font='12px Inter,-apple-system,sans-serif';
+            ctx.fillStyle='rgba(255,255,255,0.88)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(line2, cx, lby+pad+lh*1.5);
+            ctx.restore();
+
+            ctx.save();
+            ctx.font='12px Inter,-apple-system,sans-serif';
+            ctx.fillStyle='rgba(255,255,255,0.88)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(line3, cx, lby+pad+lh*2.5);
+            ctx.restore();
+        }
+
+        resize();
+        new ResizeObserver(resize).observe(canvas.parentElement);
+    }
+
+    function init() {
+        createRuler({
+            canvasId: 'rulerCanvasSmall',
+            btnId:    'rulerBtnSmall',
+            getChart:  () => (typeof lwChart  !== 'undefined' ? lwChart  : null),
+            getSeries: () => (typeof lwSeries !== 'undefined' ? lwSeries : null),
+            getData:   () => window._lwOhlcData || [],
+        });
+        createRuler({
+            canvasId: 'rulerCanvasFs',
+            btnId:    'rulerBtnFs',
+            getChart:  () => window._fsChartRef  || null,
+            getSeries: () => window._fsCandleRef || null,
+            getData:   () => window._fsOhlcData  || [],
+        });
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();
+</script>
+
 </html>
