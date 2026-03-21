@@ -14581,7 +14581,7 @@
             // Re-label scanner button if active
             const fsScanBtnEl = document.getElementById('fsScanBtn');
             if (fsScanBtnEl && fsScanBtnEl.classList.contains('active')) {
-                fsScanBtnEl.textContent = lang === 'en' ? '✓ Scanner active' : '✓ Сканер активен';
+                // text stays 'Scan'
             }
 
             // Принудительно переводим фильтр сканера (на случай если display:none мешал)
@@ -16241,9 +16241,7 @@
         scanBtnAppEl.addEventListener('click', () => {
             window.smallScanActive = !window.smallScanActive;
             scanBtnAppEl.classList.toggle('scan-active', window.smallScanActive);
-            scanBtnAppEl.textContent = window.smallScanActive
-                ? (currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен')
-                : 'Scan';
+            // text stays 'Scan' always
             if (window.smallScanActive) runSmallScan(); else clearSmallScan();
             // Показываем панель и разворачиваем при первом включении
             const panel = document.getElementById('setupScannerPanel');
@@ -17669,7 +17667,7 @@
         <div class="fs-scanner-frame" id="fsScannerFrame">
             <div class="corner tl"></div><div class="corner tr"></div>
             <div class="corner bl"></div><div class="corner br"></div>
-            <div class="fs-scanner-label" data-i18n="fsScannerLabel">Сканер паттернов активен</div>
+            <div class="fs-scanner-label" data-i18n="fsScannerLabel" style="display:none;"></div>
         </div>
         <div class="fs-patterns-panel" id="fsPatternsPanel">
             <h4 data-i18n="fsPatternsFound">Обнаруженные паттерны</h4>
@@ -18207,7 +18205,7 @@
         if (window.smallScanActive && !fsScannerActive) {
             fsScannerActive = true;
             fsScanBtn.classList.add('active');
-            fsScanBtn.textContent = currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен';
+            fsScanBtn.textContent = 'Scan';
             fsScannerFrame.classList.add('active');
         }
 
@@ -18348,7 +18346,7 @@
     fsScanBtn.addEventListener('click', () => {
         fsScannerActive = !fsScannerActive;
         fsScanBtn.classList.toggle('active', fsScannerActive);
-        fsScanBtn.textContent = fsScannerActive ? (currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен') : 'Scan';
+        fsScanBtn.textContent = 'Scan';
         fsScannerFrame.classList.toggle('active', fsScannerActive);
         if (fsScannerActive) {
             runFsScan();
@@ -18361,7 +18359,7 @@
         if (_scanBtn) {
             window.smallScanActive = fsScannerActive;
             _scanBtn.classList.toggle('scan-active', fsScannerActive);
-            _scanBtn.textContent = fsScannerActive ? (currentLang === 'en' ? '✓ Scanner active' : '✓ Сканер активен') : 'Scan';
+            // text stays 'Scan'
             if (!fsScannerActive) { try { if (typeof lwSeries !== 'undefined' && lwSeries) lwSeries.setMarkers([]); } catch {} }
         }
     });
