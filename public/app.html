@@ -10467,12 +10467,15 @@
                 }
 
                 lwChart.timeScale().fitContent();
-                const nowSec = Math.floor(Date.now() / 1000);
-                lwChart.timeScale().scrollToPosition(0, false);
-                lwChart.timeScale().setVisibleRange({
-                    from: prices[0] ? Math.floor(prices[0][0] / 1000) : nowSec - 86400 * 7,
-                    to: nowSec
-                });
+                // Показываем последние N баров (мобилка 100, десктоп 100)
+                const _bars1 = 100;
+                const _data100 = prices;
+                if (_data100.length > 0) {
+                    const _from = _data100.length > _bars1
+                        ? Math.floor(_data100[_data100.length - _bars1][0] / 1000)
+                        : Math.floor(_data100[0][0] / 1000);
+                    lwChart.timeScale().setVisibleRange({ from: _from, to: Math.floor(Date.now() / 1000) });
+                }
                 setTimeout(() => drawLWLevels(), 0);
 
                 updateChangeBadge(prices);
@@ -11005,13 +11008,14 @@
                 createLWLine(prices);
             }
             lwChart.timeScale().fitContent();
-            // Прокручиваем правый край к текущему времени чтобы линии не выглядели сдвинутыми
-            const nowSec = Math.floor(Date.now() / 1000);
-            lwChart.timeScale().scrollToPosition(0, false);
-            lwChart.timeScale().setVisibleRange({
-                from: prices[0] ? Math.floor(prices[0][0] / 1000) : nowSec - 86400 * 7,
-                to: nowSec
-            });
+            // Показываем последние N баров (мобилка 100, десктоп 100)
+            const _bars2 = 100;
+            if (prices.length > 0) {
+                const _from2 = prices.length > _bars2
+                    ? Math.floor(prices[prices.length - _bars2][0] / 1000)
+                    : Math.floor(prices[0][0] / 1000);
+                lwChart.timeScale().setVisibleRange({ from: _from2, to: Math.floor(Date.now() / 1000) });
+            }
             setTimeout(() => drawLWLevels(), 0);
         }
 
@@ -17933,6 +17937,14 @@
         }
 
         fsChart.timeScale().fitContent();
+        // Показываем последние N баров (мобилка 150, десктоп 300)
+        const _fsBars1 = window.innerWidth <= 900 ? 150 : 300;
+        if (fsCandleData.length > 0) {
+            const _fsFrom = fsCandleData.length > _fsBars1
+                ? fsCandleData[fsCandleData.length - _fsBars1].time
+                : fsCandleData[0].time;
+            fsChart.timeScale().setVisibleRange({ from: _fsFrom, to: Math.floor(Date.now() / 1000) });
+        }
 
         // Price info — цена всегда последняя, pct считаем по периоду большого графика
         const last = fsOhlcData[fsOhlcData.length - 1];
@@ -17957,7 +17969,14 @@
         setTimeout(() => {
             if (fsChart && fsChartEl.offsetWidth > 0) {
                 fsChart.applyOptions({ width: fsChartEl.offsetWidth, height: fsChartEl.offsetHeight });
-                fsChart.timeScale().fitContent();
+                // Восстанавливаем N баров после resize
+                const _fsBars2 = window.innerWidth <= 900 ? 150 : 300;
+                if (fsCandleData.length > 0) {
+                    const _fsFrom2 = fsCandleData.length > _fsBars2
+                        ? fsCandleData[fsCandleData.length - _fsBars2].time
+                        : fsCandleData[0].time;
+                    fsChart.timeScale().setVisibleRange({ from: _fsFrom2, to: Math.floor(Date.now() / 1000) });
+                }
             }
         }, 100);
 
