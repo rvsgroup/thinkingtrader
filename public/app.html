@@ -10783,7 +10783,7 @@
             });
             ro.observe(lwChartContainer);
 
-            // Серия объёмов (показывается только в свечном режиме)
+
             lwVolumeSeries = lwChart.addHistogramSeries({
                 priceFormat:    { type: 'volume' },
                 priceScaleId:   'volume',
@@ -17733,6 +17733,8 @@
             scaleMargins: { top: 0.8, bottom: 0 },
             visible: false,
         });
+
+
         let fsRangeChangeTimer = null;
         fsChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
             // Паттерны фиксированы — не пересканируем при скролле/зуме
@@ -17826,6 +17828,8 @@
         }));
 
         if (!fsChart) initFsChart();
+        // Re-subscribe ruler now that fsChart exists
+        if (window._rulerFsSubscribe) window._rulerFsSubscribe();
         fsCandleSeries.setData(fsCandleData);
 
         // Объёмы
@@ -18197,6 +18201,8 @@
         fsOverlay.classList.add('active');
         document.body.style.overflow = 'hidden';
         syncFsCoin();
+        // Re-subscribe ruler to fsChart after open
+        setTimeout(() => { window._rulerFsSubscribe && window._rulerFsSubscribe(); }, 300);
         // Синхронизируем состояние сканера с маленького графика
         if (window.smallScanActive && !fsScannerActive) {
             fsScannerActive = true;
@@ -18432,17 +18438,11 @@
 
 <script>
 // ═══════════════════════════════════════════════
-// RULER TOOL  (TradingView-style)
-// Button click OR Shift+Click → activate
-// First click on chart → set start
-// Move mouse freely → ruler follows
-// Second click → fix + auto-deactivate
-// Escape → clear
+// RULER TOOL
+// Points stored as {timeSec, price} — never pixels.
+// Every frame: convert to pixels via chart API.
 // ═══════════════════════════════════════════════
 (function() {
-
-    // Shared state so both rulers (small + fs) cooperate
-    // Only one can be active at a time
     const rulers = [];
 
     function createRuler(opts) {
@@ -18450,137 +18450,171 @@
         const btn    = document.getElementById(opts.btnId);
         if (!canvas) return;
 
-        // phase: 'off' | 'waiting' (btn active, no start yet) | 'drawing' | 'fixed'
+        // phase: 'off' | 'waiting' | 'drawing' | 'fixed'
         let phase  = 'off';
-        let startX = 0, startY = 0;
-        let curX   = 0, curY   = 0;
+        let ptA    = null;  // { timeSec, price, idx }
+        let ptB    = null;  // { timeSec, price, idx }
+        let liveX  = 0, liveY = 0;  // mouse position while drawing
         const dpr  = window.devicePixelRatio || 1;
+        let rafId  = null;
 
-        const ruler = { canvas, btn, getPhase: () => phase, clear };
+        const ruler = { canvas, btn, clear };
         rulers.push(ruler);
 
-        /* ── Resize ── */
+        /* ── Canvas resize ── */
         function resize() {
             const p = canvas.parentElement;
             if (!p) return;
-            canvas.width        = p.clientWidth  * dpr;
-            canvas.height       = p.clientHeight * dpr;
+            canvas.width  = p.clientWidth  * dpr;
+            canvas.height = p.clientHeight * dpr;
             canvas.style.width  = p.clientWidth  + 'px';
             canvas.style.height = p.clientHeight + 'px';
-            redraw();
+            scheduleRedraw();
+        }
+
+        /* ── Helpers: convert pixel → data anchor ── */
+        function pixelToPoint(px, py) {
+            try {
+                const chart  = opts.getChart();
+                const series = opts.getSeries();
+                const data   = opts.getData();
+                if (!chart || !series || !data.length) return null;
+
+                const price   = series.coordinateToPrice(py);
+                const logical = chart.timeScale().coordinateToLogical(px);
+                const idx     = Math.max(0, Math.min(data.length - 1, Math.round(logical)));
+                const timeSec = Math.floor(data[idx][0] / 1000);
+                return { timeSec, price, idx };
+            } catch { return null; }
+        }
+
+        /* ── Helpers: convert data anchor → pixel ── */
+        function pointToPixel(pt) {
+            if (!pt) return null;
+            try {
+                const chart  = opts.getChart();
+                const series = opts.getSeries();
+                const x = chart.timeScale().timeToCoordinate(pt.timeSec);
+                const y = series.priceToCoordinate(pt.price);
+                if (x == null || y == null) return null;
+                return { x, y };
+            } catch { return null; }
+        }
+
+        /* ── Live end point (while drawing) ── */
+        function livePoint() {
+            try {
+                const chart  = opts.getChart();
+                const series = opts.getSeries();
+                const data   = opts.getData();
+                if (!chart || !series || !data.length) return null;
+                const price   = series.coordinateToPrice(liveY);
+                const logical = chart.timeScale().coordinateToLogical(liveX);
+                const idx     = Math.max(0, Math.min(data.length - 1, Math.round(logical)));
+                const timeSec = Math.floor(data[idx][0] / 1000);
+                return { timeSec, price, idx, x: liveX, y: liveY };
+            } catch { return null; }
+        }
+
+        /* ── State management ── */
+        function clear() {
+            phase = 'off';
+            ptA = null; ptB = null;
+            canvas.classList.remove('active');
+            canvas.style.cursor = '';
+            canvas.style.pointerEvents = '';
+            if (btn) btn.classList.remove('ruler-btn-active');
+            scheduleRedraw();
         }
 
         function setWaiting() {
-            // Deactivate other rulers first
             rulers.forEach(r => { if (r !== ruler) r.clear(); });
             phase = 'waiting';
             canvas.classList.add('active');
             canvas.style.cursor = 'crosshair';
+            canvas.style.pointerEvents = 'auto';
             if (btn) btn.classList.add('ruler-btn-active');
         }
 
-        function clear() {
-            phase = 'off';
-            canvas.classList.remove('active');
-            canvas.style.cursor = '';
-            if (btn) btn.classList.remove('ruler-btn-active');
-            redraw();
-        }
+        /* ── Button ── */
+        if (btn) btn.addEventListener('click', () => {
+            if (phase === 'off') setWaiting(); else clear();
+        });
 
-        /* ── Button click ── */
-        if (btn) {
-            btn.addEventListener('click', () => {
-                if (phase === 'off') setWaiting();
-                else clear();
-            });
-        }
-
-        /* ── Global mousedown ── */
+        /* ── Mouse down ── */
         document.addEventListener('mousedown', (e) => {
             const r = canvas.getBoundingClientRect();
             const onCanvas = e.clientX >= r.left && e.clientX <= r.right &&
                              e.clientY >= r.top  && e.clientY <= r.bottom;
 
-            // Shift+Click on chart → activate + set start immediately
+            // Shift+Click → activate + set point A
             if (e.shiftKey && phase === 'off' && onCanvas) {
                 e.preventDefault(); e.stopPropagation();
                 setWaiting();
-                startX = e.clientX - r.left;
-                startY = e.clientY - r.top;
-                curX = startX; curY = startY;
+                ptA = pixelToPoint(e.clientX - r.left, e.clientY - r.top);
+                liveX = e.clientX - r.left;
+                liveY = e.clientY - r.top;
                 phase = 'drawing';
-                redraw();
-                return;
+                scheduleRedraw(); return;
             }
-
-            // Waiting + click on canvas → set start
+            // Waiting + click → set point A
             if (phase === 'waiting' && onCanvas) {
                 e.preventDefault(); e.stopPropagation();
-                startX = e.clientX - r.left;
-                startY = e.clientY - r.top;
-                curX = startX; curY = startY;
+                ptA = pixelToPoint(e.clientX - r.left, e.clientY - r.top);
+                liveX = e.clientX - r.left;
+                liveY = e.clientY - r.top;
                 phase = 'drawing';
-                redraw();
-                return;
+                scheduleRedraw(); return;
             }
-
-            // Drawing + click → fix end point + AUTO-DEACTIVATE
+            // Drawing + click → set point B, fix
             if (phase === 'drawing' && onCanvas) {
                 e.preventDefault(); e.stopPropagation();
-                curX = e.clientX - r.left;
-                curY = e.clientY - r.top;
+                ptB = pixelToPoint(e.clientX - r.left, e.clientY - r.top);
                 phase = 'fixed';
+                canvas.style.pointerEvents = 'none';
                 canvas.style.cursor = '';
                 if (btn) btn.classList.remove('ruler-btn-active');
-                redraw();
-                return;
+                scheduleRedraw(); return;
             }
-
-            // Any click while fixed → clear
-            if (phase === 'fixed') {
-                clear();
-            }
+            // Fixed + click → clear
+            if (phase === 'fixed') { clear(); }
         }, true);
 
+        /* ── Mouse move ── */
         document.addEventListener('mousemove', (e) => {
             if (phase !== 'drawing') return;
             const r = canvas.getBoundingClientRect();
-            curX = e.clientX - r.left;
-            curY = e.clientY - r.top;
-            redraw();
+            liveX = e.clientX - r.left;
+            liveY = e.clientY - r.top;
+            scheduleRedraw();
         });
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') clear();
-        });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') clear(); });
 
-        /* ── Helpers ── */
-        function getPrice(y) {
-            try { return opts.getSeries().coordinateToPrice(y); } catch { return null; }
+        /* ── Scheduled redraw via rAF ── */
+        function scheduleRedraw() {
+            if (rafId) return;
+            rafId = requestAnimationFrame(() => { rafId = null; redraw(); });
         }
 
-        function getBarsAndVolume(x1, x2) {
+        /* ── Subscribe to chart events ── */
+        function subscribeChart() {
             try {
                 const chart = opts.getChart();
-                const data  = opts.getData();
-                if (!chart || !data || !data.length) return { bars: 0, volume: 0 };
-                const ts  = chart.timeScale();
-                const li1 = ts.coordinateToLogical(Math.min(x1, x2));
-                const li2 = ts.coordinateToLogical(Math.max(x1, x2));
-                if (li1 == null || li2 == null) return { bars: 0, volume: 0 };
-                const i1 = Math.max(0, Math.floor(li1));
-                const i2 = Math.min(data.length - 1, Math.ceil(li2));
-                if (i2 < i1) return { bars: 0, volume: 0 };
-                const bars = i2 - i1;
-                let volume = 0;
-                for (let i = i1; i <= i2; i++) {
-                    const v = parseFloat(data[i] && (data[i][5] !== undefined ? data[i][5] : data[i][6]) || 0);
-                    if (!isNaN(v)) volume += v;
-                }
-                return { bars, volume };
-            } catch(e) { return { bars: 0, volume: 0 }; }
+                if (!chart) return;
+                chart.timeScale().subscribeVisibleLogicalRangeChange(scheduleRedraw);
+                chart.timeScale().subscribeVisibleTimeRangeChange(scheduleRedraw);
+            } catch {}
+        }
+        subscribeChart();
+        setTimeout(subscribeChart, 800);
+        setTimeout(subscribeChart, 2000);
+        // Expose for external re-subscription (e.g. when fullscreen opens)
+        if (opts.canvasId === 'rulerCanvasFs') {
+            window._rulerFsSubscribe = subscribeChart;
         }
 
+        /* ── Format helpers ── */
         function fmtPrice(v) {
             if (v == null) return '—';
             const a = Math.abs(v);
@@ -18590,41 +18624,54 @@
             return v.toFixed(6);
         }
 
-        function fmtVol(v) {
-            if (!v) return '0';
-            if (v >= 1e9) return (v/1e9).toFixed(2) + 'B';
-            if (v >= 1e6) return (v/1e6).toFixed(2) + 'M';
-            if (v >= 1e3) return (v/1e3).toFixed(2) + 'K';
-            return v.toFixed(2);
-        }
-
-        function fmtPeriod(bars, data) {
-            if (!data || data.length < 2 || bars === 0) return `${bars}`;
-            const intervalMs = data[1][0] - data[0][0];
-            const totalMs = bars * intervalMs;
-            const d = Math.round(totalMs / 86400000);
-            const h = Math.round(totalMs / 3600000);
-            if (d >= 1) return `${bars}, ${d}d`;
-            if (h >= 1) return `${bars}, ${h}h`;
-            return `${bars}`;
-        }
-
-        /* ── Redraw ── */
+        /* ── Main redraw ── */
         function redraw() {
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            if (phase === 'off' || phase === 'waiting') return;
+            if (phase === 'off' || phase === 'waiting' || !ptA) return;
+
+            // Get pixel positions — derived from data coords every frame
+            const pxA = pointToPixel(ptA);
+            if (!pxA) return;
+
+            let pxB;
+            if (phase === 'fixed' && ptB) {
+                pxB = pointToPixel(ptB);
+                if (!pxB) return;
+            } else {
+                // Live end: use mouse position directly (not snapped)
+                pxB = { x: liveX, y: liveY };
+            }
+
+            // Compute stats from stored data points
+            const endPt = (phase === 'fixed' && ptB) ? ptB : livePoint();
+            if (!endPt) return;
+
+            const p1 = ptA.price;
+            const p2 = endPt.price;
+            const pct  = ((p2 - p1) / Math.abs(p1)) * 100;
+            const diff = p2 - p1;
+            const bars = Math.abs(endPt.idx - ptA.idx);
+
+            // Time delta
+            const dtSec = Math.abs(endPt.timeSec - ptA.timeSec);
+            const d   = Math.floor(dtSec / 86400);
+            const h   = Math.floor((dtSec % 86400) / 3600);
+            const m   = Math.floor((dtSec % 3600) / 60);
+            let timeTxt;
+            if (d > 0 && h > 0)      timeTxt = d + 'd ' + h + 'h';
+            else if (d > 0)           timeTxt = d + 'd';
+            else if (h > 0 && m > 0) timeTxt = h + 'h ' + m + 'm';
+            else if (h > 0)           timeTxt = h + 'h';
+            else                      timeTxt = m + 'm';
+
             ctx.save();
             ctx.scale(dpr, dpr);
-            const p1   = getPrice(startY);
-            const p2   = getPrice(curY);
-            const pct  = (p1 && p2 && p1 !== 0) ? ((p2 - p1) / p1) * 100 : null;
-            const diff = (p1 && p2) ? p2 - p1 : null;
-            const bv   = getBarsAndVolume(startX, curX);
-            drawMeasure(ctx, startX, startY, curX, curY, pct, diff, p1, p2, bv);
+            drawRuler(ctx, pxA.x, pxA.y, pxB.x, pxB.y, pct, diff, p1, p2, bars, timeTxt);
             ctx.restore();
         }
 
+        /* ── Draw ── */
         function roundRect(ctx, x, y, w, h, r) {
             ctx.beginPath();
             ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
@@ -18634,16 +18681,19 @@
             ctx.arcTo(x,y,x+r,y,r); ctx.closePath();
         }
 
-        function drawMeasure(ctx, x1, y1, x2, y2, pct, diff, p1, p2, bv) {
-            const isUp  = pct !== null ? pct >= 0 : y2 < y1;
+        function drawRuler(ctx, x1, y1, x2, y2, pct, diff, p1, p2, bars, timeTxt) {
+            const isUp  = pct >= 0;
             const color = isUp ? '#26A69A' : '#EF5350';
-            const fillC = isUp ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)';
+            const fillC = isUp ? 'rgba(38,166,154,0.10)' : 'rgba(239,83,80,0.10)';
             const lx1 = Math.min(x1,x2), lx2 = Math.max(x1,x2);
             const ly1 = Math.min(y1,y2), ly2 = Math.max(y1,y2);
+            const cW  = canvas.width/dpr, cH = canvas.height/dpr;
 
+            // Rect fill
             ctx.fillStyle = fillC;
             ctx.fillRect(lx1, ly1, lx2-lx1, ly2-ly1);
 
+            // Dashed borders
             ctx.save();
             ctx.setLineDash([5,4]);
             ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
@@ -18653,12 +18703,14 @@
             ctx.beginPath(); ctx.moveTo(x2,ly1); ctx.lineTo(x2,ly2); ctx.stroke();
             ctx.restore();
 
+            // Diagonal
             ctx.save();
             ctx.setLineDash([]);
             ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.9;
             ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
             ctx.restore();
 
+            // Dots
             ctx.save();
             ctx.fillStyle = color;
             [[x1,y1],[x2,y2]].forEach(([px,py]) => {
@@ -18666,57 +18718,47 @@
             });
             ctx.restore();
 
-            if (pct === null) return;
+            // Price labels on right scale
+            const lbW = 80, lbH = 20, lbR = 4;
+            const lbLeft = cW - lbW - 2;
+            [[y1,p1],[y2,p2]].forEach(([py, price]) => {
+                const ly = Math.max(2, Math.min(cH-lbH-2, py-lbH/2));
+                ctx.save();
+                ctx.fillStyle = color;
+                roundRect(ctx, lbLeft, ly, lbW, lbH, lbR); ctx.fill();
+                ctx.font = 'bold 11px Inter,-apple-system,sans-serif';
+                ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(fmtPrice(price), lbLeft+lbW/2, ly+lbH/2);
+                ctx.restore();
+            });
 
-            const sign   = pct >= 0 ? '+' : '';
-            const data   = opts.getData();
-            const line1  = `${sign}${fmtPrice(Math.abs(diff))} (${sign}${pct.toFixed(2)}%)`;
-            const line2  = `Bars: ${fmtPeriod(bv.bars, data)}`;
-            const line3  = `Volume ${fmtVol(bv.volume)}`;
+            // Tooltip box
+            const sign  = pct >= 0 ? '+' : '';
+            const line1 = sign + fmtPrice(Math.abs(diff)) + '  (' + sign + pct.toFixed(2) + '%)';
+            const line2 = bars + ' bars,  ' + timeTxt;
 
-            const pad=12, lh=20, boxW=220, boxH=lh*3+pad*2;
-            const cW=canvas.width/dpr, cH=canvas.height/dpr;
-
+            const pad=11, lh=20, bW=220, bH=lh*2+pad*2;
             const midX = (lx1+lx2)/2;
-            const gap  = 10;
-            let lbx = midX - boxW/2;
-            let lby = isUp ? ly1-boxH-gap : ly2+gap;
-            if (lbx < 4)             lbx = 4;
-            if (lbx+boxW > cW-4)     lbx = cW-boxW-4;
-            if (lby < 4)             lby = 4;
-            if (lby+boxH > cH-4)     lby = cH-boxH-4;
-
-            const bgColor = isUp ? 'rgba(30,160,100,0.88)' : 'rgba(247,82,95,0.88)';
-            const bdColor = isUp ? 'rgba(60,220,150,0.3)'  : 'rgba(247,82,95,0.3)';
+            let bx = midX - bW/2;
+            let by = isUp ? ly1 - bH - 10 : ly2 + 10;
+            if (bx < 4)          bx = 4;
+            if (bx+bW > cW-4)    bx = cW-bW-4;
+            if (by < 4)          by = 4;
+            if (by+bH > cH-4)    by = cH-bH-4;
 
             ctx.save();
-            ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=16; ctx.shadowOffsetY=4;
-            ctx.fillStyle=bgColor;
-            roundRect(ctx,lbx,lby,boxW,boxH,10); ctx.fill();
+            ctx.shadowColor='rgba(0,0,0,0.45)'; ctx.shadowBlur=14; ctx.shadowOffsetY=3;
+            ctx.fillStyle = isUp ? 'rgba(30,160,100,0.88)' : 'rgba(247,82,95,0.88)';
+            roundRect(ctx,bx,by,bW,bH,10); ctx.fill();
             ctx.restore();
 
             ctx.save();
-            ctx.strokeStyle=bdColor; ctx.lineWidth=1;
-            roundRect(ctx,lbx,lby,boxW,boxH,10); ctx.stroke();
-            ctx.restore();
-
-            const cx = lbx+boxW/2;
-            ctx.save();
-            ctx.font='bold 15px Inter,-apple-system,sans-serif';
-            ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(line1, cx, lby+pad+lh*0.5);
-            ctx.restore();
-
-            ctx.save();
-            ctx.font='12px Inter,-apple-system,sans-serif';
-            ctx.fillStyle='rgba(255,255,255,0.88)'; ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(line2, cx, lby+pad+lh*1.5);
-            ctx.restore();
-
-            ctx.save();
-            ctx.font='12px Inter,-apple-system,sans-serif';
-            ctx.fillStyle='rgba(255,255,255,0.88)'; ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(line3, cx, lby+pad+lh*2.5);
+            ctx.font = 'bold 14px Inter,-apple-system,sans-serif';
+            ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(line1, bx+bW/2, by+pad+lh*0.5);
+            ctx.font = '12px Inter,-apple-system,sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,0.88)';
+            ctx.fillText(line2, bx+bW/2, by+pad+lh*1.5);
             ctx.restore();
         }
 
