@@ -73,17 +73,14 @@
             background: rgba(7,11,20,0.9); border-bottom: 1px solid var(--border);
             z-index: 101; overflow: hidden;
         }
+        .ticker-wrap:hover #ticker { animation-play-state: paused; }
         .ticker {
-            display: flex; align-items: center; height: 100%;
-            animation: scroll 60s linear infinite; width: max-content;
-            will-change: transform;
+            display: inline-flex; align-items: center; height: 36px;
+            white-space: nowrap; min-width: max-content;
+            animation: tickerScroll 60s linear infinite;
         }
-        /* Пауза при hover только на устройствах с мышью, не на тач */
-        @media (hover: hover) and (pointer: fine) {
-            .ticker:hover { animation-play-state: paused; }
-        }
-        @keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-        .ticker-item { display: flex; align-items: center; gap: 8px; padding: 0 24px; font-size: 13px; white-space: nowrap; }
+        @keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        .ticker-item { display: inline-flex; align-items: center; gap: 8px; padding: 0 24px; font-size: 13px; white-space: nowrap; }
         .ticker-item .symbol { color: var(--text); font-weight: 600; }
         .ticker-item .price { color: var(--text2); }
         .ticker-item .change { font-size: 12px; padding: 2px 6px; border-radius: 4px; }
@@ -1050,17 +1047,21 @@
 
         function renderTicker(items) {
             let html = '';
-            for (let i = 0; i < 4; i++) {
-                items.forEach(item => {
-                    const isUp = item.change >= 0;
-                    html += `<div class="ticker-item">
-                        <span class="symbol">${item.icon} ${item.name}</span>
-                        <span class="price">$${item.price < 1 ? item.price.toFixed(4) : item.price.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
-                        <span class="change ${isUp ? 'up' : 'down'}">${isUp ? '▲' : '▼'} ${Math.abs(item.change).toFixed(2)}%</span>
-                    </div>`;
-                });
-            }
-            document.getElementById('ticker').innerHTML = html;
+            items.forEach(item => {
+                const isUp = item.change >= 0;
+                html += `<div class="ticker-item">
+                    <span class="symbol">${item.icon} ${item.name}</span>
+                    <span class="price">$${item.price < 1 ? item.price.toFixed(4) : item.price.toLocaleString('en-US', {maximumFractionDigits: 2})}</span>
+                    <span class="change ${isUp ? 'up' : 'down'}">${isUp ? '▲' : '▼'} ${Math.abs(item.change).toFixed(2)}%</span>
+                </div>`;
+            });
+            const el = document.getElementById('ticker');
+            // Дублируем контент — как в app.html, для бесшовной прокрутки
+            el.innerHTML = html + html;
+            // Сбрасываем и перезапускаем анимацию
+            el.style.animation = 'none';
+            el.offsetHeight; // reflow
+            el.style.animation = '';
         }
 
         // Load price
