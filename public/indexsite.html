@@ -76,8 +76,12 @@
         .ticker {
             display: flex; align-items: center; height: 100%;
             animation: scroll 60s linear infinite; width: max-content;
+            will-change: transform;
         }
-        .ticker:hover { animation-play-state: paused; }
+        /* Пауза при hover только на устройствах с мышью, не на тач */
+        @media (hover: hover) and (pointer: fine) {
+            .ticker:hover { animation-play-state: paused; }
+        }
         @keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .ticker-item { display: flex; align-items: center; gap: 8px; padding: 0 24px; font-size: 13px; white-space: nowrap; }
         .ticker-item .symbol { color: var(--text); font-weight: 600; }
