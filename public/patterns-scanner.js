@@ -575,111 +575,77 @@ const PatternScanner = (function() {
     // ═══════════════════════════════════════════
 
     function detectLevels(candles, days) {
-        if (candles.length < 20) return null;
+        if (candles.length < 40) return null;
 
-        // Не определяем боковик для таймфреймов 7Д и выше
-        if (days >= 7) return null;
+        // Не определяем боковик для таймфреймов 1М и выше
+        if (days >= 30) return null;
 
-        // ATR для определения ширины боковика
-        const atrLen = Math.min(14, candles.length - 1);
+        // Количество свечей для анализа: 40 для 1D, 70 для остальных
+        const barsCount = (days > 0.17 && days <= 1) ? 40 : 70;
+        if (candles.length < barsCount) return null;
+
+        const window70 = candles.slice(-barsCount);
+        const rangeStart = candles.length - barsCount;
+
+        // ATR по последним 14 свечам
+        const atrLen = 14;
         let atrSum = 0;
         for (let i = candles.length - atrLen; i < candles.length; i++) {
             atrSum += candles[i].high - candles[i].low;
         }
         const atr = atrSum / atrLen;
-        const maxRange = atr * 5; // боковик = диапазон не шире 5× ATR
 
-        // ── Шаг 1: Найти начало боковика ──
-        let windowHigh = -Infinity;
-        let windowLow = Infinity;
-        let rangeStart = candles.length - 1;
-
-        for (let i = candles.length - 1; i >= 0; i--) {
-            const newHigh = Math.max(windowHigh, candles[i].high);
-            const newLow = Math.min(windowLow, candles[i].low);
-
-            if (newHigh - newLow > maxRange) {
-                break;
-            }
-
-            windowHigh = newHigh;
-            windowLow = newLow;
-            rangeStart = i;
-        }
-
-        const sidewaysCandles = candles.slice(rangeStart);
-        if (sidewaysCandles.length < 8) return null;
-
-        // ── Шаг 2: Определить уровни через медиану ──
-        const highs = sidewaysCandles.map(c => c.high).sort((a, b) => a - b);
-        const lows = sidewaysCandles.map(c => c.low).sort((a, b) => a - b);
+        // ── Уровни через перцентили high/low по 70 свечам ──
+        const highs = window70.map(c => c.high).sort((a, b) => a - b);
+        const lows  = window70.map(c => c.low).sort((a, b) => a - b);
 
         const topStart = Math.floor(highs.length * 0.8);
-        const topSlice = highs.slice(topStart);
-        const resistance = topSlice.reduce((a, b) => a + b, 0) / topSlice.length;
+        const resistance = highs.slice(topStart).reduce((a, b) => a + b, 0) / (highs.length - topStart);
 
         const botEnd = Math.ceil(lows.length * 0.2);
-        const botSlice = lows.slice(0, botEnd);
-        const support = botSlice.reduce((a, b) => a + b, 0) / botSlice.length;
+        const support = lows.slice(0, botEnd).reduce((a, b) => a + b, 0) / botEnd;
 
-        // ── Шаг 3: Сила уровней — количество касаний ──
+        // ── Сила уровней — количество касаний ──
         const touchZone = atr * 0.5;
         let supportTouches = 0;
         let resistanceTouches = 0;
-
-        sidewaysCandles.forEach(c => {
-            if (Math.abs(c.low - support) <= touchZone) supportTouches++;
+        window70.forEach(c => {
+            if (Math.abs(c.low  - support)    <= touchZone) supportTouches++;
             if (Math.abs(c.high - resistance) <= touchZone) resistanceTouches++;
         });
 
-        // ── Шаг 4: Позиция текущей цены ──
-        const lastPrice = candles[candles.length - 1].close;
-        const rangeSize = resistance - support;
+        // ── Позиция текущей цены ──
+        const lastPrice   = candles[candles.length - 1].close;
+        const rangeSize   = resistance - support;
         const positionPct = rangeSize > 0 ? ((lastPrice - support) / rangeSize) * 100 : 50;
 
-        let signal = 'neutral';
-        let signalText = '';
-        let signalTextEn = '';
+        let signal = 'neutral', signalText = '', signalTextEn = '';
 
         if (positionPct <= 0) {
-            signal = 'bear';
-            signalText = 'Пробой поддержки';
-            signalTextEn = 'Support breakout';
+            signal = 'bear'; signalText = 'Пробой поддержки';       signalTextEn = 'Support breakout';
         } else if (positionPct >= 100) {
-            signal = 'bull';
-            signalText = 'Пробой сопротивления';
-            signalTextEn = 'Resistance breakout';
+            signal = 'bull'; signalText = 'Пробой сопротивления';   signalTextEn = 'Resistance breakout';
         } else if (positionPct <= 20) {
-            signal = 'bull';
-            signalText = 'Цена у поддержки';
-            signalTextEn = 'Price at support';
+            signal = 'bull'; signalText = 'Цена у поддержки';       signalTextEn = 'Price at support';
         } else if (positionPct >= 80) {
-            signal = 'bear';
-            signalText = 'Цена у сопротивления';
-            signalTextEn = 'Price at resistance';
+            signal = 'bear'; signalText = 'Цена у сопротивления';   signalTextEn = 'Price at resistance';
         } else if (positionPct <= 40) {
-            signal = 'bull';
-            signalText = 'Цена ближе к поддержке';
-            signalTextEn = 'Price near support';
+            signal = 'bull'; signalText = 'Цена ближе к поддержке'; signalTextEn = 'Price near support';
         } else if (positionPct >= 60) {
-            signal = 'bear';
-            signalText = 'Цена ближе к сопротивлению';
-            signalTextEn = 'Price near resistance';
+            signal = 'bear'; signalText = 'Цена ближе к сопротивлению'; signalTextEn = 'Price near resistance';
         } else {
-            signal = 'neutral';
-            signalText = 'Цена в середине диапазона';
-            signalTextEn = 'Price in mid-range';
+            signal = 'neutral'; signalText = 'Цена в середине диапазона'; signalTextEn = 'Price in mid-range';
         }
 
         return {
-            support: Math.round(support * 100) / 100,
-            resistance: Math.round(resistance * 100) / 100,
+            support:          Math.round(support    * 100) / 100,
+            resistance:       Math.round(resistance * 100) / 100,
             supportTouches,
             resistanceTouches,
-            rangeStartIdx: rangeStart,
-            rangeStartTime: candles[rangeStart].time,
-            candlesInRange: sidewaysCandles.length,
-            positionPct: Math.round(positionPct),
+            rangeStartIdx:    rangeStart,
+            rangeStartTime:   candles[rangeStart].time,
+            candlesInRange:   barsCount,
+            positionPct:      Math.round(positionPct),
             signal,
             signalText,
             signalTextEn,
