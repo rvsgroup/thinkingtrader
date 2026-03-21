@@ -1469,11 +1469,13 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 14px;
+            padding: 12px 14px;
             cursor: pointer;
             position: relative;
             z-index: 1;
             flex-shrink: 0;
+            min-height: 44px;
+            -webkit-tap-highlight-color: transparent;
         }
         .setup-scanner-bar:hover { background: rgba(255,255,255,0.02); }
         .setup-scanner-title {
@@ -1501,6 +1503,10 @@
         .setup-scanner-panel.open .setup-scanner-body {
             display: block;
         }
+        /* Arrow direction: ▼ when closed, ▲ when open */
+        .setup-scanner-collapse-arrow::after { content: '▼'; }
+        .setup-scanner-panel.open .setup-scanner-collapse-arrow::after { content: '▲'; }
+        .setup-scanner-collapse-arrow { font-size: 0; } /* hide original text */
         .setup-scanner-body::-webkit-scrollbar { width: 3px; }
         .setup-scanner-body::-webkit-scrollbar-track { background: transparent; }
         .setup-scanner-body::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 6px; }
@@ -4251,6 +4257,16 @@
                 max-height: 50vh !important;
                 overflow-y: auto !important;
             }
+            /* В landscape мобилке панель всегда видима если активна */
+            .setup-scanner-panel.active {
+                display: flex !important;
+            }
+            /* В landscape показываем панель компактно — сразу раскрытой */
+            @media (max-height: 500px) {
+                .setup-scanner-panel.active.open .setup-scanner-body {
+                    max-height: 35vh !important;
+                }
+            }
             .main-result { padding: 14px 16px; border-radius: 8px; }
             .result-label { font-size: 11px; margin-bottom: 6px; }
             .result-amount { font-size: 28px; margin-bottom: 10px; }
@@ -5777,6 +5793,14 @@
         }
         .fs-patterns-panel.active { display: block; }
         .fs-patterns-panel h4 { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+        .fs-patterns-panel.collapsed h4 {
+            margin-bottom: 0;
+            color: #A78BFA;
+            border: 1px solid rgba(139,92,246,0.6);
+            border-radius: 6px;
+            padding: 4px 8px;
+            box-shadow: 0 0 8px rgba(139,92,246,0.25);
+        }
         .fs-pat-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
         .fs-pat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
         .fs-pat-dot.bullish { background: #10B981; }
@@ -16261,12 +16285,13 @@
         const panel = document.getElementById('setupScannerPanel');
         const calcSection = document.getElementById('calcSection');
         if (!panel) return;
+        const isMobile = window.innerWidth <= 900;
         if (open) {
             panel.classList.add('open');
-            if (calcSection) calcSection.style.display = 'none';
+            if (calcSection && !isMobile) calcSection.style.display = 'none';
         } else {
             panel.classList.remove('open');
-            if (calcSection) { calcSection.style.display = 'flex'; calcSection.style.flex = '1'; }
+            if (calcSection && !isMobile) { calcSection.style.display = 'flex'; calcSection.style.flex = '1'; }
         }
     }
 
@@ -16276,6 +16301,35 @@
         const isOpen = panel.classList.contains('open');
         setupPanelSetOpen(!isOpen);
     };
+
+    // Прямой touchend на заголовке — обходит глобальный свайп-обработчик
+    const scannerBar = document.querySelector('.setup-scanner-bar');
+    if (scannerBar) {
+        let _tStartX = 0, _tStartY = 0;
+        scannerBar.addEventListener('touchstart', e => {
+            _tStartX = e.touches[0].clientX;
+            _tStartY = e.touches[0].clientY;
+        }, { passive: true });
+        scannerBar.addEventListener('touchend', e => {
+            const dx = Math.abs(e.changedTouches[0].clientX - _tStartX);
+            const dy = Math.abs(e.changedTouches[0].clientY - _tStartY);
+            if (dx < 10 && dy < 10) { // это тап, не свайп
+                e.preventDefault();
+                e.stopPropagation();
+                window.toggleSetupPanel();
+            }
+        }, { passive: false });
+    }
+
+    // Reopen panel on orientation change if scan is active
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            const panel = document.getElementById('setupScannerPanel');
+            if (panel && panel.classList.contains('active') && !panel.classList.contains('open')) {
+                setupPanelSetOpen(true);
+            }
+        }, 300);
+    });
 
     // ── Setup Scanner: сбор данных и рендер карточки ──
     // SVG иконки для каждого типа сигнала
@@ -17688,6 +17742,40 @@
     const fsScannerFrame = document.getElementById('fsScannerFrame');
     const fsPatternsPanel = document.getElementById('fsPatternsPanel');
     const fsPatternsList  = document.getElementById('fsPatternsList');
+
+    // ── Сворачивание/разворачивание панели паттернов ──
+    (function() {
+        const h4 = fsPatternsPanel && fsPatternsPanel.querySelector('h4');
+        if (!h4) return;
+        h4.style.cursor = 'pointer';
+        h4.style.userSelect = 'none';
+        // Добавляем стрелку
+        const arrow = document.createElement('span');
+        arrow.id = 'fsPanelArrow';
+        arrow.style.cssText = 'font-size:11px;color:#94A3B8;margin-left:6px;';
+        arrow.textContent = '▲';
+        h4.appendChild(arrow);
+
+        let collapsed = false;
+        function toggleFsPanel() {
+            collapsed = !collapsed;
+            if (fsPatternsList) fsPatternsList.style.display = collapsed ? 'none' : '';
+            arrow.textContent = collapsed ? '▼' : '▲';
+            fsPatternsPanel.classList.toggle('collapsed', collapsed);
+        }
+
+        h4.addEventListener('click', (e) => { e.stopPropagation(); toggleFsPanel(); });
+        let _tx = 0, _ty = 0;
+        h4.addEventListener('touchstart', e => {
+            _tx = e.touches[0].clientX; _ty = e.touches[0].clientY;
+        }, { passive: true });
+        h4.addEventListener('touchend', e => {
+            if (Math.abs(e.changedTouches[0].clientX - _tx) < 10 &&
+                Math.abs(e.changedTouches[0].clientY - _ty) < 10) {
+                e.preventDefault(); e.stopPropagation(); toggleFsPanel();
+            }
+        }, { passive: false });
+    })();
 
     let fsChart = null;
     let fsCandleSeries = null;
