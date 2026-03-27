@@ -59,6 +59,274 @@
         /* ═══════════════════════════════════════════════════════════
            BACKGROUND — same as landing page
         ═══════════════════════════════════════════════════════════ */
+
+        /* — Контейнер тулбара — */
+        .chart-header {
+            margin-bottom: 0;
+            padding: 0 0 8px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #ourChartControls {
+            background: transparent;
+        }
+
+        /* — Разделитель — */
+        .tb-sep {
+            width: 1px;
+            height: 14px;
+            background: rgba(255,255,255,0.08);
+            flex-shrink: 0;
+            margin: 0 3px;
+        }
+
+        /* — Контейнер таймфреймов — */
+        .chart-period-buttons {
+            display: flex;
+            gap: 1px;
+            align-items: center;
+        }
+
+        /* ── БАЗОВЫЙ КЛАСС: все кнопки тулбара ── */
+        .period-btn,
+        .chart-type-btn,
+        .replay-toggle-btn,
+        .replay-ctrl-btn,
+        .replay-speed-btn,
+        .small-ann-btn,
+        .small-ann-preset,
+        .ann-tool-btn,
+        .ann-preset-btn,
+        .ann-as-btn,
+        #scanBtnApp,
+        #rulerBtnSmall,
+        #filterBtnApp,
+        #expandChartBtn {
+            height: 28px;
+            border-radius: 3px;
+            border: none;
+            background: transparent;
+            color: rgba(255,255,255,0.22);
+            font-size: 9px;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: color 0.12s, background 0.12s;
+            user-select: none;
+            line-height: 1;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            padding: 0;
+            gap: 4px;
+        }
+
+        /* — Hover для всех — */
+        .period-btn:hover,
+        .chart-type-btn:hover,
+        .replay-toggle-btn:hover,
+        .replay-ctrl-btn:hover:not(:disabled),
+        .replay-speed-btn:hover,
+        .small-ann-btn:hover,
+        .small-ann-preset:hover,
+        .ann-tool-btn:hover,
+        .ann-preset-btn:hover,
+        .ann-as-btn:hover,
+        #scanBtnApp:hover,
+        #rulerBtnSmall:hover,
+        #filterBtnApp:hover,
+        #expandChartBtn:hover {
+            color: rgba(255,255,255,0.55);
+            background: rgba(255,255,255,0.05);
+        }
+
+        /* — Disabled — */
+        .replay-ctrl-btn:disabled {
+            opacity: 0.28;
+            cursor: not-allowed;
+        }
+
+        /* — Текстовые кнопки: padding — */
+        .period-btn               { padding: 0 8px; }
+        .replay-toggle-btn        { padding: 0 10px; }
+        .replay-ctrl-btn          { padding: 0 8px; }
+        .replay-speed-btn         { padding: 0 7px; }
+        .replay-point-btn         { padding: 0 9px; min-width: 60px; }
+        .small-ann-preset         { padding: 0 8px; }
+        .ann-preset-btn           { padding: 0 8px; }
+        #scanBtnApp               { padding: 0 12px; }
+
+        /* — Иконочные: квадратные — */
+        .chart-type-btn,
+        .small-ann-btn,
+        .ann-tool-btn,
+        .ann-as-btn,
+        #rulerBtnSmall,
+        #filterBtnApp,
+        #expandChartBtn { width: 28px; }
+
+        /* ── ACTIVE состояния ── */
+
+        /* Таймфреймы: активный — тонкая подсветка */
+        .period-btn.active {
+            color: rgba(99,102,241,0.9);
+            background: rgba(99,102,241,0.08);
+        }
+
+        /* Тип графика: активный */
+        .chart-type-btn.active {
+            color: rgba(99,102,241,0.9);
+            background: rgba(99,102,241,0.08);
+        }
+
+        /* Replay: активный */
+        .replay-toggle-btn.active {
+            color: rgba(99,102,241,0.9);
+            background: rgba(99,102,241,0.08);
+        }
+
+        /* Play btn (зелёный, когда активен) */
+        .replay-play-btn:not(:disabled) {
+            color: rgba(16,185,129,0.9);
+        }
+        .replay-play-btn:not(:disabled):hover {
+            background: rgba(16,185,129,0.07);
+        }
+
+        /* Replay — кнопки-квадраты */
+        .replay-play-btn,
+        #replayPauseBtn,
+        #replayResetBtn,
+        .replay-exit-btn {
+            width: 28px;
+            padding: 0;
+        }
+
+        /* Exit replay */
+        .replay-exit-btn { color: rgba(239,68,68,0.9) !important; }
+        .replay-exit-btn:hover { background: rgba(239,68,68,0.07) !important; }
+
+        /* Скорость: активный */
+        .replay-speed-btn.active {
+            color: rgba(99,102,241,0.9);
+            background: rgba(99,102,241,0.08);
+        }
+
+        /* Аннотации: активный инструмент */
+        .ann-tool-btn.active,
+        .small-ann-btn.active,
+        .ann-as-btn.active {
+            color: rgba(99,102,241,0.9);
+            background: rgba(99,102,241,0.08);
+        }
+
+        /* Аннотации: red-вариант */
+        .ann-tool-btn.ann-red,
+        .small-ann-btn.small-ann-red { color: rgba(239,68,68,0.85); }
+        .ann-tool-btn.ann-red:hover,
+        .small-ann-btn.small-ann-red:hover { background: rgba(239,68,68,0.07); }
+
+        /* Preset кнопки: OPEN/CLOSE/Результат — семантические цвета */
+        .ann-preset-bearish, .small-ann-preset.ann-preset-bearish {
+            color: rgba(239,68,68,0.9);
+        }
+        .ann-preset-bearish:hover, .small-ann-preset.ann-preset-bearish:hover {
+            background: rgba(239,68,68,0.07);
+        }
+        .ann-preset-bullish, .small-ann-preset.ann-preset-bullish {
+            color: rgba(16,185,129,0.9);
+        }
+        .ann-preset-bullish:hover, .small-ann-preset.ann-preset-bullish:hover {
+            background: rgba(16,185,129,0.07);
+        }
+        .ann-preset-profit, .small-ann-preset.ann-preset-profit {
+            color: rgba(16,185,129,0.9);
+        }
+        .ann-preset-profit:hover, .small-ann-preset.ann-preset-profit:hover {
+            background: rgba(16,185,129,0.07);
+        }
+
+        /* Replay Entry/Exit states */
+        .replay-point-btn.setting {
+            color: rgba(99,102,241,0.9);
+            background: rgba(99,102,241,0.08);
+        }
+        .replay-point-btn.done {
+            color: rgba(16,185,129,0.9);
+            background: rgba(16,185,129,0.07);
+        }
+        .replay-point-btn.done-exit {
+            color: rgba(239,68,68,0.9);
+            background: rgba(239,68,68,0.07);
+        }
+
+        /* Scan — выделяется как акцент */
+        #scanBtnApp {
+            color: rgba(99,102,241,0.85);
+        }
+        #scanBtnApp:hover {
+            background: rgba(99,102,241,0.08) !important;
+            color: rgba(165,180,252,0.95) !important;
+        }
+        #scanBtnApp.scan-active {
+            color: rgba(16,185,129,0.9) !important;
+            background: rgba(16,185,129,0.07) !important;
+        }
+
+        /* Ruler active */
+        #rulerBtnSmall.active, #filterBtnApp.active {
+            color: rgba(99,102,241,0.9) !important;
+            background: rgba(99,102,241,0.08) !important;
+        }
+
+        /* — chart-type-toggle контейнер — */
+        .chart-type-toggle {
+            display: flex;
+            align-items: center;
+            gap: 1px;
+        }
+
+        /* — Контейнер replay controls — */
+        .replay-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+        }
+        .replay-inline-controls {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            flex-wrap: nowrap;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .replay-sep-inline {
+            width: 1px;
+            height: 14px;
+            background: rgba(255,255,255,0.08);
+            flex-shrink: 0;
+            margin: 0 2px;
+        }
+
+        /* — small-ann-tools контейнер — */
+        .small-ann-tools {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        /* — Responsive — */
+        .period-btn { padding: 0 8px; }
+        @media (max-width: 768px) {
+            .period-btn { padding: 0 6px; font-size: 10px; }
+        }
         .bg-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
         .bg-gradients {
             background:
@@ -2582,193 +2850,6 @@
             cursor: crosshair;
         }
 
-        .replay-toggle-btn {
-            font-size: 13px;
-            font-weight: 700;
-            font-family: inherit;
-            background: linear-gradient(135deg,#F59E0B,#D97706);
-            border: none;
-            border-radius: 12px;
-            color: #fff;
-            cursor: pointer;
-            transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            white-space: nowrap;
-            box-shadow: 0 6px 18px rgba(245,158,11,0.28);
-            white-space: nowrap;
-            height: 34px;
-            padding: 0 14px;
-            flex-shrink: 0;
-        }
-        .replay-toggle-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 8px 22px rgba(245,158,11,0.34);
-        }
-        .replay-toggle-btn.active {
-            box-shadow: 0 0 0 1px rgba(245,158,11,0.45), 0 8px 24px rgba(245,158,11,0.32);
-        }
-
-        .replay-inline {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: nowrap;
-            white-space: nowrap;
-        }
-
-        .replay-inline-controls {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            min-height: 36px;
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 12px;
-            flex-wrap: nowrap;
-            flex-shrink: 0;
-            white-space: nowrap;
-        }
-
-        .replay-ctrl-btn {
-            height: 32px;
-            padding: 0 10px;
-            font-size: 12px;
-            font-family: inherit;
-            font-weight: 600;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 8px;
-            color: #94A3B8;
-            cursor: pointer;
-            transition: all .15s ease;
-            white-space: nowrap;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            line-height: 1;
-        }
-        .replay-ctrl-btn:hover:not(:disabled) {
-            background: rgba(255,255,255,0.08);
-            color: #E2E8F0;
-            border-color: rgba(255,255,255,0.16);
-        }
-        .replay-ctrl-btn:disabled {
-            opacity: .38;
-            cursor: not-allowed;
-        }
-
-        .replay-point-btn {
-            min-width: 78px;
-            height: 32px;
-            font-size: 12px;
-        }
-        .replay-point-btn.setting {
-            background: rgba(245,158,11,0.15);
-            border-color: rgba(245,158,11,0.4);
-            color: #F59E0B;
-        }
-        .replay-point-btn.done {
-            background: rgba(16,185,129,0.1);
-            border-color: rgba(16,185,129,0.3);
-            color: #10B981;
-        }
-        .replay-point-btn.done-exit {
-            background: rgba(239,68,68,0.1);
-            border-color: rgba(239,68,68,0.3);
-            color: #EF4444;
-        }
-
-        .replay-play-btn,
-        #replayPauseBtn,
-        #replayResetBtn,
-        .replay-exit-btn {
-            width: 32px;
-            min-width: 32px;
-            height: 32px;
-            font-size: 14px;
-        }
-
-        .replay-play-btn:not(:disabled) {
-            background: rgba(16,185,129,0.15);
-            border-color: rgba(16,185,129,0.4);
-            color: #10B981;
-        }
-
-        .replay-speed-btn {
-            height: 32px;
-            min-width: 38px;
-            padding: 0 8px;
-            font-size: 11px;
-            font-family: inherit;
-            font-weight: 800;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 8px;
-            color: #64748B;
-            cursor: pointer;
-            transition: all .15s ease;
-        }
-        .replay-speed-btn:hover {
-            background: rgba(255,255,255,0.08);
-            color: #94A3B8;
-        }
-        .replay-speed-btn.active {
-            background: rgba(245,158,11,0.15);
-            border-color: rgba(245,158,11,0.42);
-            color: #F59E0B;
-            box-shadow: inset 0 0 0 1px rgba(245,158,11,0.15);
-        }
-
-        .replay-exit-btn {
-            color: #EF4444 !important;
-            border-color: rgba(239,68,68,0.22) !important;
-        }
-        .replay-exit-btn:hover {
-            background: rgba(239,68,68,0.1) !important;
-        }replay-inline-controls { display:flex; align-items:center; gap:4px; }
-
-        .small-ann-tools {
-            display: flex;
-            align-items: center;
-            gap: 3px;
-            padding: 3px 6px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 6px;
-        }
-        .small-ann-btn {
-            padding: 5px 6px;
-            background: transparent;
-            border: 1px solid transparent;
-            border-radius: 5px;
-            color: #64748B;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.15s;
-        }
-        .small-ann-btn:hover { background: rgba(255,255,255,0.06); color: #E2E8F0; border-color: rgba(255,255,255,0.1); }
-        .small-ann-btn.active { background: rgba(99,102,241,0.2); border-color: rgba(99,102,241,0.5); color: #818CF8; }
-        .small-ann-btn.small-ann-red { color: #EF4444; }
-        .small-ann-btn.small-ann-red:hover { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); }
-        .small-ann-preset {
-            display: flex; align-items: center; gap: 3px; height: 26px; padding: 0 8px;
-            font-size: 10px; font-family: inherit; font-weight: 700;
-            border: 1px solid; border-radius: 5px; cursor: pointer; transition: all .15s;
-            white-space: nowrap; flex-shrink: 0;
-        }
-        .small-ann-preset.ann-preset-bearish { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #EF4444; }
-        .small-ann-preset.ann-preset-bearish:hover { background: rgba(239,68,68,0.2); }
-        .small-ann-preset.ann-preset-bullish { background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.3); color: #10B981; }
-        .small-ann-preset.ann-preset-bullish:hover { background: rgba(16,185,129,0.2); }
-        .small-ann-preset.ann-preset-profit { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.25); color: #10B981; }
-        .small-ann-preset.ann-preset-profit:hover { background: rgba(16,185,129,0.18); }
-
         .wl-collapse-btn {
             background: rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.08);
@@ -2954,52 +3035,6 @@
             flex-shrink: 0;
         }
 
-        .chart-header {
-            margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        
-        .chart-period-buttons {
-            display: flex;
-            gap: 6px;
-            background: rgba(0, 0, 0, 0.2);
-            padding: 4px;
-            border-radius: 6px;
-        }
-
-        .period-btn {
-            padding: 4px 10px;
-            border-radius: 6px;
-            background: transparent;
-            border: none;
-            color: #64748B;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .period-btn:hover { color: #94A3B8; }
-        .period-btn.active { background: #4F46E5; color: white; }
-
-        .chart-type-toggle {
-            display: flex; align-items: center; gap: 2px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 6px;
-            padding: 2px;
-        }
-        .chart-type-btn {
-            background: none; border: none; cursor: pointer;
-            color: #475569; padding: 5px 7px; border-radius: 4px;
-            display: flex; align-items: center; justify-content: center;
-            transition: background 0.15s, color 0.15s;
-        }
-        .chart-type-btn.active { background: rgba(99,102,241,0.25); color: #818CF8; }
-        .chart-type-btn:hover:not(.active) { color: #94A3B8; }
-
         .chart-title {
             display: flex; align-items: center; gap: 10px;
         }
@@ -3033,8 +3068,6 @@
             border: none; color: #6366F1; cursor: pointer; padding: 2px 4px;
         }
         .pf-action:hover { color: #818CF8; }
-        #scanBtnApp.scan-active { background: linear-gradient(135deg, #10B981, #059669) !important; box-shadow: 0 0 12px rgba(16,185,129,0.3); }
-
         /* Fullscreen chart */
         .chart-column.fullscreen {
             position: fixed !important;
@@ -3276,7 +3309,7 @@
             .chart-column { padding: 14px; border-radius: 8px; }
 
             .chart-title h3 { font-size: 13px; }
-            .period-btn { padding: 4px 8px; font-size: 10px; }
+            .period-btn { padding: 0 7px; font-size: 10px; }
             .coin-select-trigger { font-size: 11px; padding: 4px 10px 4px 5px; }
             .coin-select-trigger img { width: 18px; height: 18px; }
             .current-price { font-size: 12px; padding: 4px 10px; }
@@ -3400,7 +3433,7 @@
         .chart-container { height: 180px; }
         .chart-loading { height: 300px; font-size: 12px; }
         .chart-title h3 { font-size: 15px; }
-        .period-btn { padding: 5px 10px; font-size: 11px; }
+        .period-btn { padding: 0 9px; font-size: 11px; }
         
         .main-result { padding: 20px; }
         .result-label { font-size: 11px; margin-bottom: 8px; }
@@ -4131,7 +4164,7 @@
             .chart-title h3 { font-size: 13px; }
             .chart-header { flex-wrap: wrap; gap: 6px; }
             #ourChartControls { flex-wrap: wrap; gap: 4px; }
-            .period-btn { padding: 4px 6px; font-size: 10px; }
+            .period-btn { padding: 0 6px; font-size: 10px; }
             .chart-coin-bar { flex-wrap: wrap; gap: 6px; }
             .coin-select-trigger { white-space: nowrap; max-width: calc(100vw - 48px); overflow: hidden; text-overflow: ellipsis; }
             .current-price { font-size: 12px; }
@@ -5615,46 +5648,12 @@
         .ann-bar-sep { width:1px; height:22px; background:rgba(255,255,255,0.08); margin:0 3px; flex-shrink:0; }
         .ann-bar-label { font-size:10px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:.8px; white-space:nowrap; flex-shrink:0; }
         /* Tool buttons */
-        .ann-tool-btn {
-            display:flex; align-items:center; justify-content:center;
-            width:30px; height:30px; padding:0; position:relative;
-            background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
-            border-radius:7px; color:#94A3B8; cursor:pointer; transition:all .15s;
-            flex-shrink:0; user-select:none;
-        }
-        .ann-tool-btn:hover { background:rgba(255,255,255,0.08); color:#E2E8F0; border-color:rgba(255,255,255,0.15); }
-        .ann-tool-btn.active { background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.5); color:#818CF8; }
-        .ann-tool-btn.ann-red { color:#EF4444; }
-        .ann-tool-btn.ann-red:hover { background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.3); }
-        .ann-tool-btn.ann-red.active { background:rgba(239,68,68,0.15); border-color:rgba(239,68,68,0.4); }
-        /* Preset buttons */
-        .ann-preset-btn {
-            display:flex; align-items:center; gap:4px; height:30px; padding:0 9px;
-            font-size:11px; font-family:inherit; font-weight:700;
-            border:1px solid; border-radius:7px; cursor:pointer; transition:all .15s;
-            white-space:nowrap; flex-shrink:0;
-        }
-        .ann-preset-bearish { background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.3); color:#EF4444; }
-        .ann-preset-bearish:hover { background:rgba(239,68,68,0.2); }
-        .ann-preset-bullish { background:rgba(16,185,129,0.1); border-color:rgba(16,185,129,0.3); color:#10B981; }
-        .ann-preset-bullish:hover { background:rgba(16,185,129,0.2); }
-        .ann-preset-profit { background:rgba(16,185,129,0.08); border-color:rgba(16,185,129,0.25); color:#10B981; }
-        .ann-preset-profit:hover { background:rgba(16,185,129,0.18); }
-        /* Arrow style buttons */
-        .ann-as-btn {
-            width:30px; height:30px; padding:0; font-size:12px; font-family:inherit; font-weight:600;
-            background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
-            border-radius:7px; color:#64748B; cursor:pointer; transition:all .15s;
-            display:flex; align-items:center; justify-content:center; flex-shrink:0;
-        }
-        .ann-as-btn:hover { background:rgba(255,255,255,0.08); color:#94A3B8; }
-        .ann-as-btn.active { background:rgba(99,102,241,0.15); border-color:rgba(99,102,241,0.4); color:#818CF8; }
         /* Color picker */
         .ann-color-btn {
-            width:30px; height:30px; border-radius:7px; border:1.5px solid rgba(255,255,255,0.2);
-            cursor:pointer; flex-shrink:0; position:relative; overflow:hidden; transition:transform .15s;
+            width:28px; height:28px; border-radius:4px; border:1px solid rgba(255,255,255,0.1);
+            cursor:pointer; flex-shrink:0; position:relative; overflow:hidden; transition:all .15s;
         }
-        .ann-color-btn:hover { transform:scale(1.1); }
+        .ann-color-btn:hover { transform:scale(1.08); }
         .ann-color-btn input[type=color] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
         /* SVG overlay */
         #ann-overlay {
@@ -5795,6 +5794,49 @@
         .fs-pat-count { color: #64748B; font-size: 11px; margin-left: auto; }
         .fs-no-patterns { color: #475569; font-size: 11px; font-style: italic; }
 
+        /* Панель паттернов на маленьком графике */
+        .sm-patterns-panel {
+            display: none; position: absolute; bottom: 8px; left: 8px;
+            background: rgba(11,21,37,0.94); border: 1px solid rgba(99,102,241,0.2);
+            border-radius: 8px; padding: 8px 10px;
+            z-index: 20; max-width: 260px; max-height: 35vh; overflow-y: auto;
+            backdrop-filter: blur(10px); font-size: 11px;
+        }
+        .sm-patterns-panel.active { display: block; }
+        .sm-patterns-panel.collapsed .sm-pat-list { display: none; }
+        .sm-patterns-panel.collapsed { padding: 0; background: transparent; border: none; }
+        .sm-patterns-header {
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; user-select: none; margin-bottom: 5px;
+        }
+        .sm-patterns-header span {
+            font-size: 10px; font-weight: 700; color: #64748B;
+            text-transform: uppercase; letter-spacing: 0.8px;
+        }
+        .sm-patterns-toggle {
+            background: none; border: none; color: #64748B; cursor: pointer;
+            font-size: 12px; padding: 0 2px; transition: transform 0.2s;
+        }
+        .sm-patterns-panel.collapsed .sm-patterns-toggle { transform: rotate(180deg); color: #A78BFA; }
+        .sm-patterns-panel.collapsed .sm-patterns-header {
+            margin-bottom: 0; padding: 6px 14px;
+            border: 1px solid rgba(139,92,246,0.6); border-radius: 8px;
+            background: rgba(11,21,37,0.94); backdrop-filter: blur(10px);
+            box-shadow: 0 0 10px rgba(139,92,246,0.2);
+        }
+        .sm-patterns-panel.collapsed .sm-patterns-header span { color: #A78BFA; }
+        .sm-pat-item {
+            display: flex; align-items: center; gap: 6px; padding: 3px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04); cursor: default;
+        }
+        .sm-pat-item:last-child { border-bottom: none; }
+        .sm-pat-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .sm-pat-dot.bullish { background: #10B981; }
+        .sm-pat-dot.bearish { background: #EF4444; }
+        .sm-pat-dot.neutral { background: #FBBF24; }
+        .sm-pat-name { color: #E2E8F0; font-weight: 600; font-size: 11px; flex: 1; }
+        .sm-pat-dir { font-size: 10px; color: #64748B; white-space: nowrap; }
+
     </style>
 
     <!-- Firebase SDK (compat) -->
@@ -5911,8 +5953,8 @@
             <!-- График -->
             <div class="chart-column">
                 <div class="chart-header">
-                    <div id="ourChartControls" style="display:flex;align-items:center;gap:8px;width:100%;justify-content:space-between;">
-                        <div style="display:flex;align-items:center;gap:8px;">
+                    <div id="ourChartControls" style="display:flex;align-items:center;gap:6px;width:100%;justify-content:space-between;">
+                        <div style="display:flex;align-items:center;gap:4px;">
                             <div class="chart-period-buttons">
                                 <button class="period-btn" data-period="0.04">1H</button>
                                 <button class="period-btn" data-period="0.17">4H</button>
@@ -5921,6 +5963,7 @@
                                 <button class="period-btn" data-period="30">30Д</button>
                                 <button class="period-btn" data-period="90">90Д</button>
                             </div>
+                            <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <div class="chart-type-toggle">
                                 <button class="chart-type-btn active" id="btnLine" title="Линия">
                                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="1,11 5,5 8,8 13,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -5930,7 +5973,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:6px;">
+                        <div style="display:flex;align-items:center;gap:4px;">
                             <!-- Replay (admin only) -->
                             <div class="replay-inline admin-only" id="replayInline" style="display:none;">
                                 <button class="replay-toggle-btn" id="replayToggleBtn" title="Replay">Replay</button>
@@ -5976,11 +6019,11 @@
                                 <button class="small-ann-btn" data-tool="short" title="Short Position">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="14" height="3" rx="1" fill="rgba(239,68,68,0.12)" stroke="#EF4444" stroke-width="1.3"/><rect x="2" y="5" width="14" height="4" rx="1" fill="rgba(16,185,129,0.18)" stroke="#10B981" stroke-width="1.3"/><polyline points="6,11 9,14.5 12,11" stroke="#EF4444" stroke-width="1.5" fill="none"/></svg>
                                 </button>
-                                <div style="width:1px;height:20px;background:rgba(255,255,255,0.08);margin:0 2px;flex-shrink:0;"></div>
+                                <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);margin:0 3px;flex-shrink:0;"></div>
                                 <button class="small-ann-preset ann-preset-bearish" data-tool="preset-open">↓ OPEN</button>
                                 <button class="small-ann-preset ann-preset-bullish" data-tool="preset-close">✓ CLOSE</button>
                                 <button class="small-ann-preset ann-preset-profit" data-tool="preset-result">✨ Результат</button>
-                                <div style="width:1px;height:20px;background:rgba(255,255,255,0.08);margin:0 2px;flex-shrink:0;"></div>
+                                <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);margin:0 3px;flex-shrink:0;"></div>
                                 <button class="small-ann-btn small-ann-red" data-tool="delete" title="Удалить">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4.5 16,4.5"/><path d="M6.5 4.5V3h5v1.5"/><path d="M3.5 4.5l1 10h9l1-10"/></svg>
                                 </button>
@@ -5988,12 +6031,14 @@
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="3" y1="3" x2="15" y2="15"/><line x1="15" y1="3" x2="3" y2="15"/></svg>
                                 </button>
                             </div>
-                            <button id="scanBtnApp" style="padding:5px 12px;font-size:11px;font-weight:600;background:linear-gradient(135deg,#6366F1,#8B5CF6);border:none;border-radius:6px;color:#fff;cursor:pointer;white-space:nowrap;transition:opacity 0.2s;">Scan</button>
-                            <button id="rulerBtnSmall" title="Линейка (Shift+клик)" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><line x1="7.5" y1="16.5" x2="10" y2="14"/><line x1="10.5" y1="13.5" x2="12" y2="12"/><line x1="13.5" y1="10.5" x2="16" y2="8"/></svg>
+                            <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
+                            <button id="scanBtnApp">Scan</button>
+                            <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
+                            <button id="rulerBtnSmall" title="Линейка (Shift+клик)">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><line x1="7.5" y1="16.5" x2="10" y2="14"/><line x1="10.5" y1="13.5" x2="12" y2="12"/><line x1="13.5" y1="10.5" x2="16" y2="8"/></svg>
                             </button>
                             <div style="position:relative;">
-                                <button id="filterBtnApp" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
+                                <button id="filterBtnApp"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
                                 <div class="pattern-filter-dropdown" id="filterDropdownApp">
                                     <div style="display:flex;gap:6px;padding:6px 10px 4px;">
                                         <button class="pf-action" id="pfAll">Все</button>
@@ -6020,7 +6065,7 @@
                                     <label class="pf-item"><input type="checkbox" id="filterLevelsApp" checked><span data-i18n="pfLevels">Поддержка / Сопротивление</span></label>
                                 </div>
                             </div>
-                            <button id="expandChartBtn" style="padding:4px 8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94A3B8;cursor:pointer;transition:all 0.2s;line-height:1;display:flex;align-items:center;" title="Развернуть"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+                            <button id="expandChartBtn" title="Развернуть"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
                         </div>
                     </div>
                 </div>
@@ -6064,6 +6109,13 @@
                                 <button id="ann-ce-cancel" style="padding:5px 10px;font-size:12px;font-family:inherit;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:7px;color:#64748B;cursor:pointer">✕</button>
                                 <button id="ann-ce-place" style="padding:5px 14px;font-size:12px;font-family:inherit;font-weight:700;background:linear-gradient(135deg,#6366F1,#8B5CF6);border:none;border-radius:7px;color:#fff;cursor:pointer">Разместить ✓</button>
                             </div>
+                        </div>
+                        <div class="sm-patterns-panel" id="smPatternsPanel">
+                            <div class="sm-patterns-header" id="smPatternsHeader">
+                                <span data-i18n="fsPatternsFound">Обнаруженные паттерны</span>
+                                <button class="sm-patterns-toggle" id="smPatternsToggle">▾</button>
+                            </div>
+                            <div class="sm-pat-list" id="smPatternsList"></div>
                         </div>
                         <div class="chart-loading" id="chartLoading" data-i18n="chartLoading">Загрузка графика...</div>
                     </div>
@@ -8598,7 +8650,7 @@
                     background:  { type: 'solid', color: 'transparent' },
                     textColor:   '#475569',
                     fontFamily:  "'Inter', -apple-system, sans-serif",
-                    fontSize:    11,
+                    fontSize:    13,
                 },
                 grid: {
                     vertLines: { color: 'rgba(255,255,255,0.03)' },
@@ -8656,15 +8708,15 @@
 
             // Адаптация при ресайзе
             const ro = new ResizeObserver(() => {
-                if (lwChart && lwChartContainer.offsetWidth > 0) {
+                if (lwChart && lwChartContainer.offsetWidth > 0 && lwChartContainer.offsetHeight > 0) {
                     lwChart.applyOptions({
                         width:  lwChartContainer.offsetWidth,
-                        height: lwChartContainer.offsetHeight || 260,
+                        height: lwChartContainer.offsetHeight,
                     });
+                    lwChart.timeScale().fitContent();
                 }
             });
             ro.observe(lwChartContainer);
-
 
             lwVolumeSeries = lwChart.addHistogramSeries({
                 priceFormat:    { type: 'volume' },
@@ -10527,74 +10579,119 @@
             if (coin && typeof selectCoin === 'function') selectCoin(coin);
         }
 
-        // Автообновление графика каждые 15 секунд
-        function startPriceRefresh() {
-          setInterval(async () => {
-            try {
-                if (typeof selectedCoin === 'undefined' || !selectedCoin) return;
-                // Не обновляем цену во время replay
+        // ── Realtime WebSocket (Binance miniTicker) ──────────────
+        let _priceWs = null;
+        let _priceWsSymbol = null;
+        let _priceWsReconnectTimer = null;
+        let _lastWsPrice = null;
+        let _prevWsPrice = null;
+
+        function formatPrice(price) {
+            if (price >= 1000)  return '$' + Math.round(price).toLocaleString('en-US');
+            if (price >= 1)     return '$' + price.toFixed(2);
+            if (price >= 0.01)  return '$' + price.toFixed(4);
+            return '$' + price.toFixed(7);
+        }
+
+        function applyPriceTick(price) {
+            if (!price) return;
+            _prevWsPrice = _lastWsPrice;
+            _lastWsPrice = price;
+
+            // Обновляем график если серия загружена
+            if (lwSeries && !window.__replayActive && !window.__replayPlaying) {
+                if (chartDisplayType === 'candle' && rawOhlcCache.length) {
+                    const last = rawOhlcCache[rawOhlcCache.length - 1];
+                    const [t, o, h, l, c] = last;
+                    const newHigh = Math.max(h, price);
+                    const newLow  = Math.min(l, price);
+                    rawOhlcCache[rawOhlcCache.length - 1] = [t, o, newHigh, newLow, price];
+                    lwSeries.update({ time: Math.floor(t / 1000), open: o, high: newHigh, low: newLow, close: price });
+                } else if (chartDisplayType === 'line' && rawPricesCache.length) {                    const last = rawPricesCache[rawPricesCache.length - 1];
+                    const t = last[0];
+                    rawPricesCache[rawPricesCache.length - 1] = [t, price];
+                    lwSeries.update({ time: Math.floor(t / 1000), value: price });
+                }
+            }
+
+            // Обновляем fullscreen если открыт
+            if (typeof fsCandleSeries !== 'undefined' && fsCandleSeries && typeof fsOhlcData !== 'undefined' && fsOhlcData.length) {
+                const fsOverlayEl = document.getElementById('fsOverlay');
+                if (fsOverlayEl && fsOverlayEl.classList.contains('active')) {
+                    const fsLast = fsOhlcData[fsOhlcData.length - 1];
+                    const [ft, fo, fh, fl, fc] = fsLast;
+                    const fNewHigh = Math.max(fh, price);
+                    const fNewLow  = Math.min(fl, price);
+                    fsOhlcData[fsOhlcData.length - 1] = [ft, fo, fNewHigh, fNewLow, price, fsLast[5]];
+                    try { fsCandleSeries.update({ time: Math.floor(ft / 1000), open: fo, high: fNewHigh, low: fNewLow, close: price }); } catch {}
+                    const fsPriceEl = document.getElementById('fsPrice');
+                    if (fsPriceEl) fsPriceEl.textContent = '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                }
+            }
+
+            // Обновляем #currentPrice и алерты
+            const priceEl = document.getElementById('currentPrice');
+            if (priceEl) priceEl.textContent = formatPrice(price);
+            if (typeof alertUpdateCoinInfo === 'function' && typeof selectedCoin !== 'undefined') {
+                alertUpdateCoinInfo(selectedCoin.symbol || selectedCoin.id, price);
+            }
+        }
+
+        function startPriceWs(symbol) {
+            if (_priceWs) { try { _priceWs.close(); } catch {} _priceWs = null; }
+            if (_priceWsReconnectTimer) { clearTimeout(_priceWsReconnectTimer); _priceWsReconnectTimer = null; }
+            if (!symbol) return;
+            _priceWsSymbol = symbol;
+            const streamSym = symbol.toLowerCase();
+            const url = `wss://stream.binance.com:9443/ws/${streamSym}@miniTicker`;
+            let ws;
+            try { ws = new WebSocket(url); } catch(e) { return; }
+            _priceWs = ws;
+
+            ws.onmessage = (e) => {
                 if (window._replayActive) return;
-                const binanceSymbol = (typeof BINANCE_SYMBOLS !== 'undefined' && BINANCE_SYMBOLS[selectedCoin.id]) || (selectedCoin.symbol ? selectedCoin.symbol + 'USDT' : 'BTCUSDT');
-                const r = await fetch(`/api/price?symbol=${binanceSymbol}`);
-                if (!r.ok) return;
-                const d = await r.json();
-                const price = parseFloat(d.price || d.lastPrice || 0);
-                if (!price) return;
+                try {
+                    const d = JSON.parse(e.data);
+                    const price = parseFloat(d.c); // close price
+                    if (price) applyPriceTick(price);
+                } catch {}
+            };
+            ws.onerror = () => {};
+            ws.onclose = () => {
+                if (_priceWsSymbol === symbol) {
+                    // Реконнект через 2 сек
+                    _priceWsReconnectTimer = setTimeout(() => startPriceWs(symbol), 2000);
+                }
+            };
+        }
 
-                // Обновляем график если серия загружена
-                if (lwSeries && !window.__replayActive && !window.__replayPlaying) {
-                    if (chartDisplayType === 'candle' && rawOhlcCache.length) {
-                        const last = rawOhlcCache[rawOhlcCache.length - 1];
-                        const [t, o, h, l, c] = last;
-                        const newHigh = Math.max(h, price);
-                        const newLow  = Math.min(l, price);
-                        rawOhlcCache[rawOhlcCache.length - 1] = [t, o, newHigh, newLow, price];
-                        lwSeries.update({ time: Math.floor(t / 1000), open: o, high: newHigh, low: newLow, close: price });
-                    } else if (chartDisplayType === 'line' && rawPricesCache.length) {
-                        const last = rawPricesCache[rawPricesCache.length - 1];
-                        const t = last[0];
-                        rawPricesCache[rawPricesCache.length - 1] = [t, price];
-                        lwSeries.update({ time: Math.floor(t / 1000), value: price });
-                    }
-                }
+        // Переключаем WS при смене монеты — патчим selectCoin
+        const _origSelectCoin = selectCoin;
+        selectCoin = function(coin) {
+            _origSelectCoin(coin);
+            const sym = (typeof BINANCE_SYMBOLS !== 'undefined' && BINANCE_SYMBOLS[coin.id])
+                        || (coin.symbol ? coin.symbol + 'USDT' : null);
+            _lastWsPrice = null;
+            _prevWsPrice = null;
+            hidePriceLabel();
+            startPriceWs(sym);
+        };
 
-                // Обновляем большой (fullscreen) график если открыт
-                if (typeof fsCandleSeries !== 'undefined' && fsCandleSeries && typeof fsOhlcData !== 'undefined' && fsOhlcData.length) {
-                    const fsOverlayEl = document.getElementById('fsOverlay');
-                    if (fsOverlayEl && fsOverlayEl.classList.contains('active')) {
-                        const fsLast = fsOhlcData[fsOhlcData.length - 1];
-                        const [ft, fo, fh, fl, fc] = fsLast;
-                        const fNewHigh = Math.max(fh, price);
-                        const fNewLow  = Math.min(fl, price);
-                        fsOhlcData[fsOhlcData.length - 1] = [ft, fo, fNewHigh, fNewLow, price, fsLast[5]];
-                        try {
-                            fsCandleSeries.update({ time: Math.floor(ft / 1000), open: fo, high: fNewHigh, low: fNewLow, close: price });
-                        } catch {}
-                        // Обновляем цену в шапке fullscreen
-                        const fsPriceEl = document.getElementById('fsPrice');
-                        if (fsPriceEl) fsPriceEl.textContent = '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    }
-                }
-
-                // Всегда обновляем цену внизу и алерты
-                const priceEl = document.getElementById('currentPrice');
-                if (priceEl) {
-                    priceEl.textContent = price >= 1000 ? '$' + Math.round(price).toLocaleString('en-US')
-                                        : price >= 1    ? '$' + price.toFixed(2)
-                                        : price >= 0.01 ? '$' + price.toFixed(4)
-                                        :                 '$' + price.toFixed(7);
-                }
-                if (typeof alertUpdateCoinInfo === 'function' && typeof selectedCoin !== 'undefined') {
-                    alertUpdateCoinInfo(selectedCoin.symbol || selectedCoin.id, price);
-                }
-            } catch(e) { console.warn('Price refresh error:', e); }
-          }, 10 * 1000);
+        // Запуск при инициализации
+        function startPriceRefresh() {
+            const sym = (typeof BINANCE_SYMBOLS !== 'undefined' && BINANCE_SYMBOLS[selectedCoin.id])
+                        || (selectedCoin.symbol ? selectedCoin.symbol + 'USDT' : 'BTCUSDT');
+            startPriceWs(sym);
         }
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', startPriceRefresh);
         } else {
             startPriceRefresh();
         }
+
+        function hidePriceLabel() {}
+        function updatePriceLabel() {}
+        function ensurePriceLabel() {}
 
         // Загрузка графика при старте
         if (document.readyState === 'loading') {
@@ -12429,6 +12526,79 @@
         window._lastScanMarkers = [...allMarkers];
         try { lwSeries.setMarkers(allMarkers); } catch (e) {}
 
+        // --- Панель паттернов маленького графика ---
+        {
+            const smPanel = document.getElementById('smPatternsPanel');
+            const smList = document.getElementById('smPatternsList');
+            if (smPanel && smList) {
+                const stats = {};
+                candlePatterns.forEach(p => {
+                    const key = p.type;
+                    const label = (currentLang === 'en' && p.typeEn) ? p.typeEn : p.type;
+                    if (!stats[key]) stats[key] = { count: 0, direction: p.direction, label, time: p.time };
+                    stats[key].count++;
+                });
+                doublePatterns.forEach(p => {
+                    const isTop = p.type === 'double_top';
+                    const key = p.type;
+                    const label = currentLang === 'en' ? (isTop ? 'Double Top' : 'Double Bottom') : (isTop ? 'Двойная вершина' : 'Двойное дно');
+                    const direction = isTop ? 'bearish' : 'bullish';
+                    if (!stats[key]) stats[key] = { count: 0, direction, label, time: p.time2 };
+                    stats[key].count++;
+                });
+                formingPatterns.forEach(p => {
+                    const isTop = p.type === 'forming_double_top';
+                    const key = p.type;
+                    const label = currentLang === 'en' ? (isTop ? 'Double Top (forming)' : 'Double Bottom (forming)') : (isTop ? 'Двойная вершина (форм.)' : 'Двойное дно (форм.)');
+                    const direction = isTop ? 'bearish' : 'bullish';
+                    if (!stats[key]) stats[key] = { count: 0, direction, label, time: p.time2 };
+                    stats[key].count++;
+                });
+                if (Object.keys(stats).length === 0) {
+                    smList.innerHTML = '<div style="color:#475569;font-size:10px;font-style:italic;">' +
+                        (currentLang === 'en' ? 'No patterns found' : 'Паттернов не найдено') + '</div>';
+                } else {
+                    const countLabel = currentLang === 'en' ? 'pcs.' : 'шт.';
+                    const wr = window._fsWinRateCache || {};
+                    smList.innerHTML = Object.keys(stats).map(key => {
+                        const s = stats[key];
+                        const dotClass = s.direction === 'bearish' ? 'bearish' : (s.direction === 'neutral' ? 'neutral' : 'bullish');
+                        const wrData = wr[key];
+                        let wrHtml = '';
+                        if (wrData) {
+                            wrHtml = '<span style="font-size:10px;font-weight:500;margin-left:4px;' +
+                                (wrData.pct >= 60 ? 'color:#10B981;' : wrData.pct >= 40 ? 'color:#FBBF24;' : 'color:#F87171;') +
+                                '">WR ' + wrData.pct + '%</span>';
+                        } else if (s.direction !== 'neutral' && Object.keys(wr).length > 0) {
+                            wrHtml = '<span style="font-size:9px;margin-left:4px;opacity:0.4;color:#94A3B8;">' +
+                                (currentLang === 'en' ? 'few data' : 'мало данных') + '</span>';
+                        }
+                        return '<div class="sm-pat-item" data-time="' + s.time + '">' +
+                            '<div class="sm-pat-dot ' + dotClass + '"></div>' +
+                            '<span class="sm-pat-name">' + s.label + '</span>' +
+                            '<span class="sm-pat-dir">' + s.count + ' ' + countLabel + wrHtml + '</span></div>';
+                    }).join('');
+                }
+                smPanel.classList.add('active');
+            }
+        }
+
+        // --- Загрузка Win Rate ---
+        if (typeof PatternScanner !== 'undefined' && typeof PatternScanner.calcWinRate === 'function') {
+            const _coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+            const _sym = typeof BINANCE_SYMBOLS !== 'undefined' ? BINANCE_SYMBOLS[_coinId] : null;
+            if (_sym && !window._fsWinRateCache) {
+                fetch('/api/ohlc?symbol=' + _sym + '&interval=1d&limit=365')
+                    .then(r => r.json()).then(data => {
+                        if (Array.isArray(data) && data.length > 50) {
+                            const wc = data.map(k => ({ time:Math.floor(k[0]/1000), open:+k[1], high:+k[2], low:+k[3], close:+k[4] }));
+                            window._fsWinRateCache = PatternScanner.calcWinRate(wc, 30);
+                            if (window.smallScanActive && window.runSmallScan) window.runSmallScan();
+                        }
+                    }).catch(() => {});
+            }
+        }
+
         // --- Уровни поддержки/сопротивления ---
         const levelsFilterOn = document.getElementById('filterLevelsApp');
         if (typeof PatternScanner.scanLevels === 'function' && (!levelsFilterOn || levelsFilterOn.checked)) {
@@ -12477,6 +12647,7 @@
 
     window.clearSmallScan = function clearSmallScan() {
         try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
+        var smP = document.getElementById('smPatternsPanel'); if (smP) smP.classList.remove('active');
         if (window._smallExtraSeries) {
             window._smallExtraSeries.forEach(series => {
                 try { lwChart.removeSeries(series); } catch {}
@@ -12484,6 +12655,13 @@
             window._smallExtraSeries = [];
         }
     };
+
+    // Toggle панели паттернов
+    var _smPH = document.getElementById('smPatternsHeader');
+    if (_smPH) _smPH.addEventListener('click', function() {
+        var p = document.getElementById('smPatternsPanel');
+        if (p) p.classList.toggle('collapsed');
+    });
 
     const scanBtnAppEl = document.getElementById('scanBtnApp');
     if (scanBtnAppEl) {
@@ -15639,7 +15817,6 @@ function renderPosition(g, ann, sel) {
     // X anchor: from entry time pixel position
     let xStart = ann.entryTime != null ? annChart().timeScale().timeToCoordinate(ann.entryTime) : null;
     if (xStart == null) {
-        // extrapolate if needed
         if (window.__annOhlcData().length >= 2) {
             const l1 = window.__annOhlcData()[window.__annOhlcData().length-1], l2 = window.__annOhlcData()[window.__annOhlcData().length-2];
             const x1 = annChart().timeScale().timeToCoordinate(l1.time);
@@ -15652,16 +15829,17 @@ function renderPosition(g, ann, sel) {
     }
     if (xStart == null) xStart = 100;
 
-    const ZW = (() => {
-        // Width = 20 bars in pixels
+    // Ширина зоны — сохраняем в ann.zoneWidth для растягивания
+    if (!ann.zoneWidth) {
         if (window.__annOhlcData().length >= 2) {
             const l1 = window.__annOhlcData()[window.__annOhlcData().length-1], l2 = window.__annOhlcData()[window.__annOhlcData().length-2];
-            const x1 = annChart().timeScale().timeToCoordinate(l1.time);
-            const x2 = annChart().timeScale().timeToCoordinate(l2.time);
-            if (x1 != null && x2 != null) return Math.max(20, Math.abs(x1-x2) * 20);
+            const px1 = annChart().timeScale().timeToCoordinate(l1.time);
+            const px2 = annChart().timeScale().timeToCoordinate(l2.time);
+            if (px1 != null && px2 != null) ann.zoneWidth = Math.max(40, Math.abs(px1-px2) * 20);
         }
-        return 120;
-    })();
+        if (!ann.zoneWidth) ann.zoneWidth = 120;
+    }
+    const ZW = ann.zoneWidth;
     const x0 = xStart, x1 = xStart + ZW;
 
     const GREEN = '#10B981', RED = '#EF4444', ENTRY_C = '#F1F5F9';
@@ -15691,83 +15869,78 @@ function renderPosition(g, ann, sel) {
     const lossP  = ann.entry > 0 ? (risk/ann.entry*100).toFixed(2) : '—';
     const profP  = ann.entry > 0 ? (reward/ann.entry*100).toFixed(2) : '—';
 
-    // ── Labels (right of zone) ──
-    const LX = x1 + 6, LW = 160;
-    const pad = 5, lh = 15;
+    // ── Labels (above/below zones) ──
+    const LW = Math.min(ZW, 160);
+    const pad = 4, lh = 14;
 
-    // ── Price editor popup (reuse ann-text-input style) ──
     function makeLabelClickable(rectEl, field, currentPrice) {
         rectEl.style.cursor = 'text';
         rectEl.addEventListener('mousedown', e => e.stopPropagation());
         rectEl.addEventListener('click', (e) => {
             e.stopPropagation();
-            // Get SVG position → screen position
-            const caRect = annChartArea.getBoundingClientRect();
             const svgX = parseFloat(rectEl.getAttribute('x'));
             const svgY = parseFloat(rectEl.getAttribute('y'));
             const svgW = parseFloat(rectEl.getAttribute('width'));
             const svgH = parseFloat(rectEl.getAttribute('height'));
-
-            // Position input over the label
             const inp = document.getElementById('ann-text-input');
-            inp.style.display    = 'block';
-            inp.style.left       = (svgX) + 'px';
-            inp.style.top        = (svgY) + 'px';
-            inp.style.width      = svgW + 'px';
-            inp.style.height     = svgH + 'px';
-            inp.style.fontSize   = '11px';
+            inp.style.display = 'block';
+            inp.style.left = svgX + 'px';
+            inp.style.top = svgY + 'px';
+            inp.style.width = svgW + 'px';
+            inp.style.height = svgH + 'px';
+            inp.style.fontSize = '11px';
             inp.style.fontWeight = '600';
-            inp.style.color      = '#E2E8F0';
-            inp.style.padding    = '0 6px';
-            inp.style.boxSizing  = 'border-box';
-            inp.value            = String(currentPrice);
+            inp.style.color = '#E2E8F0';
+            inp.style.padding = '0 6px';
+            inp.style.boxSizing = 'border-box';
+            inp.value = String(currentPrice);
             inp.select();
             setTimeout(() => inp.focus(), 10);
-
             function commit() {
                 const val = parseFloat(inp.value.replace(/,/g, ''));
-                inp.style.display = 'none';
-                inp.style.width = '';
-                inp.style.height = '';
-                if (!isNaN(val) && val > 0) {
-                    ann[field] = val;
-                    renderAnnotations();
-                }
+                inp.style.display = 'none'; inp.style.width = ''; inp.style.height = '';
+                if (!isNaN(val) && val > 0) { ann[field] = val; renderAnnotations(); }
             }
-            inp.onkeydown = (ev) => {
-                if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
-                if (ev.key === 'Escape') { inp.style.display='none'; inp.style.width=''; inp.style.height=''; }
-            };
+            inp.onkeydown = (ev) => { if (ev.key==='Enter'){ev.preventDefault();commit();} if (ev.key==='Escape'){inp.style.display='none';inp.style.width='';inp.style.height='';} };
             inp.onblur = () => setTimeout(commit, 80);
         });
     }
 
-    function labelAt(y, color, lines, field, currentPrice) {
+    function labelAboveBelow(yAnchor, above, color, lines, field, currentPrice) {
         const ph = lines.length * lh + pad*2;
-        const py = y - ph/2;
-        const bg = mk('rect', { x:LX, y:py, width:LW, height:ph, rx:3,
+        const py = above ? yAnchor - ph - 4 : yAnchor + 4;
+        const lx = x0 + (ZW - LW) / 2;
+        const bg = mk('rect', { x:lx, y:py, width:LW, height:ph, rx:3,
             fill:'rgba(5,12,24,0.88)', stroke:color, 'stroke-width':'1',
             'pointer-events': field ? 'all' : 'none' });
         g.appendChild(bg);
         if (field) makeLabelClickable(bg, field, currentPrice);
         lines.forEach((line, i) => {
-            const t = mk('text', { x:LX+pad, y:py+pad+(i+0.5)*lh,
+            const t = mk('text', { x:lx+LW/2, y:py+pad+(i+0.5)*lh,
                 fill:line.c||color, 'font-size':line.fs||'10', 'font-weight':line.w||'400',
-                'dominant-baseline':'central', 'pointer-events':'none',
+                'dominant-baseline':'central', 'text-anchor':'middle', 'pointer-events':'none',
                 'font-family':'Inter,-apple-system,sans-serif' });
             t.textContent = line.t;
             g.appendChild(t);
         });
     }
 
-    labelAt(yTarget, GREEN, [
-        { t:`TP  ${formatPrice(ann.target)}`, w:'600' },
-        { t:`+${profP}%   RR 1:${rr}`, c:GREEN, fs:'9' },
-    ], 'target', ann.target);
-    labelAt(yStop, RED, [
-        { t:`SL  ${formatPrice(ann.stop)}`, w:'600' },
-        { t:`-${lossP}%`, c:RED, fs:'9' },
+    // SL: above loss zone for long, below for short
+    // SL: above SL line (outside loss zone)
+    // Long: SL внизу → подпись ПОД красной зоной
+    // Short: SL вверху → подпись НАД красной зоной
+    labelAboveBelow(isLong ? lossBot : lossTop, !isLong, RED, [
+        { t:'SL  ' + formatPrice(ann.stop), w:'600' },
+        { t:'-' + lossP + '%', c:RED, fs:'9' },
     ], 'stop', ann.stop);
+
+    // TP: outside profit zone
+    // Long: TP вверху → подпись НАД зелёной зоной
+    // Short: TP внизу → подпись ПОД зелёной зоной
+    labelAboveBelow(isLong ? profitTop : profitBot, isLong, GREEN, [
+        { t:'TP  ' + formatPrice(ann.target), w:'600' },
+        { t:'+' + profP + '%   RR 1:' + rr, c:GREEN, fs:'9' },
+    ], 'target', ann.target);
 
     // ── Drag handles — invisible bars on lines ──
     function dragHandle(yPx, field, color) {
@@ -15776,10 +15949,26 @@ function renderPosition(g, ann, sel) {
         hit.style.cursor = 'ns-resize';
         hit.addEventListener('mousedown', (e) => {
             e.stopPropagation();
-            dragState = { annId:ann.id,
-                snap:{ entry:ann.entry, stop:ann.stop, target:ann.target },
-                startX:e.clientX, startY:e.clientY, moved:false, el:null,
-                posField:field };
+            e.preventDefault();
+            const startY = e.clientY;
+            const startPrice = ann[field];
+            function onMove(ev) {
+                const dy = ev.clientY - startY;
+                const origY = annSeries().priceToCoordinate(startPrice);
+                if (origY != null) {
+                    const newP = annSeries().coordinateToPrice(origY + dy);
+                    if (newP != null && newP > 0) {
+                        ann[field] = newP;
+                        renderAnnotations();
+                    }
+                }
+            }
+            function onUp() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
         });
         g.appendChild(hit);
         g.appendChild(mk('circle', { cx:x0+ZW/2, cy:yPx, r:3.5,
@@ -15787,6 +15976,62 @@ function renderPosition(g, ann, sel) {
     }
     dragHandle(yTarget, 'target', GREEN);
     dragHandle(yStop,   'stop',   RED);
+
+    // ── Corner square handles for width resize ──
+    {
+        const allTop = Math.min(profitTop, lossTop);
+        const allBot = Math.max(profitBot, lossBot);
+        const SQ = 7; // размер квадратика
+        const corners = [
+            { cx: x0, cy: allTop },      // top-left
+            { cx: x1, cy: allTop },      // top-right
+            { cx: x0, cy: allBot },      // bottom-left
+            { cx: x1, cy: allBot },      // bottom-right
+        ];
+
+        function makeWidthResize(e, side) {
+            e.stopPropagation();
+            const startX = e.clientX;
+            const startW = ann.zoneWidth;
+            const startEntryTime = ann.entryTime;
+            function onMove(ev) {
+                const dx = ev.clientX - startX;
+                if (side === 'right') {
+                    ann.zoneWidth = Math.max(40, startW + dx);
+                } else {
+                    // Левый край: сдвигаем entryTime и уменьшаем ширину
+                    ann.zoneWidth = Math.max(40, startW - dx);
+                    // Пересчитываем entryTime по dx
+                    if (window.__annOhlcData().length >= 2) {
+                        const l1 = window.__annOhlcData()[window.__annOhlcData().length-1];
+                        const l2 = window.__annOhlcData()[window.__annOhlcData().length-2];
+                        const px1 = annChart().timeScale().timeToCoordinate(l1.time);
+                        const px2 = annChart().timeScale().timeToCoordinate(l2.time);
+                        if (px1 != null && px2 != null) {
+                            const secPerPx = (l1.time - l2.time) / (px1 - px2);
+                            ann.entryTime = startEntryTime + dx * secPerPx;
+                        }
+                    }
+                }
+                renderAnnotations();
+            }
+            function onUp() { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        }
+
+        corners.forEach((c, i) => {
+            const isRight = (i === 1 || i === 3);
+            const sq = mk('rect', {
+                x: c.cx - SQ/2, y: c.cy - SQ/2, width: SQ, height: SQ,
+                fill: 'rgba(5,12,24,0.9)', stroke: '#818CF8', 'stroke-width': '1.5',
+                rx: 1, 'pointer-events': 'all'
+            });
+            sq.style.cursor = 'ew-resize';
+            sq.addEventListener('mousedown', (e) => makeWidthResize(e, isRight ? 'right' : 'left'));
+            g.appendChild(sq);
+        });
+    }
 
     // ── Move whole position: drag anywhere in the zone ──
     const allTop  = Math.min(profitTop, lossTop);
@@ -15843,6 +16088,10 @@ function setTool(name) {
     ['text','arrow','signal','card','rect','hline','long','short','delete'].forEach(t => {
         const el = document.getElementById(`ann-tool-${t}`);
         if (el) el.classList.toggle('active', t===name);
+    });
+    // Синхронизируем кнопки маленького графика
+    document.querySelectorAll('.small-ann-btn').forEach(function(b) {
+        b.classList.toggle('active', !!name && b.dataset.tool === name);
     });
     if (name) annChartArea.setAttribute('data-ann-tool', name); else annChartArea.removeAttribute('data-ann-tool');
     const hints = {
@@ -17205,17 +17454,15 @@ function drawEntryExitFlags(showEntry, showExit) {
             const yStart = isLong ? yPrice1 + 2 : yPrice1 - 2;
             const yBase = isLong ? yPrice1 + 22 + extraOffset : yPrice1 - 22 - extraOffset;
             const yStem = isLong ? yBase + 16 : yBase - 16;
-            const priceStr = formatPrice(point1.price);
             const labelText = arrow + ' Entry';
-            const boxW = Math.max(priceStr.length * 7 + 16, 78);
-            const boxH = 28;
+            const boxW = 60;
+            const boxH = 20;
             const boxY = yStem - boxH/2;
+            const bx1 = x1 - boxW/2;
             markerSvg.innerHTML += `
                 <line x1="${x1}" y1="${yStart}" x2="${x1}" y2="${yStem}" stroke="#10B981" stroke-width="1.5"/>
-                <line x1="${x1}" y1="${yStem}" x2="${x1 + 14}" y2="${yStem}" stroke="#10B981" stroke-width="1.5"/>
-                <rect x="${x1 + 14}" y="${boxY}" width="${boxW}" height="${boxH}" rx="5" fill="#10B981"/>
-                <text x="${x1 + 14 + boxW/2}" y="${boxY + 11}" text-anchor="middle" fill="#fff" font-size="10" font-weight="700" font-family="sans-serif">${labelText}</text>
-                <text x="${x1 + 14 + boxW/2}" y="${boxY + 22}" text-anchor="middle" fill="rgba(255,255,255,0.75)" font-size="9" font-family="sans-serif">${priceStr}</text>
+                <rect x="${bx1}" y="${boxY}" width="${boxW}" height="${boxH}" rx="5" fill="#10B981"/>
+                <text x="${x1}" y="${boxY + 14}" text-anchor="middle" fill="#fff" font-size="10" font-weight="700" font-family="sans-serif">${labelText}</text>
             `;
         }
     }
@@ -17231,17 +17478,15 @@ function drawEntryExitFlags(showEntry, showExit) {
             const yStart = isLong ? yPrice2 - 2 : yPrice2 + 2;
             const yBase = isLong ? yPrice2 - 22 - extraOffset : yPrice2 + 22 + extraOffset;
             const yStem = isLong ? yBase - 16 : yBase + 16;
-            const priceStr = formatPrice(point2.price);
             const labelText = exitArrow + ' Exit';
-            const boxW = Math.max(priceStr.length * 7 + 16, 70);
-            const boxH = 28;
+            const boxW = 52;
+            const boxH = 20;
             const boxY = yStem - boxH/2;
+            const bx2 = x2 - boxW/2;
             markerSvg.innerHTML += `
                 <line x1="${x2}" y1="${yStart}" x2="${x2}" y2="${yStem}" stroke="#EF4444" stroke-width="1.5"/>
-                <line x1="${x2}" y1="${yStem}" x2="${x2 + 14}" y2="${yStem}" stroke="#EF4444" stroke-width="1.5"/>
-                <rect x="${x2 + 14}" y="${boxY}" width="${boxW}" height="${boxH}" rx="5" fill="#EF4444"/>
-                <text x="${x2 + 14 + boxW/2}" y="${boxY + 11}" text-anchor="middle" fill="#fff" font-size="10" font-weight="700" font-family="sans-serif">${labelText}</text>
-                <text x="${x2 + 14 + boxW/2}" y="${boxY + 22}" text-anchor="middle" fill="rgba(255,255,255,0.75)" font-size="9" font-family="sans-serif">${priceStr}</text>
+                <rect x="${bx2}" y="${boxY}" width="${boxW}" height="${boxH}" rx="5" fill="#EF4444"/>
+                <text x="${x2}" y="${boxY + 14}" text-anchor="middle" fill="#fff" font-size="10" font-weight="700" font-family="sans-serif">${labelText}</text>
             `;
         }
     }
