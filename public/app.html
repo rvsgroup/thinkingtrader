@@ -5837,6 +5837,141 @@
         .sm-pat-name { color: #E2E8F0; font-weight: 600; font-size: 11px; flex: 1; }
         .sm-pat-dir { font-size: 10px; color: #64748B; white-space: nowrap; }
 
+
+        /* Запрет выделения текста при перетаскивании аннотаций */
+        body.ann-dragging,
+        body.ann-dragging * {
+            user-select: none !important;
+            -webkit-user-select: none !important;
+        }
+
+        /* ── Контекстное меню аннотаций ── */
+
+        /* ── Hline sub-panel в контекстном меню ── */
+        #ann-ctx-hline-panel {
+            display: none;
+            padding: 8px 12px 10px;
+            border-top: 1px solid rgba(255,255,255,0.07);
+        }
+        #ann-ctx-hline-panel.visible { display: block; }
+        .ann-ctx-sub-label {
+            font-size: 9px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.7px; color: rgba(255,255,255,0.2);
+            margin-bottom: 6px; margin-top: 8px;
+        }
+        .ann-ctx-sub-label:first-child { margin-top: 0; }
+        .ann-ctx-color-row {
+            display: flex; align-items: center; gap: 6px;
+        }
+        .ann-ctx-color-swatch {
+            width: 22px; height: 22px; border-radius: 5px;
+            cursor: pointer; border: 2px solid transparent;
+            flex-shrink: 0; transition: border-color 0.1s, transform 0.1s;
+        }
+        .ann-ctx-color-swatch:hover { transform: scale(1.15); }
+        .ann-ctx-color-swatch.active { border-color: #fff; }
+        .ann-ctx-custom-color {
+            width: 22px; height: 22px; border-radius: 5px;
+            cursor: pointer; border: 1px dashed rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.05);
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; position: relative; transition: border-color 0.1s;
+        }
+        .ann-ctx-custom-color:hover { border-color: rgba(255,255,255,0.5); }
+        .ann-ctx-custom-color input[type=color] {
+            position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%;
+            cursor: pointer; border: none; padding: 0;
+        }
+        .ann-ctx-opacity-row {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .ann-ctx-opacity-slider {
+            flex: 1; height: 4px; border-radius: 2px;
+            -webkit-appearance: none; appearance: none;
+            background: rgba(255,255,255,0.12); cursor: pointer; outline: none;
+        }
+        .ann-ctx-opacity-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 13px; height: 13px;
+            border-radius: 50%; background: #fff; cursor: pointer;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+        }
+        .ann-ctx-opacity-val {
+            font-size: 10px; color: rgba(255,255,255,0.45);
+            min-width: 32px; text-align: right;
+        }
+        .ann-ctx-style-row {
+            display: flex; gap: 5px;
+        }
+        .ann-ctx-style-btn {
+            flex: 1; padding: 5px 4px; border-radius: 5px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: transparent; color: rgba(255,255,255,0.4);
+            cursor: pointer; font-size: 10px; font-family: inherit;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.1s, color 0.1s, border-color 0.1s;
+        }
+        .ann-ctx-style-btn:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75); }
+        .ann-ctx-style-btn.active { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); color: #818CF8; }
+        .ann-ctx-width-row {
+            display: flex; gap: 5px;
+        }
+        .ann-ctx-width-btn {
+            flex: 1; padding: 5px 4px; border-radius: 5px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: transparent; color: rgba(255,255,255,0.4);
+            cursor: pointer; font-size: 10px; font-family: inherit; font-weight: 700;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.1s, color 0.1s, border-color 0.1s;
+        }
+        .ann-ctx-width-btn:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75); }
+        .ann-ctx-width-btn.active { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); color: #818CF8; }
+
+        #ann-context-menu {
+            position: fixed;
+            z-index: 9999;
+            background: #0F1923;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 4px 0;
+            min-width: 160px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+            display: none;
+            font-family: 'Inter', -apple-system, sans-serif;
+            user-select: none;
+        }
+        #ann-context-menu.visible { display: block; }
+        .ann-ctx-item {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 7px 14px;
+            font-size: 12px;
+            font-weight: 500;
+            color: rgba(255,255,255,0.65);
+            cursor: pointer;
+            transition: background 0.1s, color 0.1s;
+            letter-spacing: 0.1px;
+        }
+        .ann-ctx-item:hover {
+            background: rgba(255,255,255,0.06);
+            color: rgba(255,255,255,0.9);
+        }
+        .ann-ctx-item.danger { color: rgba(239,68,68,0.8); }
+        .ann-ctx-item.danger:hover { background: rgba(239,68,68,0.08); color: #EF4444; }
+        .ann-ctx-sep {
+            height: 1px;
+            background: rgba(255,255,255,0.07);
+            margin: 3px 0;
+        }
+        .ann-ctx-header {
+            padding: 5px 14px 4px;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: rgba(255,255,255,0.2);
+        }
+
     </style>
 
     <!-- Firebase SDK (compat) -->
@@ -5850,6 +5985,60 @@
     <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Orbitron:wght@400;600;700&family=Oxanium:wght@400;600;700&family=Rajdhani:wght@400;600;700&family=Exo+2:wght@400;700&family=Electrolize&family=Space+Grotesk:wght@400;600;700&family=Syne:wght@400;600;700&family=Montserrat:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Fira+Code:wght@400;600&family=VT323&display=swap" rel="stylesheet">
 </head>
 <div id="ann-g-tooltip"></div>
+
+    <!-- Контекстное меню аннотаций -->
+    <div id="ann-context-menu">
+        <div class="ann-ctx-header" id="ann-ctx-type-label">Annotation</div>
+
+        <!-- Hline-specific panel -->
+        <div id="ann-ctx-hline-panel">
+            <div class="ann-ctx-sub-label">Color</div>
+            <div class="ann-ctx-color-row" id="ann-ctx-hline-colors">
+                <div class="ann-ctx-color-swatch" style="background:#EF4444" data-color="#EF4444"></div>
+                <div class="ann-ctx-color-swatch" style="background:#FFF700" data-color="#FFF700"></div>
+                <div class="ann-ctx-color-swatch" style="background:#F59E0B" data-color="#F59E0B"></div>
+                <div class="ann-ctx-color-swatch" style="background:#10B981" data-color="#10B981"></div>
+                <div class="ann-ctx-color-swatch" style="background:#3B82F6" data-color="#3B82F6"></div>
+                <div class="ann-ctx-color-swatch" style="background:#818CF8" data-color="#818CF8"></div>
+                <div class="ann-ctx-color-swatch" style="background:#A78BFA" data-color="#A78BFA"></div>
+                <div class="ann-ctx-color-swatch" style="background:#fff" data-color="#ffffff"></div>
+                <div class="ann-ctx-custom-color" title="Custom color">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <input type="color" id="ann-ctx-hline-custom-color" value="#F59E0B">
+                </div>
+            </div>
+            <div class="ann-ctx-sub-label" style="margin-top:9px">Opacity</div>
+            <div class="ann-ctx-opacity-row">
+                <input type="range" class="ann-ctx-opacity-slider" id="ann-ctx-hline-opacity" min="10" max="100" value="100">
+                <span class="ann-ctx-opacity-val" id="ann-ctx-hline-opacity-val">100%</span>
+            </div>
+            <div class="ann-ctx-sub-label" style="margin-top:9px">Style</div>
+            <div class="ann-ctx-style-row">
+                <button class="ann-ctx-style-btn active" data-style="solid">
+                    <svg width="28" height="8" viewBox="0 0 28 8"><line x1="0" y1="4" x2="28" y2="4" stroke="currentColor" stroke-width="2"/></svg>
+                </button>
+                <button class="ann-ctx-style-btn" data-style="dashed">
+                    <svg width="28" height="8" viewBox="0 0 28 8"><line x1="0" y1="4" x2="28" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="6 4"/></svg>
+                </button>
+                <button class="ann-ctx-style-btn" data-style="dotted">
+                    <svg width="28" height="8" viewBox="0 0 28 8"><line x1="0" y1="4" x2="28" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="2 4"/></svg>
+                </button>
+            </div>
+            <div class="ann-ctx-sub-label" style="margin-top:9px">Width</div>
+            <div class="ann-ctx-width-row">
+                <button class="ann-ctx-width-btn" data-width="1">1px</button>
+                <button class="ann-ctx-width-btn active" data-width="2">2px</button>
+                <button class="ann-ctx-width-btn" data-width="3">3px</button>
+                <button class="ann-ctx-width-btn" data-width="4">4px</button>
+            </div>
+        </div>
+
+        <div class="ann-ctx-sep"></div>
+        <div class="ann-ctx-item danger" id="ann-ctx-delete">
+            <svg width="13" height="13" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4.5 16,4.5"/><path d="M6.5 4.5V3h5v1.5"/><path d="M3.5 4.5l1 10h9l1-10"/></svg>
+            Delete
+        </div>
+    </div>
 <body>
     <!-- Background layers (same as landing page) -->
     <div class="bg-layer bg-gradients"></div>
@@ -5962,6 +6151,7 @@
                                 <button class="period-btn" data-period="7">7Д</button>
                                 <button class="period-btn" data-period="30">30Д</button>
                                 <button class="period-btn" data-period="90">90Д</button>
+                                <button class="period-btn" data-period="365">1Г</button>
                             </div>
                             <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <div class="chart-type-toggle">
@@ -5985,6 +6175,7 @@
                                     <button class="replay-ctrl-btn" id="replayPauseBtn" style="display:none">⏸</button>
                                     <button class="replay-ctrl-btn" id="replayResetBtn" disabled>↺</button>
                                     <div class="replay-sep-inline"></div>
+                                    <button class="replay-speed-btn" data-speed="2">x2</button>
                                     <button class="replay-speed-btn active" data-speed="4">x4</button>
                                     <button class="replay-speed-btn" data-speed="8">x8</button>
                                     <button class="replay-speed-btn" data-speed="12">x12</button>
@@ -6013,6 +6204,9 @@
                                 <button class="small-ann-btn" data-tool="hline" title="Горизонтальная линия">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="9" x2="16" y2="9"/><circle cx="2" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="9" r="1.3" fill="currentColor" stroke="none"/></svg>
                                 </button>
+                                <button class="small-ann-btn" data-tool="trendline" title="Trend line">
+                                    <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="14" x2="16" y2="4"/><circle cx="2" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="4" r="1.3" fill="currentColor" stroke="none"/></svg>
+                                </button>
                                 <button class="small-ann-btn" data-tool="long" title="Long Position">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="14" height="4" rx="1" fill="rgba(16,185,129,0.18)" stroke="#10B981" stroke-width="1.3"/><rect x="2" y="13" width="14" height="3" rx="1" fill="rgba(239,68,68,0.12)" stroke="#EF4444" stroke-width="1.3"/><polyline points="6,7 9,3.5 12,7" stroke="#10B981" stroke-width="1.5" fill="none"/></svg>
                                 </button>
@@ -6020,13 +6214,6 @@
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="14" height="3" rx="1" fill="rgba(239,68,68,0.12)" stroke="#EF4444" stroke-width="1.3"/><rect x="2" y="5" width="14" height="4" rx="1" fill="rgba(16,185,129,0.18)" stroke="#10B981" stroke-width="1.3"/><polyline points="6,11 9,14.5 12,11" stroke="#EF4444" stroke-width="1.5" fill="none"/></svg>
                                 </button>
                                 <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);margin:0 3px;flex-shrink:0;"></div>
-                                <button class="small-ann-preset ann-preset-bearish" data-tool="preset-open">↓ OPEN</button>
-                                <button class="small-ann-preset ann-preset-bullish" data-tool="preset-close">✓ CLOSE</button>
-                                <button class="small-ann-preset ann-preset-profit" data-tool="preset-result">✨ Результат</button>
-                                <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);margin:0 3px;flex-shrink:0;"></div>
-                                <button class="small-ann-btn small-ann-red" data-tool="delete" title="Удалить">
-                                    <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4.5 16,4.5"/><path d="M6.5 4.5V3h5v1.5"/><path d="M3.5 4.5l1 10h9l1-10"/></svg>
-                                </button>
                                 <button class="small-ann-btn small-ann-red" data-tool="clear" title="Очистить всё">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="3" y1="3" x2="15" y2="15"/><line x1="15" y1="3" x2="3" y2="15"/></svg>
                                 </button>
@@ -6073,6 +6260,8 @@
                     <!-- Наш график -->
                     <div id="ourChartWrap" style="width:100%;height:100%;position:absolute;top:0;left:0;">
                         <div id="lwPriceChart" style="width:100%;height:100%;"></div>
+                        <!-- Кнопка "перемотать к текущему" -->
+                        <button id="scrollToNowBtn" title="К текущей цене" style="display:none;position:absolute;bottom:36px;right:62px;z-index:20;width:36px;height:36px;border-radius:8px;background:rgba(15,23,42,0.92);border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.75);cursor:pointer;align-items:center;justify-content:center;transition:opacity 0.2s,border-color 0.2s;backdrop-filter:blur(6px);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg></button>
                         <canvas id="rulerCanvasSmall" class="ruler-canvas"></canvas>
                         <div id="lwOhlcLegend" class="lw-ohlc-legend" style="display:none;"></div>
                         <!-- Replay scissors overlay -->
@@ -7248,7 +7437,7 @@
 
                 // График
                 chartTitle: 'График цены', chartLoading: 'Загрузка графика...',
-                periodD1: '1Д', periodD7: '7Д', periodD30: '30Д', periodD90: '90Д',
+                periodD1: '1Д', periodD7: '7Д', periodD30: '30Д', periodD90: '90Д', periodY1: '1Г', periodY3: '3Г', periodY5: '5Г',
 
                 // Калькулятор — хаб
                 calcTabSell: 'Спот', calcTabMargin: 'Маржа', calcTabDca: 'DCA',
@@ -7568,7 +7757,7 @@
 
                 // График
                 chartTitle: 'Price Chart', chartLoading: 'Loading chart...',
-                periodD1: '1D', periodD7: '7D', periodD30: '30D', periodD90: '90D',
+                periodD1: '1D', periodD7: '7D', periodD30: '30D', periodD90: '90D', periodY1: '1Y', periodY3: '3Y', periodY5: '5Y',
 
                 // Калькулятор — хаб
                 calcTabSell: 'Spot', calcTabMargin: 'Margin', calcTabDca: 'DCA',
@@ -8367,16 +8556,19 @@
                     limit = 500;
                 } else if (days <= 1) {
                     interval = '1d';
-                    limit = 500;
+                    limit = 1000;  // ~2.7 лет дневных свечей
                 } else if (days <= 7) {
                     interval = '1w';
-                    limit = 200;
+                    limit = 400;  // ~7.7 лет недельных
                 } else if (days <= 30) {
                     interval = '1M';
-                    limit = 200;
-                } else {
+                    limit = 100;  // ~8 лет месячных
+                } else if (days <= 180) {
                     interval = '1M';
-                    limit = 500;
+                    limit = 100;
+                } else {
+                    interval = '1w';
+                    limit = 400;  // ~7.7 лет недельных — покрывает 1Г/3Г/5Г
                 }
                 
                 const r = await fetch(`/api/chart?symbol=${symbol}&interval=${interval}&limit=${limit}`);
@@ -8403,23 +8595,26 @@
                 let interval, limit;
                 
                 if (days <= 0.04) {
-                    interval = '1h';  // 1Ч = часовые свечи
+                    interval = '1h';
                     limit = 500;
                 } else if (days <= 0.17) {
-                    interval = '4h';  // 4Ч = 4-часовые свечи
+                    interval = '4h';
                     limit = 500;
                 } else if (days <= 1) {
-                    interval = '1d';  // 1Д = дневные свечи
-                    limit = 500;
+                    interval = '1d';
+                    limit = 1000;  // ~2.7 лет дневных
                 } else if (days <= 7) {
-                    interval = '1w';  // 7Д = недельные свечи
-                    limit = 200;
+                    interval = '1w';
+                    limit = 400;  // ~7.7 лет недельных
                 } else if (days <= 30) {
-                    interval = '1M';  // 30Д = месячные свечи
-                    limit = 200;
+                    interval = '1M';
+                    limit = 100;  // ~8 лет месячных
+                } else if (days <= 180) {
+                    interval = '1M';
+                    limit = 100;
                 } else {
-                    interval = '1M';  // 90Д = месячные свечи
-                    limit = 500;
+                    interval = '1w';
+                    limit = 400;  // ~7.7 лет — покрывает 1Г/3Г/5Г
                 }
                 
                 const r = await fetch(`/api/ohlc?symbol=${symbol}&interval=${interval}&limit=${limit}`);
@@ -10936,7 +11131,7 @@
             });
 
             // Кнопки периода
-            const periodMap = { 1: tr.periodD1, 7: tr.periodD7, 30: tr.periodD30, 90: tr.periodD90 };
+            const periodMap = { 1: tr.periodD1, 7: tr.periodD7, 30: tr.periodD30, 90: tr.periodD90, 365: tr.periodY1 || '1Г', 1095: tr.periodY3 || '3Г', 1825: tr.periodY5 || '5Г' };
             document.querySelectorAll('.period-btn').forEach(btn => {
                 const p = parseFloat(btn.dataset.period);
                 if (periodMap[p]) btn.textContent = periodMap[p];
@@ -14147,19 +14342,15 @@
         <button class="ann-tool-btn" id="ann-tool-hline" data-ann-tooltip="Горизонтальная линия">
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="9" x2="16" y2="9"/><circle cx="2" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="9" r="1.3" fill="currentColor" stroke="none"/></svg>
         </button>
+        <button class="ann-tool-btn" id="ann-tool-trendline" data-ann-tooltip="Trend line">
+            <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="14" x2="16" y2="4"/><circle cx="2" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="4" r="1.3" fill="currentColor" stroke="none"/></svg>
+        </button>
         <button class="ann-tool-btn" id="ann-tool-long" data-ann-tooltip="Long Position">
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="14" height="4" rx="1" fill="rgba(16,185,129,0.18)" stroke="#10B981" stroke-width="1.3"/><rect x="2" y="13" width="14" height="3" rx="1" fill="rgba(239,68,68,0.12)" stroke="#EF4444" stroke-width="1.3"/><polyline points="6,7 9,3.5 12,7" stroke="#10B981" stroke-width="1.5" fill="none"/></svg>
         </button>
         <button class="ann-tool-btn" id="ann-tool-short" data-ann-tooltip="Short Position">
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="14" height="3" rx="1" fill="rgba(239,68,68,0.12)" stroke="#EF4444" stroke-width="1.3"/><rect x="2" y="5" width="14" height="4" rx="1" fill="rgba(16,185,129,0.18)" stroke="#10B981" stroke-width="1.3"/><polyline points="6,11 9,14.5 12,11" stroke="#EF4444" stroke-width="1.5" fill="none"/></svg>
         </button>
-
-        <div class="ann-bar-sep"></div>
-
-        <span class="ann-bar-label" style="font-size:9px">Пресеты</span>
-        <button class="ann-preset-btn ann-preset-bearish" data-ann-preset="open-bearish">↓ OPEN</button>
-        <button class="ann-preset-btn ann-preset-bullish" data-ann-preset="close-profit">✓ CLOSE</button>
-        <button class="ann-preset-btn ann-preset-profit" data-ann-preset="result-profit">✨ Результат</button>
 
         <div class="ann-bar-sep"></div>
 
@@ -14215,9 +14406,6 @@
 
         <div class="ann-bar-sep"></div>
 
-        <button class="ann-tool-btn ann-red" id="ann-tool-delete" data-ann-tooltip="Удалить">
-            <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4.5 16,4.5"/><path d="M6.5 4.5V3h5v1.5"/><path d="M3.5 4.5l1 10h9l1-10"/><line x1="7" y1="8" x2="7" y2="12"/><line x1="11" y1="8" x2="11" y2="12"/></svg>
-        </button>
         <button class="ann-tool-btn ann-red" id="ann-tool-clear-all" data-ann-tooltip="Очистить все">
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="3" y1="3" x2="15" y2="15"/><line x1="15" y1="3" x2="3" y2="15"/></svg>
         </button>
@@ -15142,7 +15330,7 @@ let currentArrowStyle = 'solid';
 let currentGlobalColor = '#FFFFFF';
 let currentRectStroke  = '#818CF8';
 let currentRectFill    = '#818CF8';
-let currentHlineColor  = '#F59E0B';
+let currentHlineColor  = '#FFF700';
 let currentHlineWidth  = 2;
 let currentHlineStyle  = 'solid';
 let currentCardFont    = "'Chakra Petch', sans-serif";
@@ -15334,7 +15522,7 @@ function renderAnnotations() {
     overlay.appendChild(defs);
 
     // ── Pass 1: background layer (hlines, rects) ──
-    const BG_TYPES = new Set(['hline', 'rect', 'position']);
+    const BG_TYPES = new Set(['hline', 'trendline', 'rect', 'position']);
     // ── Pass 2: foreground layer (signals, cards, text, arrows) ──
     const FG_TYPES = new Set(['text', 'arrow', 'signal', 'card']);
 
@@ -15347,18 +15535,19 @@ function renderAnnotations() {
         else if (ann.type === 'signal') renderSignal(g, ann, sel);
         else if (ann.type === 'card')   renderCard(g, ann, sel);
         else if (ann.type === 'rect')     renderRect(g, ann, sel);
-        else if (ann.type === 'hline')    renderHline(g, ann, sel);
+        else if (ann.type === 'hline')     renderHline(g, ann, sel);
+        else if (ann.type === 'trendline') renderTrendline(g, ann, sel);
         else if (ann.type === 'position')   renderPosition(g, ann, sel);
 
-        g.style.cursor = currentTool === 'delete' ? 'not-allowed' : 'grab';
+        g.style.cursor = 'grab';
 
         g.addEventListener('mousedown', (e) => {
             e.stopPropagation();
-            if (currentTool === 'delete') return;
+            e.preventDefault(); // запрет выделения текста при drag
             if (currentTool && currentTool !== 'delete') return;
 
             const snap = {};
-            const coordFields = ['anchorTime','anchorPrice','tailTime','tailPrice','headTime','headPrice','labelTime','labelPrice','tipTime','tipPrice','x1Time','x1Price','x2Time','x2Price','price','entry','stop','target','entryTime','time1','time2'];
+            const coordFields = ['anchorTime','anchorPrice','tailTime','tailPrice','headTime','headPrice','labelTime','labelPrice','tipTime','tipPrice','x1Time','x1Price','x2Time','x2Price','price','entry','stop','target','entryTime','time1','time2','price1','price2'];
             coordFields.forEach(f => { if (ann[f] !== undefined) snap[f] = ann[f]; });
 
             dragState = { annId: ann.id, snap, startX: e.clientX, startY: e.clientY, moved: false, el: g };
@@ -15369,11 +15558,17 @@ function renderAnnotations() {
         g.addEventListener('click', (e) => {
             e.stopPropagation();
             if (dragState?.moved) return;
-            if (currentTool === 'delete') { removeAnnotation(ann.id); return; }
             if (!currentTool) {
                 selectedAnnId = (ann.id === selectedAnnId) ? null : ann.id;
                 renderAnnotations();
             }
+        });
+
+        // Правый клик — контекстное меню
+        g.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window._openAnnContextMenu) window._openAnnContextMenu(e, ann.id, ann.type);
         });
         overlay.appendChild(g);
     }
@@ -15769,8 +15964,9 @@ function renderHline(g, ann, sel) {
     if (y == null) return;
 
     const W = annChartArea.offsetWidth;  // full width incl. price scale
-    const sc = ann.strokeColor || '#F59E0B';
-    const sw = ann.strokeWidth || 2;
+    const sc  = ann.strokeColor || '#F59E0B';
+    const sw  = ann.strokeWidth || 2;
+    const sop = ann.strokeOpacity !== undefined ? ann.strokeOpacity : 1;
     const dash = ann.strokeStyle === 'dashed' ? '8 5'
                : ann.strokeStyle === 'dotted' ? '2 4'
                : null;
@@ -15780,7 +15976,7 @@ function renderHline(g, ann, sel) {
     g.appendChild(hit);
 
     // Actual line
-    const attrs = { x1:0, y1:y, x2:W, y2:y, stroke:sc, 'stroke-width': sel ? sw+0.5 : sw };
+    const attrs = { x1:0, y1:y, x2:W, y2:y, stroke:sc, 'stroke-width': sel ? sw+0.5 : sw, opacity: sop };
     if (dash) attrs['stroke-dasharray'] = dash;
     g.appendChild(mk('line', attrs));
 
@@ -15801,7 +15997,60 @@ function renderHline(g, ann, sel) {
     }
 
     // Override cursor: only vertical drag allowed
-    g.style.cursor = currentTool === 'delete' ? 'not-allowed' : 'ns-resize';
+    g.style.cursor = 'ns-resize';
+}
+
+// ── Trend line ──
+function renderTrendline(g, ann, sel) {
+    const p1 = toPixel(ann.time1, ann.price1);
+    const p2 = toPixel(ann.time2, ann.price2);
+    if (!p1 || !p2) return;
+
+    const sc  = ann.strokeColor   || '#FFF700';
+    const sw  = ann.strokeWidth   || 1.5;
+    const sop = ann.strokeOpacity !== undefined ? ann.strokeOpacity : 1;
+    const dash = ann.strokeStyle === 'dashed' ? '8 5'
+               : ann.strokeStyle === 'dotted' ? '2 4'
+               : null;
+
+    // Wide invisible hit area for body drag
+    const bodyHit = mk('line', { x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:'transparent', 'stroke-width':'14' });
+    g.appendChild(bodyHit);
+
+    // Actual line — strictly between p1 and p2
+    const attrs = { x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:sc, 'stroke-width': sel ? sw+0.5 : sw, opacity:sop };
+    if (dash) attrs['stroke-dasharray'] = dash;
+    g.appendChild(mk('line', attrs));
+
+    // Endpoint handle dots — only when selected
+    if (sel) {
+        // Selection glow
+        g.appendChild(mk('line', { x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:'#818CF8', 'stroke-width': sw+2, 'stroke-dasharray':'6 4', opacity:'.25', 'pointer-events':'none' }));
+
+        const snap = { time1:ann.time1, price1:ann.price1, time2:ann.time2, price2:ann.price2 };
+
+        [{ p:p1, field:'p1' }, { p:p2, field:'p2' }].forEach(({ p, field }) => {
+            const dot = mk('circle', {
+                cx:p.x, cy:p.y, r:'6',
+                fill:'rgba(11,21,37,0.92)', stroke:sc, 'stroke-width':'1.8',
+                'pointer-events':'all'
+            });
+            dot.style.cursor = 'crosshair';
+            dot.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                dragState = {
+                    annId: ann.id,
+                    snap: { ...snap },
+                    startX: e.clientX, startY: e.clientY,
+                    moved: false, el: null,
+                    trendHandle: field   // 'p1' or 'p2'
+                };
+            });
+            g.appendChild(dot);
+        });
+    }
+
+    g.style.cursor = 'grab';
 }
 
 // ── Long / Short Position ──
@@ -16038,10 +16287,9 @@ function renderPosition(g, ann, sel) {
     const allBot  = Math.max(profitBot, lossBot);
     const moveHit = mk('rect', { x:x0, y:allTop, width:ZW, height:allBot - allTop,
         fill:'transparent', 'pointer-events':'all' });
-    moveHit.style.cursor = currentTool === 'delete' ? 'not-allowed' : 'move';
+    moveHit.style.cursor = 'move';
     moveHit.addEventListener('mousedown', (e) => {
         e.stopPropagation();
-        if (currentTool === 'delete') return; // handled by click below
         dragState = { annId: ann.id,
             snap: { entry:ann.entry, stop:ann.stop, target:ann.target, entryTime:ann.entryTime },
             startX: e.clientX, startY: e.clientY, moved: false, el: g,  // pass g for transform
@@ -16051,8 +16299,11 @@ function renderPosition(g, ann, sel) {
     moveHit.addEventListener('click', (e) => {
         e.stopPropagation();
         if (dragState?.moved) return;
-        if (currentTool === 'delete') { removeAnnotation(ann.id); return; }
         if (!currentTool) { selectedAnnId = ann.id === selectedAnnId ? null : ann.id; renderAnnotations(); }
+    });
+    moveHit.addEventListener('contextmenu', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (window._openAnnContextMenu) window._openAnnContextMenu(e, ann.id, ann.type);
     });
     g.appendChild(moveHit);
 
@@ -16079,13 +16330,22 @@ function addAnnotation(ann) {
 }
 function removeAnnotation(id) { annotations = annotations.filter(a=>a.id!==id); if(selectedAnnId===id) selectedAnnId=null; renderAnnotations(); }
 function clearAllAnnotations() { annotations=[]; selectedAnnId=null; renderAnnotations(); }
+window.removeAnnotation = removeAnnotation;
+window.clearAllAnnotations = clearAllAnnotations;
+window._annGetById = function(id) { return annotations.find(a => a.id === id) || null; };
+window._annPatch = function(id, props) {
+    const ann = annotations.find(a => a.id === id);
+    if (!ann) return;
+    Object.assign(ann, props);
+    renderAnnotations();
+};
 
 // ══════════════════════════════════════════════════════════
 // TOOL MANAGEMENT
 // ══════════════════════════════════════════════════════════
 function setTool(name) {
     currentTool = name;
-    ['text','arrow','signal','card','rect','hline','long','short','delete'].forEach(t => {
+    ['text','arrow','signal','card','rect','hline','trendline','long','short'].forEach(t => {
         const el = document.getElementById(`ann-tool-${t}`);
         if (el) el.classList.toggle('active', t===name);
     });
@@ -16101,6 +16361,7 @@ function setTool(name) {
         card:   'Кликните на график → заполните карточку',
         rect:   'Зажмите и тяните для рисования прямоугольника',
         hline:  'Кликните на график — линия пройдёт по этой цене',
+        trendline: 'Click 1 — start, Click 2 — end of trend line',
         long:   'Клик — Entry. Тяните вверх для TP, вниз для SL',
         short:  'Клик — Entry. Тяните вниз для TP, вверх для SL',
         regression: 'Клик 1 — начало диапазона, Клик 2 — конец',
@@ -16129,7 +16390,7 @@ document.addEventListener('pointermove', (e) => {
     const old = document.getElementById('drawing-preview-line');
     if (old) old.remove();
     let x1, y1;
-    if (drawingState.phase === 'arrow-end') {
+    if (drawingState.phase === 'arrow-end' || drawingState.phase === 'trendline-end') {
         x1 = drawingState.startPx.x; y1 = drawingState.startPx.y;
     } else if (drawingState.phase === 'regr-end') {
         x1 = drawingState.startPx.x; y1 = drawingState.startPx.y;
@@ -16170,12 +16431,12 @@ function _annPointerUp(e) {
     let coord;
     try { coord = toCoord(px.x, px.y); } catch(err) { return; }
     if (!coord || coord.time==null || coord.price==null) return;
-    if (currentTool === 'delete') return;
     if (currentTool === 'text')   handleTextClick(px, coord);
     if (currentTool === 'arrow')  handleArrowClick(px, coord);
     if (currentTool === 'signal') handleSignalClick(px, coord);
     if (currentTool === 'card')   handleCardClick(px, coord);
-    if (currentTool === 'hline')  handleHlineClick(coord);
+    if (currentTool === 'hline')      handleHlineClick(coord);
+    if (currentTool === 'trendline') handleTrendlineClick(px, coord);
     if (currentTool === 'long')        handlePositionClick(coord, true);
     if (currentTool === 'short')       handlePositionClick(coord, false);
 }
@@ -16183,6 +16444,16 @@ function _annPointerUp(e) {
 // Привязываем к текущему annChartArea
 annChartArea.addEventListener('pointerdown', _annPointerDown);
 annChartArea.addEventListener('pointerup', _annPointerUp);
+
+// Клик по пустому месту (не на аннотацию) — снимаем выделение
+annChartArea.addEventListener('click', (e) => {
+    if (currentTool) return;                        // инструмент активен — не трогаем
+    if (e.target.closest('[data-id]')) return;      // клик по аннотации — не трогаем
+    if (selectedAnnId !== null) {
+        selectedAnnId = null;
+        renderAnnotations();
+    }
+});
 
 // Также привязываем к fs-chart-area на случай если fullscreen откроется
 var _fsAreaForAnn = document.getElementById('ann-fs-chart-area');
@@ -16269,23 +16540,65 @@ rectCapture.addEventListener('pointerup', (e) => {
 // ══════════════════════════════════════════════════════════
 // GLOBAL DRAG — transform during drag, commit on mouseup
 // ══════════════════════════════════════════════════════════
+// Запрет выделения текста на всей странице во время drag
+document.addEventListener('mousedown', (e) => {
+    if (dragState) e.preventDefault();
+}, { capture: true });
 document.addEventListener('pointermove', (e) => {
     if (!dragState) return;
-    if (!dragState.moved && Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY) > 3)
+    if (!dragState.moved && Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY) > 3) {
         dragState.moved = true;
+        document.body.classList.add('ann-dragging');
+    }
     if (!dragState.moved) return;
 
     const dx = e.clientX - dragState.startX;
     const dy = e.clientY - dragState.startY;
     dragState._dx = dx; dragState._dy = dy;
 
+    // Trendline handle drag — live preview: update annotation and re-render
+    if (dragState.trendHandle) {
+        const ann = annotations.find(a => a.id === dragState.annId);
+        if (ann) {
+            const r = annChartArea.getBoundingClientRect();
+            const ex = e.clientX - r.left;
+            const ey = e.clientY - r.top;
+            try {
+                const nc = toCoord(ex, ey);
+                if (nc && nc.time != null && nc.price != null) {
+                    if (dragState.trendHandle === 'p1') { ann.time1 = nc.time; ann.price1 = nc.price; }
+                    else                                { ann.time2 = nc.time; ann.price2 = nc.price; }
+                    renderAnnotations();
+                }
+            } catch(err) {}
+        }
+        return;
+    }
+
     if (dragState.el) dragState.el.setAttribute('transform', `translate(${dx},${dy})`);
 });
 
 document.addEventListener('pointerup', (e) => {
+    document.body.classList.remove('ann-dragging');
     if (!dragState) return;
+    // Trendline handle: coords already applied live in pointermove, just finalize
+    if (dragState.trendHandle) {
+        dragState = null;
+        renderAnnotations();
+        return;
+    }
     const dx = dragState._dx || 0;
     const dy = dragState._dy || 0;
+
+    if (!dragState.moved) {
+        // Simple click — reset visual state, leave DOM intact so 'click' event fires normally
+        if (dragState.el) {
+            dragState.el.style.cursor = 'grab';
+            dragState.el.style.opacity = '1';
+        }
+        dragState = null;
+        return;
+    }
 
     if (dragState.moved) {
         const ann = annotations.find(a => a.id === dragState.annId);
@@ -16329,6 +16642,30 @@ document.addEventListener('pointerup', (e) => {
                 if (origY != null) {
                     const newPrice = annSeries().coordinateToPrice(origY + dy);
                     if (newPrice != null) ann.price = newPrice;
+                }
+            } else if (ann.type === 'trendline') {
+                if (dragState.trendHandle === 'p1') {
+                    // Only move point 1 — change angle/length
+                    const r = annChartArea.getBoundingClientRect();
+                    const ex = (dragState.startX + dx) - r.left;
+                    const ey = (dragState.startY + dy) - r.top;
+                    const nc = toCoord(ex, ey);
+                    if (nc.time != null) ann.time1 = nc.time;
+                    if (nc.price != null) ann.price1 = nc.price;
+                } else if (dragState.trendHandle === 'p2') {
+                    // Only move point 2 — change angle/length
+                    const r = annChartArea.getBoundingClientRect();
+                    const ex = (dragState.startX + dx) - r.left;
+                    const ey = (dragState.startY + dy) - r.top;
+                    const nc = toCoord(ex, ey);
+                    if (nc.time != null) ann.time2 = nc.time;
+                    if (nc.price != null) ann.price2 = nc.price;
+                } else {
+                    // Body drag — move both points
+                    const n1 = commit(s.time1, s.price1);
+                    const n2 = commit(s.time2, s.price2);
+                    ann.time1 = n1.time; ann.price1 = n1.price;
+                    ann.time2 = n2.time; ann.price2 = n2.price;
                 }
             } else if (ann.type === 'position') {
                 if (dragState.posField) {
@@ -16428,6 +16765,27 @@ function handleArrowClick(px, coord) {
     }
 }
 
+
+// ── Trendline tool ──
+function handleTrendlineClick(px, coord) {
+    if (!drawingState) {
+        drawingState = { phase:'trendline-end', time1:coord.time, price1:coord.price, startPx:{x:px.x, y:px.y} };
+        const dot = mk('circle', { cx:px.x, cy:px.y, r:4, fill:currentHlineColor||'#FFF700', opacity:.9, 'pointer-events':'none', id:'drawing-dot' });
+        overlay.appendChild(dot);
+        showHint('Click 2 — end of trend line  |  Esc — cancel');
+    } else {
+        addAnnotation({
+            type: 'trendline',
+            time1: drawingState.time1, price1: drawingState.price1,
+            time2: coord.time,         price2: coord.price,
+            strokeColor: currentHlineColor || '#FFF700',
+            strokeWidth: currentHlineWidth || 1.5,
+            strokeStyle: currentHlineStyle || 'solid',
+        });
+        drawingState = null; clearPreview();
+        setTool(null); hideHint();
+    }
+}
 // ── Signal tool ── (two-click: place label, then place tip)
 let pendingSignalData = null;
 function handleSignalClick(px, coord) {
@@ -16731,8 +17089,9 @@ function handleSignalClick(px, coord) {
 // ══════════════════════════════════════════════════════════
 // TOOLBAR EVENTS
 // ══════════════════════════════════════════════════════════
-['text','arrow','signal','card','rect','hline','long','short','delete'].forEach(t => {
-    document.getElementById(`ann-tool-${t}`).addEventListener('click', () => setTool(currentTool===t ? null : t));
+['text','arrow','signal','card','rect','hline','trendline','long','short'].forEach(t => {
+    const el = document.getElementById(`ann-tool-${t}`);
+    if (el) el.addEventListener('click', () => setTool(currentTool===t ? null : t));
 });
 document.getElementById('ann-tool-clear-all').addEventListener('click', () => { if(confirm('Удалить все аннотации?')) clearAllAnnotations(); });
 
@@ -17873,7 +18232,236 @@ function trySubscribeReplay() {
         });
     } catch(e) { setTimeout(trySubscribeReplay, 1000); }
 }
+
+// ══════════════════════════════════════════════════════════
+// КОНТЕКСТНОЕ МЕНЮ АННОТАЦИЙ
+// ══════════════════════════════════════════════════════════
+(function() {
+    const menu        = document.getElementById('ann-context-menu');
+    const typeLabel   = document.getElementById('ann-ctx-type-label');
+    const deleteBtn   = document.getElementById('ann-ctx-delete');
+    const hlinePanel  = document.getElementById('ann-ctx-hline-panel');
+    if (!menu) return;
+
+    let _ctxAnnId = null;
+    let _ctxAnnType = null;
+
+    const TYPE_NAMES = {
+        text:     'Text',
+        arrow:    'Arrow',
+        signal:   'Signal',
+        card:     'Card',
+        rect:     'Rectangle',
+        hline:    'Horizontal line',
+        trendline:'Trend line',
+        long:     'Long position',
+        short:    'Short position',
+        position: 'Position',
+    };
+
+    // ── Helpers: get annotation by id ──
+    function getAnn(id) {
+        if (!window._annGetById) return null;
+        return window._annGetById(id);
+    }
+
+    // ── Hline panel: sync UI to annotation values ──
+    function syncHlinePanel(ann) {
+        if (!ann) return;
+        const color = ann.strokeColor || '#F59E0B';
+        // Color swatches
+        document.querySelectorAll('#ann-ctx-hline-colors .ann-ctx-color-swatch').forEach(sw => {
+            sw.classList.toggle('active', sw.dataset.color && sw.dataset.color.toLowerCase() === color.toLowerCase());
+        });
+        document.getElementById('ann-ctx-hline-custom-color').value = color;
+        // Opacity from strokeOpacity (0-1) → 0-100
+        const op = ann.strokeOpacity !== undefined ? Math.round(ann.strokeOpacity * 100) : 100;
+        document.getElementById('ann-ctx-hline-opacity').value = op;
+        document.getElementById('ann-ctx-hline-opacity-val').textContent = op + '%';
+        updateOpacitySliderBg(color, op);
+        // Style
+        const style = ann.strokeStyle || 'solid';
+        document.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === style));
+        // Width
+        const width = ann.strokeWidth || 2;
+        document.querySelectorAll('[data-width]').forEach(b => b.classList.toggle('active', +b.dataset.width === width));
+    }
+
+    function updateOpacitySliderBg(color, pct) {
+        const slider = document.getElementById('ann-ctx-hline-opacity');
+        if (!slider) return;
+        slider.style.background = `linear-gradient(to right, ${color} 0%, ${color} ${pct}%, rgba(255,255,255,0.12) ${pct}%)`;
+    }
+
+    function patchAnn(id, props) {
+        if (!window._annPatch) return;
+        window._annPatch(id, props);
+    }
+
+    // ── Color swatches ──
+    document.querySelectorAll('#ann-ctx-hline-colors .ann-ctx-color-swatch').forEach(sw => {
+        sw.addEventListener('click', () => {
+            const color = sw.dataset.color;
+            patchAnn(_ctxAnnId, { strokeColor: color });
+            document.querySelectorAll('#ann-ctx-hline-colors .ann-ctx-color-swatch').forEach(s => s.classList.toggle('active', s === sw));
+            document.getElementById('ann-ctx-hline-custom-color').value = color;
+            updateOpacitySliderBg(color, +document.getElementById('ann-ctx-hline-opacity').value);
+        });
+    });
+
+    // Custom color picker
+    document.getElementById('ann-ctx-hline-custom-color').addEventListener('input', e => {
+        const color = e.target.value;
+        patchAnn(_ctxAnnId, { strokeColor: color });
+        document.querySelectorAll('#ann-ctx-hline-colors .ann-ctx-color-swatch').forEach(s => s.classList.remove('active'));
+        updateOpacitySliderBg(color, +document.getElementById('ann-ctx-hline-opacity').value);
+    });
+
+    // Opacity slider
+    document.getElementById('ann-ctx-hline-opacity').addEventListener('input', e => {
+        const pct = +e.target.value;
+        document.getElementById('ann-ctx-hline-opacity-val').textContent = pct + '%';
+        patchAnn(_ctxAnnId, { strokeOpacity: pct / 100 });
+        const color = document.getElementById('ann-ctx-hline-custom-color').value;
+        updateOpacitySliderBg(color, pct);
+    });
+
+    // Style buttons
+    document.querySelectorAll('[data-style]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            patchAnn(_ctxAnnId, { strokeStyle: btn.dataset.style });
+            document.querySelectorAll('[data-style]').forEach(b => b.classList.toggle('active', b === btn));
+        });
+    });
+
+    // Width buttons
+    document.querySelectorAll('[data-width]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            patchAnn(_ctxAnnId, { strokeWidth: +btn.dataset.width });
+            document.querySelectorAll('[data-width]').forEach(b => b.classList.toggle('active', b === btn));
+        });
+    });
+
+    // ── Open / close ──
+    function openMenu(e, annId, annType) {
+        e.preventDefault();
+        e.stopPropagation();
+        _ctxAnnId   = annId;
+        _ctxAnnType = annType;
+        typeLabel.textContent = TYPE_NAMES[annType] || 'Annotation';
+
+        // Show/hide type-specific panels
+        const isHline = annType === 'hline' || annType === 'trendline';
+        hlinePanel.classList.toggle('visible', isHline);
+        if (isHline) syncHlinePanel(getAnn(annId));
+
+        // Position menu
+        const menuW = 230, menuH = isHline ? 320 : 90;
+        let x = e.clientX, y = e.clientY;
+        if (x + menuW > window.innerWidth)  x = e.clientX - menuW;
+        if (y + menuH > window.innerHeight) y = e.clientY - menuH;
+        menu.style.left = x + 'px';
+        menu.style.top  = y + 'px';
+        menu.classList.add('visible');
+    }
+
+    function closeMenu() {
+        menu.classList.remove('visible');
+        hlinePanel.classList.remove('visible');
+        _ctxAnnId = null;
+    }
+
+    deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (_ctxAnnId != null && window.removeAnnotation) window.removeAnnotation(_ctxAnnId);
+        closeMenu();
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+        if (!menu.classList.contains('visible')) return;
+        if (!menu.contains(e.target)) closeMenu();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+    document.addEventListener('wheel', closeMenu, { passive: true });
+
+    window._openAnnContextMenu = openMenu;
+})();
+
 trySubscribeReplay();
+
+// ── Кнопка "перемотать к текущему" ──
+(function() {
+    const btn = document.getElementById('scrollToNowBtn');
+    if (!btn) return;
+
+    btn.style.display = 'flex';
+    btn.style.opacity = '0';
+    btn.style.pointerEvents = 'none';
+
+    let _scrollAnim = null;
+    let _btnVisible = false;
+
+    function showBtn(show) {
+        if (show === _btnVisible) return;
+        _btnVisible = show;
+        btn.style.opacity = show ? '1' : '0';
+        btn.style.pointerEvents = show ? 'auto' : 'none';
+    }
+
+    function checkEdge() {
+        if (!lwChart) return;
+        try {
+            const ro = lwChart.timeScale().scrollPosition();
+            showBtn(ro < -1.5);
+        } catch(e) {}
+    }
+
+    function trySubscribe() {
+        if (!lwChart) { setTimeout(trySubscribe, 500); return; }
+        try {
+            lwChart.timeScale().subscribeVisibleLogicalRangeChange(checkEdge);
+            checkEdge();
+        } catch(e) { setTimeout(trySubscribe, 500); }
+    }
+    trySubscribe();
+
+    btn.addEventListener('click', function() {
+        if (!lwChart) return;
+        if (_scrollAnim) { cancelAnimationFrame(_scrollAnim); _scrollAnim = null; }
+
+        const DURATION = 900;
+        const start = performance.now();
+        const startPos = lwChart.timeScale().scrollPosition();
+
+        function easeInOutQuart(t) {
+            return t < 0.5 ? 8*t*t*t*t : 1 - Math.pow(-2*t+2, 4)/2;
+        }
+
+        function frame(now) {
+            const elapsed = now - start;
+            const t = Math.min(elapsed / DURATION, 1);
+            const pos = startPos * (1 - easeInOutQuart(t));
+            try { lwChart.timeScale().scrollToPosition(pos, false); } catch(e) {}
+            if (t < 1) {
+                _scrollAnim = requestAnimationFrame(frame);
+            } else {
+                _scrollAnim = null;
+                try { lwChart.timeScale().scrollToRealTime(); } catch(e) {}
+                showBtn(false);
+            }
+        }
+        _scrollAnim = requestAnimationFrame(frame);
+    });
+
+    btn.addEventListener('mouseenter', function() {
+        btn.style.borderColor = 'rgba(255,255,255,0.25)';
+        btn.style.color = '#fff';
+    });
+    btn.addEventListener('mouseleave', function() {
+        btn.style.borderColor = 'rgba(255,255,255,0.1)';
+        btn.style.color = 'rgba(255,255,255,0.75)';
+    });
+})();
 
 })();
 </script>
