@@ -1,0 +1,328 @@
+/* ══════════════════════════════════════════════════════════════
+   AI SCANNER v3 — TradingView style
+   ══════════════════════════════════════════════════════════════ */
+
+@property --ai-angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+}
+
+/* Рамка SHORT — красный/оранжевый огонь */
+@keyframes aiBorderShort {
+    0%   { background-position: 0% 0%, 0% 0%;   box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 12px rgba(239,83,80,0.2); }
+    50%  { background-position: 0% 0%, 0% 100%; box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 12px rgba(255,150,50,0.2); }
+    100% { background-position: 0% 0%, 0% 0%;   box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 12px rgba(239,83,80,0.2); }
+}
+
+/* Рамка LONG — холодный синий/голубой */
+@keyframes aiBorderLong {
+    0%   { background-position: 0% 0%, 0% 0%;   box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 12px rgba(38,166,154,0.2); }
+    50%  { background-position: 0% 0%, 0% 100%; box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 12px rgba(41,98,255,0.2); }
+    100% { background-position: 0% 0%, 0% 0%;   box-shadow: 0 4px 24px rgba(0,0,0,0.45), 0 0 12px rgba(38,166,154,0.2); }
+}
+
+/* Левая полоска SHORT */
+@keyframes aiLeftShort {
+    0%, 100% { border-left-color: rgba(239, 83,  80,  0.7); }
+    50%       { border-left-color: rgba(255, 150, 50,  0.7); }
+}
+
+/* Левая полоска LONG */
+@keyframes aiLeftLong {
+    0%, 100% { border-left-color: rgba(38,  166, 154, 0.7); }
+    50%       { border-left-color: rgba(41,  98,  255, 0.7); }
+}
+
+/* Кнопка SHORT */
+@keyframes aiButtonShort {
+    0%, 100% { border-color: rgba(239, 83,  80,  0.8); color: rgba(239, 83,  80,  0.8); }
+    50%       { border-color: rgba(255, 150, 50,  0.8); color: rgba(255, 150, 50,  0.8); }
+}
+
+/* Кнопка LONG */
+@keyframes aiButtonLong {
+    0%, 100% { border-color: rgba(38,  166, 154, 0.8); color: rgba(38,  166, 154, 0.8); }
+    50%       { border-color: rgba(41,  98,  255, 0.8); color: rgba(41,  98,  255, 0.8); }
+}
+
+/* Маятник — пятно качается по левой стороне снизу вверх и обратно */
+@keyframes aiPendulum {
+    0%   { --ai-angle: 30deg;  }
+    100% { --ai-angle: 150deg; }
+}
+
+
+#aiBtnCircle {
+    position: absolute;
+    top: 8px;
+    right: 96px;
+    z-index: 25;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: transparent;
+    border: 1.5px solid rgba(149, 152, 161, 0.4);
+    color: rgba(149, 152, 161, 0.7);
+    font-size: 13px;
+    font-weight: 700;
+    font-family: -apple-system, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    /* #3 — плавный переход цвета кнопки */
+    transition: border-color 0.4s ease, color 0.4s ease;
+    user-select: none;
+    line-height: 1;
+}
+
+#aiBtnCircle:hover { border-color: #B2B5BE; color: #B2B5BE; }
+#aiBtnCircle.active { border-color: #2962FF; color: #2962FF; }
+
+/* #3 — кнопка переливается в цвет сигнала */
+#aiBtnCircle.signal-short { animation: aiButtonShort 10s ease infinite; }
+#aiBtnCircle.signal-long  { animation: aiButtonLong  10s ease infinite; }
+
+#aiBtnCircle.expired {
+    border-color: #2962FF;
+    color: #2962FF;
+    animation: aiBtnExpired 1.5s ease-in-out infinite;
+}
+
+@keyframes aiBtnExpired {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+}
+
+/* ── Тултип — базовый ───────────────────────────────────────── */
+#aiTooltip {
+    position: absolute;
+    top: 6px;
+    right: 128px;
+    z-index: 24;
+    width: 272px;
+    border-radius: 6px;
+    overflow: hidden;
+
+    background: #1E222D;
+    border: 1px solid #2A2E39;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+
+    opacity: 0;
+    transform: translateX(16px);
+    pointer-events: none;
+    transition:
+        opacity 0.2s ease,
+        transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#aiTooltip.visible {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+}
+
+/* Загрузка — маятник по левой стороне */
+#aiTooltip.signal-loading {
+    border: 1.5px solid transparent;
+    background:
+        linear-gradient(#1E222D, #1E222D) padding-box,
+        conic-gradient(
+            from var(--ai-angle),
+            #2A2E39 0%,
+            #2A2E39 44%,
+            #2962FF 50%,
+            #2A2E39 56%,
+            #2A2E39 100%
+        ) border-box;
+    animation: aiPendulum 1.8s ease-in-out infinite alternate;
+}
+
+/* SHORT — красный/оранжевый огонь */
+#aiTooltip.signal-short {
+    border: 1px solid transparent;
+    background-image:
+        linear-gradient(#1E222D, #1E222D),
+        linear-gradient(180deg, #7f1d1d, #ef5350, #ff9800, #ef5350, #7f1d1d);
+    background-origin: padding-box, border-box;
+    background-clip: padding-box, border-box;
+    background-size: 100% 100%, 100% 400%;
+    background-position: 0% 0%, 0% 0%;
+    animation: aiBorderShort 10s ease infinite;
+}
+
+/* LONG — холодный синий/голубой */
+#aiTooltip.signal-long {
+    border: 1px solid transparent;
+    background-image:
+        linear-gradient(#1E222D, #1E222D),
+        linear-gradient(180deg, #0d3d56, #26a69a, #2962ff, #26a69a, #0d3d56);
+    background-origin: padding-box, border-box;
+    background-clip: padding-box, border-box;
+    background-size: 100% 100%, 100% 400%;
+    background-position: 0% 0%, 0% 0%;
+    animation: aiBorderLong 10s ease infinite;
+}
+
+/* #4 — левая полоска */
+.signal-short .ai-tt-text { animation: aiLeftShort 10s ease infinite; }
+.signal-long  .ai-tt-text { animation: aiLeftLong  10s ease infinite; }
+
+.signal-loading .ai-tt-text { border-left-color: rgba(41, 98, 255, 0.45); }
+
+/* #4 — рамка плавно появляется когда тултип открывается */
+#aiTooltip:not(.visible).signal-short,
+#aiTooltip:not(.visible).signal-long,
+#aiTooltip:not(.visible).signal-loading {
+    animation-play-state: paused;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.ai-tt-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px 5px;
+    border-bottom: 1px solid #2A2E39;
+}
+
+.ai-tt-logo {
+    width: 15px;
+    height: 15px;
+    border-radius: 3px;
+    background: #2962FF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.ai-tt-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #2962FF;
+    letter-spacing: 0.3px;
+}
+
+.ai-tt-tf {
+    font-size: 10px;
+    color: #758696;
+}
+
+/* ── Текст анализа ───────────────────────────────────────────── */
+.ai-tt-text {
+    padding: 9px 10px 8px;
+    font-size: 12px;
+    color: #B2B5BE;
+    line-height: 1.55;
+    font-style: italic;
+    border-left: 2px solid #2A2E39;
+    margin: 0 10px;
+    transition: border-color 0.4s ease;
+}
+
+.signal-loading .ai-tt-text { border-left-color: rgba(41, 98, 255, 0.45); }
+
+/* ── Action ─────────────────────────────────────────────────── */
+.ai-tt-action {
+    margin: 0 10px 8px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.ai-tt-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px 6px;
+    border-top: 1px solid #2A2E39;
+}
+
+.ai-tt-footer span:first-child {
+    font-size: 8px;
+    color: #4A4E59;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.ai-tt-price {
+    font-size: 9px;
+    color: #758696;
+    transition: color 0.4s ease;
+}
+
+.signal-loading .ai-tt-price { color: rgba(41, 98, 255, 0.45); }
+
+/* ── Info (i) button + disclaimer popup ─────────────────────── */
+.ai-tt-info-wrap {
+    position: relative;
+    margin-left: auto;
+}
+
+.ai-tt-info-btn {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid #4A4E59;
+    color: #4A4E59;
+    font-size: 9px;
+    font-weight: 700;
+    font-style: italic;
+    font-family: Georgia, serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.ai-tt-info-btn:hover {
+    border-color: #758696;
+    color: #758696;
+}
+
+.ai-tt-info-popup {
+    display: none;
+    position: absolute;
+    top: 22px;
+    right: 0;
+    width: 220px;
+    padding: 8px 10px;
+    background: #131722;
+    border: 1px solid #2A2E39;
+    border-radius: 4px;
+    font-size: 10px;
+    font-style: normal;
+    color: #758696;
+    line-height: 1.5;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    z-index: 30;
+}
+
+.ai-tt-info-wrap:hover .ai-tt-info-popup {
+    display: block;
+}
+
+/* ── Verdict ────────────────────────────────────────────────── */
+.ai-tt-verdict {
+    transition: color 0.3s ease;
+}
+
+/* ── Spinner ─────────────────────────────────────────────────── */
+.ai-tt-spinner {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid rgba(41, 98, 255, 0.2);
+    border-top-color: #2962FF;
+    border-radius: 50%;
+    animation: aiSpin 0.7s linear infinite;
+}
+
+@keyframes aiSpin { to { transform: rotate(360deg); } }
+
+/* ── Mobile ──────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+    #aiBtnCircle { top: 6px; right: 68px; width: 22px; height: 22px; font-size: 12px; }
+    #aiTooltip   { top: 4px; right: 96px; width: 230px; }
+    .ai-tt-text  { font-size: 11px; }
+}

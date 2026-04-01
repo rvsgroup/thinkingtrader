@@ -43,6 +43,7 @@ app.use((req, res, next) => {
     if (req.method === "OPTIONS") return res.sendStatus(200);
     next();
 });
+app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // Редирект: http→https и thinkingtrader.com→www.thinkingtrader.com
@@ -257,6 +258,225 @@ app.get('/api/translate', async (req, res) => {
         cacheSet(cacheKey, result, TTL.TRANSLATE);
         res.json(result);
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ══════════════════════════════════════════════════════════════
+// AI SCANNER — анализ рынка через DeepSeek (OpenRouter)
+// ══════════════════════════════════════════════════════════════
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY || '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';
+const AI_MODEL = 'deepseek/deepseek-chat-v3-0324';
+const AI_CACHE_TTL = 5 * 60 * 1000; // 5 минут
+
+app.post('/api/ai-scan', async (req, res) => {
+    try {
+        const ctx = req.body;
+        if (!ctx || !ctx.coin || !ctx.currentPrice) {
+            return res.status(400).json({ error: 'Missing context data' });
+        }
+
+        // ── Серверный кэш: ключ = монета + таймфрейм + язык ──
+        const cacheKey = `ai:${ctx.coin}:${ctx.timeframe}:${ctx.lang || 'ru'}`;
+        const cached = cacheGet(cacheKey);
+        if (cached) {
+            console.log(`✅ AI Scanner cache hit: ${cacheKey}`);
+            return res.json(cached);
+        }
+
+        const lang = ctx.lang === 'en' ? 'en' : 'ru';
+
+        // Собираем системный промпт
+        const systemPrompt = lang === 'en'
+            ? `You are a crypto trader. User sends market data. Give a SPECIFIC analysis.
+
+Answer format — 3 parts:
+
+1. "situation" — What is ACTUALLY happening (1 sentence). No generic words like "weak trend".
+   Describe specific facts: which patterns appeared, did they work or not, where price came from.
+   Good: "Two bullish engulfings in 8 days — first failed, second still unconfirmed. Buyers trying but failing."
+   Bad: "Price in range, weak trend."
+
+2. "verdict" — What it means (1 sentence).
+   If Long and Short are close (difference less than 15%) — write "Uncertainty — better not to enter".
+   If one direction is clearly stronger — explain why.
+   Example: "55/45 — uncertainty, no edge" or "70/30 Short — bearish trend and patterns failing".
+
+3. Probabilities and levels — Long %, Short %, entry/target/stop for both.
+
+Rules:
+- Base on: distance to levels (risk/reward), 100-200d trend, last 5 candles structure, patterns and their results.
+- If a bullish pattern failed (workedOut: false) — that's a bearish signal. And vice versa.
+- For fresh patterns (workedOut: null, candlesAgo <= 2): use winRate as the signal strength. If winRate > 55% — treat it as a confirmed signal in that direction. If no winRate — treat as neutral.
+- If difference Long/Short is less than 15% — it's uncertainty, say it directly.
+- For 4H and 1H: consider anchor 1D levels. If local support coincides with 1D resistance — it's a trap, signal is weakened. 1D levels are more important than local ones.
+- Specific prices. No fluff. No disclaimers.
+- entry/target/stop must be NUMBERS ONLY. No words like "above", "below", "near" — just the number.
+
+JSON format:
+{"situation": "what is happening", "verdict": "what it means", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
+
+            : `Ты криптотрейдер. Пользователь шлёт данные рынка. Дай КОНКРЕТНЫЙ анализ.
+
+Формат ответа — 3 части:
+
+1. "situation" — Что РЕАЛЬНО происходит (1 предложение). Не общие слова типа "слабый тренд".
+   Опиши конкретные факты: какие паттерны были, отработали или нет, откуда и куда шла цена.
+   Пример хорошо: "Два бычьих поглощения за 8 дней — первое провалилось, второе пока без результата. Покупатели пытаются развернуть, но безуспешно."
+   Пример плохо: "Цена в диапазоне, тренд слабый."
+
+2. "verdict" — Что это значит (1 предложение).
+   Если Long и Short близки (разница меньше 15%) — прямо пиши "Неопределённость — лучше не входить".
+   Если одно направление явно сильнее — объясни почему.
+   Пример: "55/45 — неопределённость, ни у кого нет преимущества" или "70/30 в пользу Short — тренд медвежий и паттерны не работают".
+
+3. Вероятности и уровни — Long %, Short %, вход/цель/стоп для обоих.
+
+Правила:
+- Основывайся на: расстояние до уровней (risk/reward), тренд 100-200д, структура последних 5 свечей, паттерны и их результат.
+- Если паттерн не отработал (workedOut: false) — это медвежий сигнал для бычьего паттерна и наоборот.
+- Для свежих паттернов (workedOut: null, candlesAgo <= 2): используй winRate как силу сигнала. Если winRate > 55% — считай это подтверждённым сигналом в том направлении. Если winRate нет — считай нейтральным.
+- Если разница Long/Short меньше 15% — это неопределённость, скажи это прямо.
+- Для 4H и 1H: учитывай якорные 1D уровни. Если локальный support совпадает с 1D resistance — это ловушка, сигнал ослаблен. 1D уровни важнее локальных.
+- Конкретные цены. Без воды. Без дисклеймеров.
+- entry/target/stop — ТОЛЬКО ЧИСЛА. Никаких слов "выше", "ниже", "около" — только число.
+
+JSON формат:
+{"situation": "что происходит", "verdict": "что это значит", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
+
+        // Собираем пользовательское сообщение с данными
+        let userMsg = `Монета: ${ctx.coin}
+Таймфрейм: ${ctx.timeframe}
+Текущая цена: ${ctx.currentPrice}
+
+Уровни:
+- Поддержка: ${ctx.levels?.support || 'нет данных'}
+- Сопротивление: ${ctx.levels?.resistance || 'нет данных'}
+- Позиция цены в диапазоне: ${ctx.levels?.positionPct != null ? ctx.levels.positionPct + '%' : 'нет данных'}
+- До поддержки: ${ctx.distanceToLevels?.toSupport != null ? ctx.distanceToLevels.toSupport + '%' : '?'}
+- До сопротивления: ${ctx.distanceToLevels?.toResistance != null ? ctx.distanceToLevels.toResistance + '%' : '?'}
+
+Тренд:
+- Изменение за 100 дней: ${ctx.trend?.change100d != null ? ctx.trend.change100d + '%' : 'нет данных'}
+- Изменение за 200 дней: ${ctx.trend?.change200d != null ? ctx.trend.change200d + '%' : 'нет данных'}
+
+Последние 10 свечей:
+- Направление: ${ctx.last10?.direction || 'нет данных'}
+- Изменение: ${ctx.last10?.changePercent != null ? ctx.last10.changePercent + '%' : 'нет данных'}
+- Зелёных: ${ctx.last10?.greenCandles ?? '?'}, Красных: ${ctx.last10?.redCandles ?? '?'}
+- Последних подряд: ${ctx.last10?.consecutiveDirection || 'нет данных'}`;
+
+        // Структура последних 5 свечей
+        if (ctx.last5structure) {
+            userMsg += `\n\nСтруктура последних 5 закрытых свечей (% изменения тела, + зелёная / - красная):`;
+            userMsg += `\n[${ctx.last5structure.join('%, ')}%]`;
+            // Подсказка для AI
+            const greens = ctx.last5structure.filter(v => v > 0).length;
+            const reds = ctx.last5structure.filter(v => v < 0).length;
+            const avgBody = ctx.last5structure.reduce((s, v) => s + Math.abs(v), 0) / 5;
+            userMsg += `\nЗелёных: ${greens}, красных: ${reds}, средний размер тела: ${avgBody.toFixed(1)}%`;
+        }
+
+        // Добавляем ВСЕ паттерны за последние 10 свечей
+        if (ctx.recentPatterns && ctx.recentPatterns.length > 0) {
+            userMsg += `\n\nПаттерны за последние 10 свечей (${ctx.recentPatterns.length} шт.):`;
+            ctx.recentPatterns.forEach((p, i) => {
+                const worked = p.workedOut === true ? '✅ отработал' : p.workedOut === false ? '❌ не отработал' : 'ещё рано оценивать';
+                userMsg += `\n${i + 1}. ${p.type} (${p.direction}) — ${p.candlesAgo} свечей назад, close: ${p.patternClose}`;
+                userMsg += `\n   Win rate: ${p.winRate != null ? p.winRate + '%' : 'нет данных'} | Результат: ${worked}`;
+            });
+        } else {
+            userMsg += '\n\nПаттернов за последние 10 свечей нет.';
+        }
+
+        // Добавляем якорные уровни если есть (для 4H и 1H)
+        if (ctx.anchorLevels) {
+            userMsg += `
+
+Якорные уровни (1D):
+- 1D Поддержка: ${ctx.anchorLevels.support}
+- 1D Сопротивление: ${ctx.anchorLevels.resistance}
+- Позиция цены в 1D диапазоне: ${ctx.anchorLevels.positionPct}%`;
+        }
+
+        userMsg += '\n\nЧто делать прямо сейчас? Ответь в JSON.';
+
+        // Запрос к OpenRouter
+        const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENROUTER_KEY}`,
+                'HTTP-Referer': 'https://www.thinkingtrader.com',
+                'X-Title': 'Thinking Trader Scanner',
+            },
+            body: JSON.stringify({
+                model: AI_MODEL,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userMsg },
+                ],
+                temperature: 0.3,
+                max_tokens: 300,
+            }),
+            signal: AbortSignal.timeout(15000),
+        });
+
+        if (!aiRes.ok) {
+            const errBody = await aiRes.text().catch(() => '');
+            console.error(`❌ AI Scanner error ${aiRes.status}: ${errBody.slice(0, 300)}`);
+            return res.status(502).json({ error: 'AI service error' });
+        }
+
+        const aiData = await aiRes.json();
+        const raw = aiData.choices?.[0]?.message?.content || '';
+
+        // Парсим JSON из ответа
+        let parsed;
+        try {
+            const jsonMatch = raw.match(/\{[\s\S]*\}/);
+            parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+        } catch (e) {
+            parsed = null;
+        }
+
+        let result;
+        if (parsed && parsed.situation && parsed.longPct != null && parsed.shortPct != null) {
+            result = {
+                situation: parsed.situation,
+                verdict: parsed.verdict || '',
+                longPct: parseInt(parsed.longPct) || 50,
+                shortPct: parseInt(parsed.shortPct) || 50,
+                long: parsed.long || { entry: null, target: null, stop: null },
+                short: parsed.short || { entry: null, target: null, stop: null },
+            };
+        } else if (parsed && (parsed.situation || parsed.text)) {
+            result = {
+                situation: parsed.situation || parsed.text || '',
+                verdict: parsed.verdict || '',
+                longPct: parseInt(parsed.longPct) || 50,
+                shortPct: parseInt(parsed.shortPct) || 50,
+                long: parsed.long || { entry: null, target: null, stop: null },
+                short: parsed.short || { entry: null, target: null, stop: null },
+            };
+        } else {
+            result = {
+                situation: raw.slice(0, 200),
+                verdict: '',
+                longPct: 50,
+                shortPct: 50,
+                long: { entry: null, target: null, stop: null },
+                short: { entry: null, target: null, stop: null },
+            };
+        }
+
+        // Сохраняем в кэш
+        cacheSet(cacheKey, result, AI_CACHE_TTL);
+        console.log(`💾 AI Scanner cached: ${cacheKey} (TTL ${AI_CACHE_TTL / 1000}s)`);
+        res.json(result);
+
+    } catch (e) {
+        console.error('❌ AI Scanner exception:', e.message);
         res.status(500).json({ error: e.message });
     }
 });
@@ -904,7 +1124,6 @@ async function checkPriceAlerts() {
 // ── Admin API ─────────────────────────────────────────────────
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-app.use(express.json());
 
 // Отправить пост вручную
 app.post('/api/admin/send', async (req, res) => {

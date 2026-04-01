@@ -100,6 +100,7 @@
         .ann-preset-btn,
         .ann-as-btn,
         #scanBtnApp,
+        #aiBtnApp,
         #rulerBtnSmall,
         #filterBtnApp,
         #expandChartBtn {
@@ -138,6 +139,7 @@
         .ann-preset-btn:hover,
         .ann-as-btn:hover,
         #scanBtnApp:hover,
+        #aiBtnApp:hover,
         #rulerBtnSmall:hover,
         #filterBtnApp:hover,
         #expandChartBtn:hover {
@@ -160,6 +162,7 @@
         .small-ann-preset         { padding: 0 8px; }
         .ann-preset-btn           { padding: 0 8px; }
         #scanBtnApp               { padding: 0 12px; }
+        #aiBtnApp                 { padding: 0 10px; }
 
         /* — Иконочные: квадратные — */
         .chart-type-btn,
@@ -276,6 +279,20 @@
         #scanBtnApp.scan-active {
             color: rgba(16,185,129,0.9) !important;
             background: rgba(16,185,129,0.07) !important;
+        }
+
+        /* AI — акцент тёплый голубой/циан */
+        #aiBtnApp {
+            color: rgba(34,211,238,0.75);
+            gap: 5px;
+        }
+        #aiBtnApp:hover {
+            background: rgba(34,211,238,0.07) !important;
+            color: rgba(103,232,249,0.95) !important;
+        }
+        #aiBtnApp.ai-active {
+            color: rgba(34,211,238,0.95) !important;
+            background: rgba(34,211,238,0.08) !important;
         }
 
         /* Ruler active */
@@ -5983,6 +6000,7 @@
   <script src="patterns.js"></script>
   <script src="patterns-scanner.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Orbitron:wght@400;600;700&family=Oxanium:wght@400;600;700&family=Rajdhani:wght@400;600;700&family=Exo+2:wght@400;700&family=Electrolize&family=Space+Grotesk:wght@400;600;700&family=Syne:wght@400;600;700&family=Montserrat:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Fira+Code:wght@400;600&family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="ai-scanner.css">
 </head>
 <div id="ann-g-tooltip"></div>
 
@@ -6220,6 +6238,12 @@
                             </div>
                             <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <button id="scanBtnApp">Scan</button>
+                            <button id="aiBtnApp">
+                                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M10 2L12.5 7.5H18L13.5 11L15.5 17L10 13.5L4.5 17L6.5 11L2 7.5H7.5L10 2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+                                </svg>
+                                AI
+                            </button>
                             <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <button id="rulerBtnSmall" title="Линейка (Shift+клик)">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><line x1="7.5" y1="16.5" x2="10" y2="14"/><line x1="10.5" y1="13.5" x2="12" y2="12"/><line x1="13.5" y1="10.5" x2="16" y2="8"/></svg>
@@ -8529,6 +8553,9 @@
                 if (window.smallScanActive && window.runSetupAnalysis) {
                     setTimeout(() => window.runSetupAnalysis(), 2000);
                 }
+                if (document.getElementById('aiBtnApp')?.classList.contains('ai-active') && window.runAiScan) {
+                    setTimeout(() => window.runAiScan(true), 2500);
+                }
             } else {
                 chartLoading.textContent = t('chartError');
                 priceChangeBadge.className = 'price-change-badge';
@@ -8785,6 +8812,7 @@
                 loadChartData();
                 if (window.smallScanActive) setTimeout(() => window.runSmallScan && window.runSmallScan(), 500);
                 if (window.smallScanActive) setTimeout(() => window.runSetupAnalysis && window.runSetupAnalysis(), 1200);
+                if (document.getElementById('aiBtnApp')?.classList.contains('ai-active')) setTimeout(() => window.runAiScan && window.runAiScan(true), 2000);
                 const fsOverlayEl = document.getElementById('fsOverlay');
                 if (fsOverlayEl && fsOverlayEl.classList.contains('active')) {
                     const fsDays = currentPeriod;
@@ -12874,6 +12902,23 @@
             // Запускаем анализ сетапа с задержкой чтобы индикаторы успели обновиться
             if (window.smallScanActive) {
                 setTimeout(() => { if (typeof runSetupAnalysis === 'function') runSetupAnalysis(); }, 800);
+            }
+        });
+    }
+
+    // ── AI button ──
+    const aiBtnAppEl = document.getElementById('aiBtnApp');
+    if (aiBtnAppEl) {
+        aiBtnAppEl.addEventListener('click', () => {
+            const alreadyActive = aiBtnAppEl.classList.contains('ai-active');
+            if (alreadyActive) {
+                // Выключаем — скрываем тултип и сбрасываем состояние
+                aiBtnAppEl.classList.remove('ai-active');
+                if (typeof hideAiTooltip === 'function') hideAiTooltip();
+            } else {
+                // Включаем — запускаем анализ
+                aiBtnAppEl.classList.add('ai-active');
+                if (typeof runAiScan === 'function') runAiScan(true);
             }
         });
     }
@@ -18465,4 +18510,5 @@ trySubscribeReplay();
 
 })();
 </script>
+<script src="ai-scanner.js"></script>
 </html>
