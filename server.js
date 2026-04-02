@@ -266,6 +266,7 @@ app.get('/api/translate', async (req, res) => {
 // AI SCANNER — анализ рынка через DeepSeek (OpenRouter)
 // ══════════════════════════════════════════════════════════════
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
+console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
 const AI_MODEL = 'deepseek/deepseek-chat-v3-0324';
 const AI_CACHE_TTL = 5 * 60 * 1000; // 5 минут
 
