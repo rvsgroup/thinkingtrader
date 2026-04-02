@@ -28,7 +28,7 @@
         try {
             var sym = (typeof BINANCE_SYMBOLS !== 'undefined') ? BINANCE_SYMBOLS[coinId] : null;
             if (!sym) return null;
-            var res = await fetch('/api/ohlc?symbol=' + sym + '&interval=1d&limit=150');
+            var res = await fetch('/api/ohlc?symbol=' + sym + '&interval=1d&limit=210');
             var data = await res.json();
             if (!Array.isArray(data) || data.length < 30) return null;
             var candles = data.map(function(k) {
@@ -37,7 +37,14 @@
             if (typeof PatternScanner === 'undefined' || !PatternScanner.scanLevels) return null;
             var levels = PatternScanner.scanLevels(candles, 1);
             if (!levels) return null;
-            var result = { support: levels.support, resistance: levels.resistance, positionPct: levels.positionPct, ts: Date.now() };
+
+            // Считаем тренд по 1D свечам — актуально для всех таймфреймов
+            var currentClose = candles[candles.length - 1].close;
+            var trend1d = {};
+            if (candles.length >= 100) trend1d.change100d = Math.round((currentClose - candles[candles.length - 100].close) / candles[candles.length - 100].close * 1000) / 10;
+            if (candles.length >= 200) trend1d.change200d = Math.round((currentClose - candles[candles.length - 200].close) / candles[candles.length - 200].close * 1000) / 10;
+
+            var result = { support: levels.support, resistance: levels.resistance, positionPct: levels.positionPct, trend1d: trend1d, ts: Date.now() };
             window._aiAnchorCache[coinId] = result;
             return result;
         } catch(e) { return null; }
@@ -208,7 +215,8 @@
     // UI — кнопка (!) и тултип внутри графика
     // ══════════════════════════════════════════════════════════════
 
-    var _btnEl = null, _tooltipEl = null, _tooltipVisible = false;
+    var _btnEl = null, _tooltipEl = null, _chatPanelEl = null, _containerEl = null, _tooltipVisible = false;
+    var _aiChatHistory = [];
 
     function ensureUI() {
         if (_btnEl) return;
@@ -222,6 +230,10 @@
         _btnEl.style.display = 'none';
         _btnEl.addEventListener('click', function(e) { e.stopPropagation(); toggleTooltip(); });
         wrap.appendChild(_btnEl);
+
+        // Единый контейнер — позиционируется один раз, тултип и чат внутри в потоке
+        _containerEl = document.createElement('div');
+        _containerEl.id = 'aiContainer';
 
         // Тултип
         _tooltipEl = document.createElement('div');
@@ -240,7 +252,24 @@
             '<div class="ai-tt-verdict"></div>' +
             '<div class="ai-tt-action"></div>' +
             '<div class="ai-tt-footer"><span>THINKING TRADER</span><span class="ai-tt-price"></span></div>';
-        wrap.appendChild(_tooltipEl);
+
+        // Чат-панель — сразу под тултипом в том же контейнере
+        _chatPanelEl = document.createElement('div');
+        _chatPanelEl.id = 'aiChatPanel';
+        _chatPanelEl.innerHTML =
+            '<div class="ai-tt-chat" id="aiChatMessages"></div>' +
+            '<div class="ai-tt-chat-input-wrap" id="aiChatInputWrap">' +
+                '<textarea class="ai-tt-chat-input" id="aiChatInput" placeholder="Задать вопрос..." maxlength="400" rows="1"></textarea>' +
+                '<button class="ai-tt-chat-send" id="aiChatSend">' +
+                    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
+                '</button>' +
+            '</div>';
+
+        _containerEl.appendChild(_tooltipEl);
+        _containerEl.appendChild(_chatPanelEl);
+        wrap.appendChild(_containerEl);
+
+        _initChatHandlers();
     }
 
     function toggleTooltip() {
@@ -248,12 +277,163 @@
         _tooltipVisible = !_tooltipVisible;
         _tooltipEl.classList.toggle('visible', _tooltipVisible);
         _btnEl.classList.toggle('active', _tooltipVisible);
+        if (_containerEl) _containerEl.classList.toggle('visible', _tooltipVisible);
     }
 
     window.hideAiTooltip = function() {
         _tooltipVisible = false;
-        if (_tooltipEl) _tooltipEl.classList.remove('visible');
+        if (_tooltipEl) _containerEl && _containerEl.classList.remove('visible');
+        if (_containerEl) _containerEl.classList.remove('visible');
+        if (_chatPanelEl) _chatPanelEl.classList.remove('visible');
         if (_btnEl) { _btnEl.classList.remove('active'); _btnEl.style.display = 'none'; }
+    };
+
+    function _positionChatPanel() { /* позиция управляется контейнером */ }
+    function _initChatHandlers() {
+        var input = document.getElementById('aiChatInput');
+        var sendBtn = document.getElementById('aiChatSend');
+        if (!input || !sendBtn) return;
+
+        function sendMsg() {
+            var text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            input.style.height = 'auto';
+            _positionChatPanel();
+            _sendChatMessage(text);
+        }
+
+        sendBtn.addEventListener('click', function(e) { e.stopPropagation(); sendMsg(); });
+        input.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMsg();
+            }
+        });
+        input.addEventListener('input', function() {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 80) + 'px';
+            _positionChatPanel();
+        });
+        input.addEventListener('click', function(e) { e.stopPropagation(); });
+
+        // Авторастяжение textarea
+        input.addEventListener('input', function() {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 80) + 'px';
+            _positionChatPanel();
+        });
+    }
+
+    function _appendChatBubble(role, text) {
+        var box = document.getElementById('aiChatMessages');
+        if (!box) return;
+        var bubble = document.createElement('div');
+        bubble.className = 'ai-chat-bubble ai-chat-' + role;
+        // Парсим базовый markdown: **bold**, *italic*, убираем лишние звёздочки
+        var html = text
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/\n/g, '<br>');
+        bubble.innerHTML = html;
+        box.appendChild(bubble);
+        box.scrollTop = box.scrollHeight;
+        _positionChatPanel();
+    }
+
+    function _setChatInputLoading(on) {
+        var btn = document.getElementById('aiChatSend');
+        var input = document.getElementById('aiChatInput');
+        if (btn) btn.disabled = on;
+        if (input) input.disabled = on;
+        if (btn) btn.style.opacity = on ? '0.4' : '1';
+    }
+
+    async function _sendChatMessage(userText) {
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+
+        if (_questionCount >= _MAX_QUESTIONS) return;
+
+        // Добавляем в историю и рендерим
+        _aiChatHistory.push({ role: 'user', content: userText });
+        _appendChatBubble('user', userText);
+        _questionCount++;
+
+        // Обрезаем до 7 сообщений
+        if (_aiChatHistory.length > 7) _aiChatHistory = _aiChatHistory.slice(-7);
+
+        _setChatInputLoading(true);
+        _updateChatPlaceholder();
+
+        // Показываем typing индикатор
+        var box = document.getElementById('aiChatMessages');
+        var typing = document.createElement('div');
+        typing.className = 'ai-chat-bubble ai-chat-assistant ai-chat-typing';
+        typing.innerHTML = '<span></span><span></span><span></span>';
+        if (box) box.appendChild(typing);
+        if (box) box.scrollTop = box.scrollHeight;
+
+        try {
+            var res = await fetch('/api/ai-chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages: _aiChatHistory, lang: isEn ? 'en' : 'ru' })
+            });
+            if (!res.ok) {
+                var errText = await res.text();
+                throw new Error('Chat error ' + res.status);
+            }
+            var data = await res.json();
+            var reply = data.text || '...';
+
+            if (box && typing.parentNode) box.removeChild(typing);
+            _aiChatHistory.push({ role: 'assistant', content: reply });
+            _appendChatBubble('assistant', reply);
+        } catch(e) {
+            if (box && typing.parentNode) box.removeChild(typing);
+            _appendChatBubble('assistant', isEn ? 'Error. Try again.' : 'Ошибка. Попробуй ещё раз.');
+            // Убираем последний user message из истории чтобы можно было повторить
+            _aiChatHistory.pop();
+        } finally {
+            _setChatInputLoading(false);
+            _updateChatPlaceholder();
+        }
+    }
+
+    var _MAX_QUESTIONS = 7;
+    var _questionCount = 0;
+
+    function _updateChatPlaceholder() {
+        var input = document.getElementById('aiChatInput');
+        if (!input) return;
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        var remaining = _MAX_QUESTIONS - _questionCount;
+        if (_questionCount === 0) {
+            input.placeholder = isEn ? 'Ask a question...' : 'Задать вопрос...';
+            input.disabled = false;
+        } else if (remaining > 0) {
+            input.placeholder = isEn
+                ? 'Ask a question (' + remaining + ' of ' + _MAX_QUESTIONS + ' left)'
+                : 'Задать вопрос (' + remaining + ' из ' + _MAX_QUESTIONS + ')';
+            input.disabled = false;
+        } else {
+            input.placeholder = isEn ? 'Question limit reached' : 'Лимит вопросов исчерпан';
+            input.disabled = true;
+            var btn = document.getElementById('aiChatSend');
+            if (btn) btn.disabled = true;
+        }
+    }
+
+    // Сброс истории чата (при смене монеты/таймфрейма)
+    window.resetAiChat = function() {
+        _aiChatHistory = [];
+        _questionCount = 0;
+        var box = document.getElementById('aiChatMessages');
+        if (box) box.innerHTML = '';
+        var btn = document.getElementById('aiChatSend');
+        if (btn) btn.disabled = false;
+        _updateChatPlaceholder();
     };
 
     function showBtn() { ensureUI(); if (_btnEl) _btnEl.style.display = 'flex'; }
@@ -395,13 +575,66 @@
         _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
     }
 
+    // ── Фоновый расчёт уровней и winRate независимо от Scan ────
+    window._ensureLevelsAndWinRate = async function(coinId, periodDays) {
+        var sym = (typeof BINANCE_SYMBOLS !== 'undefined') ? BINANCE_SYMBOLS[coinId] : null;
+        if (!sym || typeof PatternScanner === 'undefined') return;
+
+        // Уровни — если _lastLevels пустой
+        if (!window._lastLevels && typeof rawOhlcCache !== 'undefined' && rawOhlcCache.length >= 20) {
+            try {
+                var candles = rawOhlcCache.map(function(k) {
+                    return { time: Math.floor(k[0]/1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4] };
+                });
+                if (PatternScanner.scanLevels) {
+                    var levels = PatternScanner.scanLevels(candles, 1);
+                    if (levels) window._lastLevels = levels;
+                }
+            } catch(e) {}
+        }
+
+        // WinRate — если кэш пустой или другая монета/таймфрейм
+        var wrInterval, wrLimit;
+        if (periodDays <= 0.04)      { wrInterval = '1h'; wrLimit = 1000; }
+        else if (periodDays <= 0.17) { wrInterval = '4h'; wrLimit = 1000; }
+        else if (periodDays <= 1)    { wrInterval = '1d'; wrLimit = 730; }
+        else if (periodDays <= 7)    { wrInterval = '1w'; wrLimit = 200; }
+        else                         { wrInterval = '1M'; wrLimit = 100; }
+
+        var wrCacheKey = coinId + '_' + wrInterval;
+        if ((!window._fsWinRateCache || window._fsWinRateCacheKey !== wrCacheKey)
+            && !window._fsWinRateLoading
+            && typeof PatternScanner.calcWinRate === 'function') {
+            try {
+                window._fsWinRateLoading = true;
+                var res = await fetch('/api/ohlc?symbol=' + sym + '&interval=' + wrInterval + '&limit=' + wrLimit);
+                var data = await res.json();
+                if (Array.isArray(data) && data.length > 50) {
+                    var wrCandles = data.map(function(k) {
+                        return { time: Math.floor(k[0]/1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4] };
+                    });
+                    window._fsWinRateCache = PatternScanner.calcWinRate(wrCandles, periodDays);
+                    window._fsWinRateCacheKey = wrCacheKey;
+                }
+            } catch(e) {}
+            finally { window._fsWinRateLoading = false; }
+        }
+    };
+
     // ── Главная функция ─────────────────────────────────────────
     var _aiScanInFlight = false;
 
     window.runAiScan = async function(forceRefresh) {
-        if (_aiScanInFlight) return; // уже выполняется — игнорируем дублирующий вызов
+        if (_aiScanInFlight) return;
         try {
             _aiScanInFlight = true;
+
+            var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+            var periodDays = (typeof currentPeriod !== 'undefined') ? currentPeriod : 1;
+
+            // Гарантируем наличие уровней и winRate независимо от Scan
+            await window._ensureLevelsAndWinRate(coinId, periodDays);
+
             var ctx = window.collectAiContext();
             if (!ctx) { _aiScanInFlight = false; return; }
 
@@ -412,6 +645,10 @@
                     ctx.anchorLevels = { support: anchor.support, resistance: anchor.resistance,
                         positionPct: anchor.resistance !== anchor.support
                             ? Math.round((ctx.currentPrice - anchor.support) / (anchor.resistance - anchor.support) * 1000) / 10 : 50 };
+                    // Добавляем 1D тренд если локальный тренд не посчитан (мало свечей)
+                    if (anchor.trend1d && Object.keys(ctx.trend).length === 0) {
+                        ctx.trend = anchor.trend1d;
+                    }
                 }
             }
 
@@ -422,7 +659,7 @@
                 showBtn();
                 renderResult(cached.result, cached.ctx);
                 _tooltipVisible = true;
-                _tooltipEl.classList.add('visible');
+                _containerEl && _containerEl.classList.add('visible');
                 _btnEl.classList.add('active');
                 _aiScanInFlight = false;
                 return;
@@ -430,6 +667,7 @@
 
             // Сбрасываем старый кэш и очищаем тултип перед новым запросом
             delete window._aiCache[key];
+            if (typeof window.resetAiChat === 'function') window.resetAiChat();
             if (_tooltipEl) {
                 var textEl = _tooltipEl.querySelector('.ai-tt-text');
                 var actionEl = _tooltipEl.querySelector('.ai-tt-action');
@@ -441,8 +679,9 @@
             showBtn();
             renderLoading(ctx);
             _tooltipVisible = true;
-            _tooltipEl.classList.add('visible');
+            _containerEl && _containerEl.classList.add('visible');
             _btnEl.classList.add('active');
+            if (_chatPanelEl) _chatPanelEl.classList.remove('visible');
 
             // Лог промпта
             window._aiLastPrompt = ctx;
@@ -451,7 +690,17 @@
             var result = await window.callAiScanner(ctx);
             window._aiCache[key] = { result: result, ctx: ctx, ts: Date.now() };
             console.log('[AI Scanner] Result:', JSON.stringify(result, null, 2));
+
+            // Сохраняем анализ как первое сообщение в истории чата
+            _aiChatHistory = [
+                { role: 'user', content: 'Данные рынка: ' + JSON.stringify(ctx) },
+                { role: 'assistant', content: (result.situation || '') + ' ' + (result.verdict || '') }
+            ];
+
             renderResult(result, ctx);
+            if (_chatPanelEl) _chatPanelEl.classList.add('visible');
+            setTimeout(_positionChatPanel, 50);
+            setTimeout(_positionChatPanel, 300);
         } catch(e) {
             console.error('AI Scanner error:', e);
             if (_tooltipEl) {
@@ -481,6 +730,17 @@
             // Если закрыт — открываем с сообщением
             var ae = _tooltipEl.querySelector('.ai-tt-action');
             var textEl = _tooltipEl.querySelector('.ai-tt-text');
+            var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict');
+
+            // Очищаем verdict и сбрасываем чат
+            if (verdictEl) { verdictEl.textContent = ''; verdictEl.style.cssText = ''; }
+            if (typeof window.resetAiChat === 'function') window.resetAiChat();
+            if (_chatPanelEl) _chatPanelEl.classList.remove('visible');
+
+            // Переключаем рамку на загрузочную анимацию
+            _tooltipEl.classList.remove('signal-long', 'signal-short');
+            _tooltipEl.classList.add('signal-loading');
+            _btnEl.classList.remove('signal-long', 'signal-short');
 
             textEl.textContent = isEn
                 ? 'Data is outdated. Press Scan to get fresh analysis.'
@@ -497,7 +757,7 @@
 
             if (!_tooltipVisible) {
                 _tooltipVisible = true;
-                _tooltipEl.classList.add('visible');
+                _containerEl && _containerEl.classList.add('visible');
                 _btnEl.classList.add('active');
             }
 

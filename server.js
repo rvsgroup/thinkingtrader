@@ -265,7 +265,7 @@ app.get('/api/translate', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // AI SCANNER — анализ рынка через DeepSeek (OpenRouter)
 // ══════════════════════════════════════════════════════════════
-const OPENROUTER_KEY = process.env.OPENROUTER_KEY || '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';
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 const AI_MODEL = 'deepseek/deepseek-chat-v3-0324';
 const AI_CACHE_TTL = 5 * 60 * 1000; // 5 минут
 
@@ -477,6 +477,47 @@ JSON формат:
 
     } catch (e) {
         console.error('❌ AI Scanner exception:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ── AI Chat — диалог на основе анализа ──────────────────────
+app.post('/api/ai-chat', async (req, res) => {
+    try {
+        const { messages, lang } = req.body;
+        if (!messages || !Array.isArray(messages) || messages.length === 0) {
+            return res.status(400).json({ error: 'Missing messages' });
+        }
+
+        const isEn = lang === 'en';
+        const systemPrompt = isEn
+            ? `You are a crypto trading assistant. The user has already received a market analysis. Answer follow-up questions concisely and specifically based on the context of the analysis. Maximum 2-3 sentences. No disclaimers. No generic phrases. Specific prices and levels only. Plain text only — no markdown, no asterisks, no bullet points.`
+            : `Ты ассистент криптотрейдера. Пользователь уже получил анализ рынка. Отвечай на уточняющие вопросы кратко и конкретно, опираясь на контекст анализа. Максимум 2-3 предложения. Без дисклеймеров. Без общих фраз. Только конкретные цены и уровни. Только plain text — без markdown, без звёздочек, без маркированных списков.`;
+
+        const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENROUTER_KEY}`,
+                'HTTP-Referer': 'https://thinkingtrader.app',
+                'X-Title': 'Thinking Trader Chat'
+            },
+            body: JSON.stringify({
+                model: AI_MODEL,
+                max_tokens: 1000,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    ...messages
+                ]
+            })
+        });
+
+        if (!aiRes.ok) throw new Error('Chat error ' + aiRes.status);
+        const data = await aiRes.json();
+        const text = data.choices?.[0]?.message?.content || '';
+        res.json({ text });
+    } catch (e) {
+        console.error('❌ AI Chat exception:', e.message);
         res.status(500).json({ error: e.message });
     }
 });

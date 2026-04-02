@@ -8555,8 +8555,7 @@
                 }
                 if (document.getElementById('aiBtnApp')?.classList.contains('ai-active') && window.runAiScan) {
                     setTimeout(() => window.runAiScan(true), 2500);
-                }
-            } else {
+                }            } else {
                 chartLoading.textContent = t('chartError');
                 priceChangeBadge.className = 'price-change-badge';
             }
