@@ -259,7 +259,7 @@
         _chatPanelEl.innerHTML =
             '<div class="ai-tt-chat" id="aiChatMessages"></div>' +
             '<div class="ai-tt-chat-input-wrap" id="aiChatInputWrap">' +
-                '<textarea class="ai-tt-chat-input" id="aiChatInput" placeholder="Задать вопрос..." maxlength="400" rows="1"></textarea>' +
+                '<textarea class="ai-tt-chat-input" id="aiChatInput" placeholder="..." maxlength="400" rows="1"></textarea>' +
                 '<button class="ai-tt-chat-send" id="aiChatSend">' +
                     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
                 '</button>' +
@@ -270,6 +270,7 @@
         wrap.appendChild(_containerEl);
 
         _initChatHandlers();
+        setTimeout(_updateChatPlaceholder, 0);
     }
 
     function toggleTooltip() {
