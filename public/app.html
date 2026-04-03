@@ -63,10 +63,11 @@
         /* — Контейнер тулбара — */
         .chart-header {
             margin-bottom: 0;
-            padding: 0 0 8px 0;
+            padding: 6px 8px 4px 8px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
         }
         #ourChartControls {
             background: transparent;
@@ -425,15 +426,15 @@
             flex-shrink: 0;
             overflow: hidden;
             display: flex;
-            justify-content: center;
+            justify-content: stretch;
             align-items: flex-start;
-            padding: 14px;
+            padding: 0;
             position: relative;
         }
 
         /* Страница 1 */
         #slider-page-1 {
-            padding: 14px 16px;
+            padding: 0;
         }
 
         /* ── Навигация: точки ── */
@@ -579,7 +580,7 @@
             top: 50%;
             transform: translateY(-50%);
             width: 40px;
-            height: 40px;
+            height: 38px;
             border-radius: 50%;
             background: rgba(99,102,241,0.15);
             border: 1px solid rgba(99,102,241,0.3);
@@ -1083,12 +1084,15 @@
         }
 
         .header {
-            margin-bottom: 12px;
-            padding-top: 10px;
+            margin-bottom: 0;
+            padding: 0 12px;
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            height: 38px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            background: #0D1117;
         }
 
         .header-left {
@@ -1100,7 +1104,7 @@
         .header-right {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
         }
 
         /* ── Языковой переключатель ── */
@@ -1108,14 +1112,14 @@
             position: relative;
         }
         .lang-trigger {
-            display: flex; align-items: center; gap: 6px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 6px;
-            padding: 6px 10px;
+            display: flex; align-items: center; gap: 4px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 5px;
+            padding: 3px 7px;
             cursor: pointer;
             color: #94A3B8;
-            font-size: 12px; font-weight: 600;
+            font-size: 11px; font-weight: 600;
             transition: background 0.15s, border-color 0.15s;
             user-select: none;
         }
@@ -1153,27 +1157,64 @@
             display: flex; align-items: center; gap: 10px; margin-left: 12px;
         }
         .user-avatar {
-            width: 32px; height: 32px; border-radius: 50%;
-            border: 2px solid rgba(99,102,241,0.5);
+            width: 26px; height: 26px; border-radius: 50%;
+            border: 1.5px solid rgba(99,102,241,0.5);
             background: linear-gradient(135deg, #4F46E5, #7C3AED);
             display: flex; align-items: center; justify-content: center;
-            font-size: 14px; font-weight: 700; color: #fff;
+            font-size: 12px; font-weight: 700; color: #fff;
             flex-shrink: 0;
         }
         .user-name {
-            font-size: 13px; font-weight: 600; color: #CBD5E1;
-            max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            display: none;
         }
         .btn-logout {
             background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
-            color: #EF4444; font-size: 12px; font-weight: 600;
-            padding: 5px 12px; border-radius: 6px; cursor: pointer;
+            color: #EF4444; font-size: 11px; font-weight: 600;
+            padding: 3px 8px; border-radius: 5px; cursor: pointer;
             font-family: 'DM Sans', -apple-system, sans-serif;
             transition: all 0.2s;
         }
         .btn-logout:hover { background: rgba(239,68,68,0.2); color: #F87171; }
 
         /* Auth loading overlay */
+
+        /* ═══ КОМПАКТНЫЙ ХЕДЕР — стиль TradingView ════════════════ */
+        .header {
+            background: #131722;
+            border-bottom: 1px solid #2A2E39;
+        }
+        .title h1 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #D1D4DC;
+            background: none;
+            -webkit-text-fill-color: #D1D4DC;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+        .header-left { gap: 0; }
+        .header-right { gap: 8px; }
+        .lang-trigger {
+            height: 24px;
+            padding: 0 8px;
+            gap: 4px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .user-avatar {
+            width: 24px; height: 24px;
+            font-size: 11px;
+            border-width: 1px;
+        }
+        .user-name { display: none; }
+        .btn-logout {
+            height: 24px;
+            padding: 0 8px;
+            font-size: 11px;
+            border-radius: 4px;
+            line-height: 24px;
+        }
+
         .auth-loading {
             position: fixed; inset: 0; background: #070B14;
             display: flex; align-items: center; justify-content: center;
@@ -1181,7 +1222,7 @@
         }
         .auth-loading.hidden { opacity: 0; pointer-events: none; }
         .auth-spinner {
-            width: 40px; height: 40px; border: 3px solid rgba(99,102,241,0.2);
+            width: 40px; height: 38px; border: 3px solid rgba(99,102,241,0.2);
             border-top-color: #6366F1; border-radius: 50%;
             animation: authSpin 0.8s linear infinite;
         }
@@ -1204,11 +1245,12 @@
         }
 
         .title h1 {
-            font-size: 28px;
+            font-size: 15px;
             font-weight: 700;
             background: linear-gradient(135deg, #fff 0%, #94A3B8 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+            letter-spacing: 0.2px;
         }
 
         .content {
@@ -1230,7 +1272,7 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            gap: 10px;
+            gap: 0;
             flex: 1;
             min-height: 0;
         }
@@ -1256,20 +1298,39 @@
             border: 1px solid rgba(255, 255, 255, 0.05);
             border-right: none;
             border-radius: 0;
-            padding: 14px;
+            padding: 6px 8px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 4px;
             flex: 1 1 auto;
-            min-height: 200px; 
+            min-height: 200px;
         }
-        .chart-column .chart-container { position: relative; width: 100%; overflow: hidden; flex: 1; min-height: 300px; }
+        .chart-column .chart-container { position: relative; width: 100%; overflow: visible; flex: 1; min-height: 300px; transition: border-color 0.5s, box-shadow 0.5s; }
+        #aiScanGlow {
+            position: absolute;
+            inset: 0;
+            border-radius: 6px;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        #aiScanGlow.on {
+            opacity: 1;
+            animation: aiScanPulse 2.5s ease-in-out infinite;
+        }
+        @keyframes aiScanPulse {
+            0%,100% { box-shadow: 0 0 0 1px rgba(41,98,255,0.25), 0 0 10px rgba(41,98,255,0.12); }
+            50%      { box-shadow: 0 0 0 2px rgba(41,98,255,0.9), 0 0 30px rgba(41,98,255,0.45), 0 0 60px rgba(123,97,255,0.2); }
+        }
         .chart-column #lwPriceChart { width: 100%; height: 100%; }
         .chart-coin-bar {
             display: flex;
             align-items: center;
             gap: 6px;
             flex-wrap: wrap;
+            position: relative;
+            z-index: 1;
         }
 
         /* ── RSI блок ── */
@@ -1884,14 +1945,12 @@
 
         /* ── Dropdown: desktop ── */
         .coin-dropdown {
-            position: absolute;
-            bottom: calc(100% + 8px);
-            left: 0;
+            position: fixed;
             background: #111827;
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px;
             padding: 8px;
-            z-index: 500;
+            z-index: 10000;
             width: 260px;
             max-height: 350px;
             overflow-y: auto;
@@ -3307,7 +3366,7 @@
         /* ── MacBook 16" (1500px) ── */
         @media (max-width: 1500px) {
             .content { grid-template-columns: 1fr auto; gap: 0; }
-            .container { max-width: 100%; padding: 0 16px; }
+            .container { max-width: 100%; padding: 0; }
             .right-panel:not(.collapsed) { width: 320px; }
             .result-amount { font-size: 36px; }
         }
@@ -3317,7 +3376,7 @@
             body { padding: 12px; }
             .content { grid-template-columns: 1fr auto; gap: 0; }
             .container { max-width: 100%; }
-            .header { margin-bottom: 12px; }
+            .header { margin-bottom: 0; }
             .right-panel:not(.collapsed) { width: 280px; }
             .title h1 { font-size: 20px; }
             .logo { width: 36px; height: 36px; font-size: 18px; }
@@ -3363,12 +3422,13 @@
             align-items: flex-start;
         }
         
-        .container { 
+        .container {
             max-width: 100%;
+            width: 100%;
             height: auto;
         }
         
-        .header { margin-bottom: 16px; padding-top: 0; }
+        .header { margin-bottom: 0; padding-top: 0; }
         .logo { width: 42px; height: 42px; font-size: 20px; }
         .title h1 { font-size: 22px; }
         
@@ -4141,7 +4201,7 @@
                 flex-direction: column !important;
             }
 
-            .header { margin-bottom: 8px; padding-top: 0; }
+            .header { margin-bottom: 0; padding-top: 0; }
             .logo { width: 34px; height: 34px; font-size: 15px; }
             .title h1 { font-size: 17px; }
             .title p { display: none; }
@@ -4180,7 +4240,7 @@
             .chart-loading { height: 300px !important; }
             .chart-title h3 { font-size: 13px; }
             .chart-header { flex-wrap: wrap; gap: 6px; }
-            #ourChartControls { flex-wrap: wrap; gap: 4px; }
+            #ourChartControls { flex-wrap: wrap; gap: 4px; padding: 2px 0; }
             .period-btn { padding: 0 6px; font-size: 10px; }
             .chart-coin-bar { flex-wrap: wrap; gap: 6px; }
             .coin-select-trigger { white-space: nowrap; max-width: calc(100vw - 48px); overflow: hidden; text-overflow: ellipsis; }
@@ -6181,7 +6241,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div id="chartToolsRight" style="display:flex;align-items:center;gap:4px;">
+                        <div style="display:flex;align-items:center;gap:4px;">
                             <!-- Replay (admin only) -->
                             <div class="replay-inline admin-only" id="replayInline" style="display:none;">
                                 <button class="replay-toggle-btn" id="replayToggleBtn" title="Replay">Replay</button>
@@ -6282,6 +6342,7 @@
                 </div>
                 <div class="chart-container">
                     <!-- Наш график -->
+                    <div id="aiScanGlow"></div>
                     <div id="ourChartWrap" style="width:100%;height:100%;position:absolute;top:0;left:0;">
                         <div id="lwPriceChart" style="width:100%;height:100%;"></div>
                         <!-- Кнопка "перемотать к текущему" -->
@@ -8316,11 +8377,22 @@
             trigger.classList.add('open');
             coinSearchDesktop.value = '';
             buildDropdown('');
+            _positionDropdown();
             setTimeout(() => coinSearchDesktop.focus(), 50);
         }
         function closeDropdown() {
             dropdown.classList.remove('open');
             trigger.classList.remove('open');
+        }
+
+        // ── Порталим dropdown к body чтобы canvas не перехватывал клики ──
+        document.body.appendChild(dropdown);
+        dropdown.style.position = 'fixed';
+
+        function _positionDropdown() {
+            const r = trigger.getBoundingClientRect();
+            dropdown.style.left = r.left + 'px';
+            dropdown.style.bottom = (window.innerHeight - r.top + 8) + 'px';
         }
 
         coinSearchDesktop.addEventListener('input', () => buildDropdown(coinSearchDesktop.value));
@@ -8331,11 +8403,28 @@
             dropdown.classList.contains('open') ? closeDropdown() : openDropdown();
         });
 
+        // ── Fix: canvas от LightweightCharts может перехватывать клики ──
+        // Ловим клик на фазе capture на уровне document.
+        // Если координаты клика попадают в область trigger — вызываем его программно.
+        document.addEventListener('click', e => {
+            if (e._coinTriggerHandled) return;
+            const r = trigger.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0 &&
+                e.clientX >= r.left && e.clientX <= r.right &&
+                e.clientY >= r.top && e.clientY <= r.bottom &&
+                !trigger.contains(e.target)) {
+                e.stopPropagation();
+                e.preventDefault();
+                e._coinTriggerHandled = true;
+                dropdown.classList.contains('open') ? closeDropdown() : openDropdown();
+            }
+        }, true);
+
         // Expose for fullscreen overlay
         window._openCoinSelector = openDropdown;
         window._openCoinSheet = openSheet;
         document.addEventListener('click', e => {
-            if (!wrapper.contains(e.target)) closeDropdown();
+            if (!wrapper.contains(e.target) && !dropdown.contains(e.target)) closeDropdown();
         });
 
         // ── Mobile bottom sheet ──
@@ -8802,12 +8891,25 @@
         }
 
 
+        // Показывать/скрывать двойное дно/вершину в фильтрах только на 1D
+        function updateDoublePatternVisibility(period) {
+            const is1D = period === 1;
+            document.querySelectorAll(
+                '.pf-item:has([data-pat="Двойная вершина"]), .pf-item:has([data-pat="Двойное дно"]), ' +
+                '.pf-item:has([data-fspat="Двойная вершина"]), .pf-item:has([data-fspat="Двойное дно"])'
+            ).forEach(el => el.style.display = is1D ? '' : 'none');
+            // Скрываем заголовок "Графические" если не 1D
+            document.querySelectorAll('[data-i18n="pfGroupChart"]').forEach(el => el.style.display = is1D ? '' : 'none');
+        }
+        updateDoublePatternVisibility(currentPeriod);
+
         // ── Период графика ──
         periodButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 periodButtons.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentPeriod = parseFloat(btn.dataset.period);
+                updateDoublePatternVisibility(currentPeriod);
                 loadChartData();
                 if (window.smallScanActive) setTimeout(() => window.runSmallScan && window.runSmallScan(), 500);
                 if (window.smallScanActive) setTimeout(() => window.runSetupAnalysis && window.runSetupAnalysis(), 1200);
@@ -13947,7 +14049,6 @@
         if (userEmail === adminEmail) {
             window._isAdminUser = true;
             document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
-            document.body.classList.add('admin-mode');
             window.totalPages = 4;
             const arrowR = document.getElementById('arrowRight');
             if (arrowR) arrowR.classList.toggle('hidden', window.currentPage === window.totalPages - 1);
@@ -14348,13 +14449,14 @@
                 <label class="pf-item"><input type="checkbox" data-fspat="Перевёрнутый молот" checked><span data-i18n="fsPatInvHammer">Перевёрнутый молот</span></label>
                 <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
                 <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="fsGroupDouble">Двойные</div>
+                <label class="pf-item"><input type="checkbox" data-fspat="Двойная вершина" checked><span data-i18n="fsPatDoubleTop">Двойная вершина</span></label>
+                <label class="pf-item"><input type="checkbox" data-fspat="Двойное дно" checked><span data-i18n="fsPatDoubleBottom">Двойное дно</span></label>
                 <label class="pf-item"><input type="checkbox" data-fspat="Поглощение" checked><span data-i18n="fsPatEngulfing">Поглощение</span></label>
                 <label class="pf-item"><input type="checkbox" data-fspat="Харами" checked><span data-i18n="fsPatHarami">Харами</span></label>
                 <label class="pf-item"><input type="checkbox" data-fspat="Пинцет" checked><span data-i18n="fsPatTweezer">Пинцет</span></label>
                 <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
                 <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="fsGroupChart">Графические</div>
-                <label class="pf-item"><input type="checkbox" data-fspat="Двойная вершина" checked><span data-i18n="fsPatDoubleTop">Двойная вершина</span></label>
-                <label class="pf-item"><input type="checkbox" data-fspat="Двойное дно" checked><span data-i18n="fsPatDoubleBottom">Двойное дно</span></label>
+
                 <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
                 <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="pfGroupLevels">Уровни</div>
                 <label class="pf-item"><input type="checkbox" id="filterLevelsFs" checked><span data-i18n="pfLevels">Поддержка / Сопротивление</span></label>

@@ -225,7 +225,7 @@
         var wrap = document.getElementById('ourChartWrap');
         if (!wrap) return;
 
-        // Кружочек (!)
+        // Кружочек (!) — на мобилке скрыт, роль играет кнопка AI в тулбаре
         _btnEl = document.createElement('div');
         _btnEl.id = 'aiBtnCircle';
         _btnEl.innerHTML = '!';
@@ -245,6 +245,7 @@
                 '<div class="ai-tt-logo"><svg width="10" height="10" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="white" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg></div>' +
                 '<span class="ai-tt-label">AI SCANNER</span>' +
                 '<span class="ai-tt-tf"></span>' +
+                '<span class="ai-tt-time" style="color:#475569;font-size:10px;margin-left:auto;margin-right:6px;"></span>' +
                 '<div class="ai-tt-info-wrap">' +
                     '<div class="ai-tt-info-btn">i</div>' +
                     '<div class="ai-tt-info-popup">This is not financial advice. AI Scanner provides analytical information based on technical analysis. All trading decisions are made at your own risk. Past performance does not guarantee future results.</div>' +
@@ -255,7 +256,7 @@
             '<div class="ai-tt-action"></div>' +
             '<div class="ai-tt-footer"><span>THINKING TRADER</span><span class="ai-tt-price"></span></div>';
 
-        // Чат-панель
+        // Чат-панель — сразу под тултипом в том же контейнере
         _chatPanelEl = document.createElement('div');
         _chatPanelEl.id = 'aiChatPanel';
         _chatPanelEl.innerHTML =
@@ -277,12 +278,84 @@
             _containerEl.addEventListener('click', function(e) {
                 if (e.target === _containerEl) toggleTooltip();
             });
+            // Swipe вниз на handle/тултипе — закрывает панель
+            _addSwipeDown(_tooltipEl);
         } else {
             wrap.appendChild(_containerEl);
         }
 
+        // Кнопка AI в тулбаре — на мобилке тоже переключает панель
+        var aiBtnApp = document.getElementById('aiBtnApp');
+        if (aiBtnApp && _isMobile()) {
+            // убираем старый обработчик через замену на клон
+            var newBtn = aiBtnApp.cloneNode(true);
+            aiBtnApp.parentNode.replaceChild(newBtn, aiBtnApp);
+            newBtn.addEventListener('click', function() {
+                var alreadyActive = newBtn.classList.contains('ai-active');
+                if (alreadyActive) {
+                    newBtn.classList.remove('ai-active');
+                    if (_tooltipVisible) toggleTooltip();
+                } else {
+                    newBtn.classList.add('ai-active');
+                    if (typeof runAiScan === 'function') runAiScan(true);
+                }
+            });
+        }
+
         _initChatHandlers();
         setTimeout(_updateChatPlaceholder, 0);
+    }
+
+    // Свайп вниз для закрытия
+    function _addSwipeDown(el) {
+        var startY = 0, startX = 0, isDragging = false;
+        el.addEventListener('touchstart', function(e) {
+            startY = e.touches[0].clientY;
+            startX = e.touches[0].clientX;
+            isDragging = false;
+        }, { passive: true });
+        el.addEventListener('touchmove', function(e) {
+            var dy = e.touches[0].clientY - startY;
+            var dx = Math.abs(e.touches[0].clientX - startX);
+            if (dy > 10 && dy > dx) {
+                isDragging = true;
+                // Визуальный сдвиг
+                var shift = Math.min(dy - 10, 120);
+                _containerEl.style.transition = 'none';
+                _tooltipEl.style.transform = 'translateY(' + shift + 'px)';
+                _chatPanelEl.style.transform = 'translateY(' + shift + 'px)';
+            }
+        }, { passive: true });
+        el.addEventListener('touchend', function(e) {
+            var dy = e.changedTouches[0].clientY - startY;
+            _containerEl.style.transition = '';
+            _tooltipEl.style.transform = '';
+            _chatPanelEl.style.transform = '';
+            if (isDragging && dy > 80) {
+                toggleTooltip();
+            }
+            isDragging = false;
+        }, { passive: true });
+    }
+
+    function _fitContainer() {
+        if (!_containerEl || !_isMobile()) {
+            var coinBar = document.querySelector('.chart-coin-bar');
+            if (coinBar && _containerEl) {
+                var coinTop = coinBar.getBoundingClientRect().top;
+                var contTop = _containerEl.getBoundingClientRect().top;
+                var maxH = coinTop - contTop - 10;
+                if (maxH > 100) {
+                    _containerEl.style.maxHeight = maxH + 'px';
+                    if (_tooltipEl) {
+                        _tooltipEl.style.overflowY = 'auto';
+                        _tooltipEl.style.flexShrink = '1';
+                        _tooltipEl.style.minHeight = '0';
+                    }
+                    if (_chatPanelEl) _chatPanelEl.style.flexShrink = '0';
+                }
+            }
+        }
     }
 
     function toggleTooltip() {
@@ -291,14 +364,17 @@
         _tooltipEl.classList.toggle('visible', _tooltipVisible);
         _btnEl.classList.toggle('active', _tooltipVisible);
         if (_containerEl) _containerEl.classList.toggle('visible', _tooltipVisible);
+        if (_tooltipVisible) setTimeout(_fitContainer, 50);
     }
 
     window.hideAiTooltip = function() {
         _tooltipVisible = false;
-        if (_tooltipEl) _containerEl && _containerEl.classList.remove('visible');
         if (_containerEl) _containerEl.classList.remove('visible');
         if (_chatPanelEl) _chatPanelEl.classList.remove('visible');
         if (_btnEl) { _btnEl.classList.remove('active'); _btnEl.style.display = 'none'; }
+        // Сбрасываем ai-active на кнопке тулбара
+        var aiBtnApp = document.getElementById('aiBtnApp');
+        if (aiBtnApp) aiBtnApp.classList.remove('ai-active');
     };
 
     function _positionChatPanel() { /* позиция управляется контейнером */ }
@@ -449,7 +525,7 @@
         _updateChatPlaceholder();
     };
 
-    function showBtn() { ensureUI(); if (_btnEl) _btnEl.style.display = 'flex'; }
+    function showBtn() { ensureUI(); if (_btnEl && !_isMobile()) _btnEl.style.display = 'flex'; }
 
     function renderLoading(ctx) {
         ensureUI();
@@ -468,6 +544,8 @@
         if (ve) { ve.textContent = ''; ve.style.cssText = ''; }
         var ae = _tooltipEl.querySelector('.ai-tt-action'); ae.innerHTML = ''; ae.style.cssText = '';
         _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
+        var _now = new Date(); var _timeStr = _now.toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit'}) + ' ' + _now.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
+        var _timeEl = _tooltipEl.querySelector('.ai-tt-time'); if (_timeEl) _timeEl.textContent = _timeStr;
     }
 
     function calcProfit(entry, target) {
@@ -586,6 +664,8 @@
         if (barS) barS.addEventListener('click', function(e) { e.stopPropagation(); showDetails('short'); });
 
         _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
+        var _now = new Date(); var _timeStr = _now.toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit'}) + ' ' + _now.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
+        var _timeEl = _tooltipEl.querySelector('.ai-tt-time'); if (_timeEl) _timeEl.textContent = _timeStr;
     }
 
     // ── Фоновый расчёт уровней и winRate независимо от Scan ────
@@ -637,10 +717,20 @@
     // ── Главная функция ─────────────────────────────────────────
     var _aiScanInFlight = false;
 
+    function _startScanAnim() {
+        var el = document.getElementById('aiScanGlow');
+        if (el) el.classList.add('on');
+    }
+    function _stopScanAnim() {
+        var el = document.getElementById('aiScanGlow');
+        if (el) el.classList.remove('on');
+    }
+
     window.runAiScan = async function(forceRefresh) {
         if (_aiScanInFlight) return;
         try {
             _aiScanInFlight = true;
+            _startScanAnim();
 
             var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
             var periodDays = (typeof currentPeriod !== 'undefined') ? currentPeriod : 1;
@@ -717,79 +807,185 @@
         } catch(e) {
             console.error('AI Scanner error:', e);
             if (_tooltipEl) {
-                _tooltipEl.querySelector('.ai-tt-text').textContent = 'Error: ' + e.message;
-                _tooltipEl.querySelector('.ai-tt-action').innerHTML = '';
+                var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+                var textEl = _tooltipEl.querySelector('.ai-tt-text');
+                var aeEl = _tooltipEl.querySelector('.ai-tt-action');
+                textEl.style.fontStyle = 'normal';
+                textEl.style.color = '#9598A1';
+                textEl.textContent = isEn
+                    ? 'Server temporarily unavailable.'
+                    : 'Сервер временно недоступен.';
+                aeEl.style.cssText = 'margin:0 10px 8px;';
+                var retryBtn = document.createElement('button');
+                retryBtn.style.cssText = 'background:rgba(41,98,255,0.12);border:1px solid rgba(41,98,255,0.3);border-radius:6px;color:#2962FF;font-size:11px;font-weight:600;padding:6px 20px;cursor:pointer;';
+                retryBtn.textContent = isEn ? '↺ Retry' : '↺ Повторить';
+                retryBtn.onclick = function() { if (typeof runAiScan === 'function') runAiScan(true); };
+                var errWrap = document.createElement('div');
+                errWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;';
+                var errHint = document.createElement('span');
+                errHint.style.cssText = 'color:#636B76;font-size:11px;';
+                errHint.textContent = isEn ? 'Please try again in a moment' : 'Попробуйте через минуту';
+                errWrap.appendChild(errHint);
+                errWrap.appendChild(retryBtn);
+                aeEl.innerHTML = '';
+                aeEl.appendChild(errWrap);
+                if (!_tooltipVisible) {
+                    _tooltipVisible = true;
+                    _containerEl && _containerEl.classList.add('visible');
+                    _btnEl && _btnEl.classList.add('active');
+                }
             }
         } finally {
             _aiScanInFlight = false;
+            _stopScanAnim();
         }
     };
 
-    // ── Таймер истечения кэша — уведомление через 5 мин ─────
+    // ── Таймер истечения кэша — оверлей через 10 мин ───────────
     var _expiryTimer = null;
-    var AI_CACHE_LIFETIME = 5 * 60 * 1000; // 5 минут — совпадает с серверным TTL
+    var _tickTimer = null;
+    var _analysisTs = null; // время последнего анализа
+    var AI_CACHE_LIFETIME = 10 * 60 * 1000; // 10 минут
+
+    function _timeAgo(ts) {
+        var diff = Math.floor((Date.now() - ts) / 1000);
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        if (diff < 60) return isEn ? 'just now' : 'только что';
+        var mins = Math.floor(diff / 60);
+        if (isEn) return mins + ' min ago';
+        if (mins === 1) return '1 минуту назад';
+        if (mins < 5) return mins + ' минуты назад';
+        return mins + ' минут назад';
+    }
+
+    function _showStaleOverlay() {
+        if (!_tooltipEl) return;
+        // Убираем старый оверлей если был
+        var old = _tooltipEl.querySelector('#aiStaleOverlay');
+        if (old) old.remove();
+
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        var overlay = document.createElement('div');
+        overlay.id = 'aiStaleOverlay';
+        overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(13,17,28,0.85);border-radius:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:10;';
+
+        var timeEl = document.createElement('span');
+        timeEl.id = 'aiStaleTime';
+        timeEl.style.cssText = 'color:#636B76;font-size:12px;';
+        timeEl.textContent = (isEn ? 'Analysis from ' : 'Анализ от ') + new Date(_analysisTs).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + _timeAgo(_analysisTs);
+
+        // Запускаем тик — обновляем время каждую минуту
+        clearInterval(_tickTimer);
+        _tickTimer = setInterval(function() {
+            var el = document.getElementById('aiStaleTime');
+            if (el && _analysisTs) {
+                el.textContent = (isEn ? 'Analysis from ' : 'Анализ от ') + new Date(_analysisTs).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' · ' + _timeAgo(_analysisTs);
+            }
+        }, 30000);
+
+        var icon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F7A600" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+        var title = document.createElement('div');
+        title.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;';
+        title.innerHTML = icon + '<span style="color:#D1D4DC;font-size:14px;font-weight:500;">' + (isEn ? 'Data outdated' : 'Данные устарели') + '</span>';
+
+        var btnUpdate = document.createElement('button');
+        btnUpdate.style.cssText = 'background:#2962FF;border:none;border-radius:8px;color:white;font-size:13px;font-weight:500;padding:10px 28px;cursor:pointer;';
+        btnUpdate.textContent = isEn ? 'Update analysis' : 'Обновить анализ';
+        btnUpdate.onclick = function() {
+            overlay.remove();
+            clearInterval(_tickTimer);
+            if (typeof runAiScan === 'function') runAiScan(true);
+        };
+
+        var btnOld = document.createElement('button');
+        btnOld.style.cssText = 'background:transparent;border:1px solid #2A2E39;border-radius:8px;color:#636B76;font-size:12px;padding:7px 20px;cursor:pointer;';
+        btnOld.textContent = isEn ? 'View old analysis' : 'Посмотреть старый';
+        btnOld.onclick = function() {
+            overlay.remove();
+            clearInterval(_tickTimer);
+            // Разблокируем чат
+            if (_chatPanelEl) {
+                var inp = _chatPanelEl.querySelector('.ai-tt-chat-input');
+                var btn = _chatPanelEl.querySelector('.ai-tt-chat-send');
+                if (inp) inp.disabled = false;
+                if (btn) btn.disabled = false;
+            }
+            // Добавляем маленькую кнопку "Обновить" в футер
+            var footer = _tooltipEl.querySelector('.ai-tt-footer');
+            if (footer && !footer.querySelector('#aiRefreshBtn')) {
+                var refreshBtn = document.createElement('button');
+                refreshBtn.id = 'aiRefreshBtn';
+                refreshBtn.style.cssText = 'background:transparent;border:1px solid rgba(41,98,255,0.4);border-radius:4px;color:#2962FF;font-size:10px;padding:2px 8px;cursor:pointer;margin-left:6px;';
+                refreshBtn.textContent = '↺ ' + (isEn ? 'Update' : 'Обновить');
+                refreshBtn.onclick = function() {
+                    refreshBtn.remove();
+                    if (typeof runAiScan === 'function') runAiScan(true);
+                };
+                footer.appendChild(refreshBtn);
+            }
+        };
+
+        overlay.appendChild(title);
+        overlay.appendChild(timeEl);
+        overlay.appendChild(btnUpdate);
+        overlay.appendChild(btnOld);
+
+        // Блокируем чат пока оверлей активен
+        if (_chatPanelEl) {
+            var inp = _chatPanelEl.querySelector('.ai-tt-chat-input');
+            var btn = _chatPanelEl.querySelector('.ai-tt-chat-send');
+            if (inp) { inp.disabled = true; inp.placeholder = isEn ? 'Update analysis to continue' : 'Обновите анализ для продолжения'; }
+            if (btn) btn.disabled = true;
+        }
+
+        // Позиционирование относительно тултипа
+        _tooltipEl.style.position = 'relative';
+        _tooltipEl.appendChild(overlay);
+
+        // Кнопка expired на кружочке
+        _btnEl.classList.add('expired');
+        _tooltipVisible = true;
+        _containerEl && _containerEl.classList.add('visible');
+        _btnEl.classList.add('active');
+
+        // Инвалидируем фронт-кэш
+        var key = getCacheKey();
+        delete window._aiCache[key];
+    }
 
     function startExpiryTimer() {
         clearTimeout(_expiryTimer);
+        clearInterval(_tickTimer);
+        // Убираем старый оверлей если был
+        if (_tooltipEl) { var o = _tooltipEl.querySelector('#aiStaleOverlay'); if (o) o.remove(); }
         _expiryTimer = setTimeout(function() {
             if (!_tooltipEl || !_btnEl) return;
             if (_btnEl.style.display === 'none') return;
-
-            // Показываем уведомление об устаревании
-            var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
-            _btnEl.classList.add('expired');
-
-            // Если тултип открыт — показываем сообщение прямо в нём
-            // Если закрыт — открываем с сообщением
-            var ae = _tooltipEl.querySelector('.ai-tt-action');
-            var textEl = _tooltipEl.querySelector('.ai-tt-text');
-            var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict');
-
-            // Очищаем verdict и сбрасываем чат
-            if (verdictEl) { verdictEl.textContent = ''; verdictEl.style.cssText = ''; }
-            if (typeof window.resetAiChat === 'function') window.resetAiChat();
-            if (_chatPanelEl) _chatPanelEl.classList.remove('visible');
-
-            // Переключаем рамку на загрузочную анимацию
-            _tooltipEl.classList.remove('signal-long', 'signal-short');
-            _tooltipEl.classList.add('signal-loading');
-            _btnEl.classList.remove('signal-long', 'signal-short');
-
-            textEl.textContent = isEn
-                ? 'Data is outdated. Press Scan to get fresh analysis.'
-                : 'Данные устарели. Нажмите Scan для нового анализа.';
-            textEl.style.fontStyle = 'normal';
-            textEl.style.borderLeftColor = '#2962FF';
-            textEl.style.color = '#9598A1';
-
-            ae.style.cssText = 'margin:0 10px 8px;';
-            ae.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:8px;background:rgba(41,98,255,0.08);border:1px solid rgba(41,98,255,0.2);border-radius:4px;cursor:pointer;" onclick="if(typeof runAiScan===\'function\'){runAiScan();}">' +
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2962FF" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>' +
-                '<span style="font-size:11px;font-weight:600;color:#2962FF;">' + (isEn ? 'Update — press Scan' : 'Обновить — нажмите Scan') + '</span>' +
-                '</div>';
-
-            if (!_tooltipVisible) {
-                _tooltipVisible = true;
-                _containerEl && _containerEl.classList.add('visible');
-                _btnEl.classList.add('active');
-            }
-
-            // Инвалидируем фронт-кэш
-            var key = getCacheKey();
-            delete window._aiCache[key];
-
+            _showStaleOverlay();
         }, AI_CACHE_LIFETIME);
     }
 
     // Перехватываем момент сохранения в кэш — запускаем таймер
     var _origRunAiScan = window.runAiScan;
     window.runAiScan = async function() {
-        await _origRunAiScan();
-        // Если данные получены — запускаем таймер
+        await _origRunAiScan.apply(this, arguments);
         var key = getCacheKey();
         if (window._aiCache[key]) {
+            _analysisTs = window._aiCache[key].ts || Date.now();
             startExpiryTimer();
             if (_btnEl) _btnEl.classList.remove('expired');
+            // Убираем старый оверлей и кнопку обновления при успешном обновлении
+            if (_tooltipEl) {
+                var o = _tooltipEl.querySelector('#aiStaleOverlay'); if (o) o.remove();
+                var r = _tooltipEl.querySelector('#aiRefreshBtn'); if (r) r.remove();
+            }
+            // Разблокируем чат
+            if (_chatPanelEl) {
+                var inp = _chatPanelEl.querySelector('.ai-tt-chat-input');
+                var snd = _chatPanelEl.querySelector('.ai-tt-chat-send');
+                if (inp) inp.disabled = false;
+                if (snd) snd.disabled = false;
+            }
         }
     };
 

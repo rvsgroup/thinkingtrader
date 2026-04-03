@@ -380,7 +380,9 @@ const PatternScanner = (function() {
     }
 
     function detectDoublePatterns(candles, days) {
+        // Двойное дно/вершина — только для 1D и выше (на 1H и 4H слишком много ложных сигналов)
         const interval   = getIntervalFromDays(days);
+        if (interval === '1h' || interval === '4h') return [];
         const params     = getDoubleParams(interval);
         const tolerance  = 0.020;
         const minRetrace = 0.03;

@@ -268,7 +268,7 @@ app.get('/api/translate', async (req, res) => {
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
 const AI_MODEL = 'deepseek/deepseek-chat-v3-0324';
-const AI_CACHE_TTL = 5 * 60 * 1000; // 5 минут
+const AI_CACHE_TTL = 10 * 60 * 1000; // 10 минут
 
 app.post('/api/ai-scan', async (req, res) => {
     try {
@@ -278,7 +278,7 @@ app.post('/api/ai-scan', async (req, res) => {
         }
 
         // ── Серверный кэш: ключ = монета + таймфрейм + язык ──
-        const cacheKey = `ai:${ctx.coin}:${ctx.timeframe}:${ctx.lang || 'ru'}`;
+        const cacheKey = `ai:v2:${ctx.coin}:${ctx.timeframe}:${ctx.lang || 'ru'}`;
         const cached = cacheGet(cacheKey);
         if (cached) {
             console.log(`✅ AI Scanner cache hit: ${cacheKey}`);
@@ -306,7 +306,9 @@ Answer format — 3 parts:
 3. Probabilities and levels — Long %, Short %, entry/target/stop for both.
 
 Rules:
-- Base on: distance to levels (risk/reward), 100-200d trend, last 5 candles structure, patterns and their results.
+- Base on: distance to levels (risk/reward), historical price trajectory (900d/800d/600d/400d/200d/100d/60d), last 5 candles structure, patterns and their results.
+- From trajectory MANDATORY: determine cycle phase (growth/peak/decline/bottom) and mention it in situation. Use specific prices — e.g. "price dropped from $116K to $67K over 200 days". Position in yearly range 10-15% means yearly bottom, 85-100% means top — use this in analysis.
+- winRate is the GLOBAL historical success rate of this pattern on this instrument and timeframe over the last 2 years. Not local, not subjective — it's pure statistics across all occurrences.
 - If a bullish pattern failed (workedOut: false) — that's a bearish signal. And vice versa.
 - For fresh patterns (workedOut: null, candlesAgo <= 2): use winRate as the signal strength. If winRate > 55% — treat it as a confirmed signal in that direction. If no winRate — treat as neutral.
 - If difference Long/Short is less than 15% — it's uncertainty, say it directly.
@@ -334,7 +336,9 @@ JSON format:
 3. Вероятности и уровни — Long %, Short %, вход/цель/стоп для обоих.
 
 Правила:
-- Основывайся на: расстояние до уровней (risk/reward), тренд 100-200д, структура последних 5 свечей, паттерны и их результат.
+- Основывайся на: расстояние до уровней (risk/reward), исторические данные траектории цены (900д/800д/600д/400д/200д/100д/60д), структура последних 5 свечей, паттерны и их результат.
+- По траектории ОБЯЗАТЕЛЬНО: определи фазу цикла (рост/пик/падение/дно) и упомяни её в situation. Используй конкретные цены — например "цена упала с $116K до $67K за 200 дней". Позиция в годовом диапазоне 10-15% — это дно года, 85-100% — вершина, используй это в анализе.
+- winRate — это ГЛОБАЛЬНЫЙ исторический процент успешных срабатываний данного паттерна на этом инструменте и таймфрейме за последние 2 года. Не локальный и не субъективный — это статистика по всем случаям.
 - Если паттерн не отработал (workedOut: false) — это медвежий сигнал для бычьего паттерна и наоборот.
 - Для свежих паттернов (workedOut: null, candlesAgo <= 2): используй winRate как силу сигнала. Если winRate > 55% — считай это подтверждённым сигналом в том направлении. Если winRate нет — считай нейтральным.
 - Если разница Long/Short меньше 15% — это неопределённость, скажи это прямо.
@@ -357,9 +361,17 @@ JSON формат:
 - До поддержки: ${ctx.distanceToLevels?.toSupport != null ? ctx.distanceToLevels.toSupport + '%' : '?'}
 - До сопротивления: ${ctx.distanceToLevels?.toResistance != null ? ctx.distanceToLevels.toResistance + '%' : '?'}
 
-Тренд:
-- Изменение за 100 дней: ${ctx.trend?.change100d != null ? ctx.trend.change100d + '%' : 'нет данных'}
-- Изменение за 200 дней: ${ctx.trend?.change200d != null ? ctx.trend.change200d + '%' : 'нет данных'}
+Тренд (траектория цены):
+- 900 дней назад: ${ctx.trend?.priceAt900d != null ? '$' + ctx.trend.priceAt900d : 'нет данных'} (${ctx.trend?.change900d != null ? ctx.trend.change900d + '%' : '?'})
+- 800 дней назад: ${ctx.trend?.priceAt800d != null ? '$' + ctx.trend.priceAt800d : 'нет данных'} (${ctx.trend?.change800d != null ? ctx.trend.change800d + '%' : '?'})
+- 600 дней назад: ${ctx.trend?.priceAt600d != null ? '$' + ctx.trend.priceAt600d : 'нет данных'} (${ctx.trend?.change600d != null ? ctx.trend.change600d + '%' : '?'})
+- 400 дней назад: ${ctx.trend?.priceAt400d != null ? '$' + ctx.trend.priceAt400d : 'нет данных'} (${ctx.trend?.change400d != null ? ctx.trend.change400d + '%' : '?'})
+- 200 дней назад: ${ctx.trend?.priceAt200d != null ? '$' + ctx.trend.priceAt200d : 'нет данных'} (${ctx.trend?.change200d != null ? ctx.trend.change200d + '%' : '?'})
+- 100 дней назад: ${ctx.trend?.priceAt100d != null ? '$' + ctx.trend.priceAt100d : 'нет данных'} (${ctx.trend?.change100d != null ? ctx.trend.change100d + '%' : '?'})
+- 60 дней назад:  ${ctx.trend?.priceAt60d  != null ? '$' + ctx.trend.priceAt60d  : 'нет данных'} (${ctx.trend?.change60d  != null ? ctx.trend.change60d  + '%' : '?'})
+- Сегодня: $${ctx.currentPrice}
+Годовой диапазон (365д): min $${ctx.trend?.low365d ?? '?'} — max $${ctx.trend?.high365d ?? '?'} | Позиция: ${ctx.trend?.positionIn365dRange != null ? ctx.trend.positionIn365dRange + '%' : '?'}
+Диапазон 900д: min $${ctx.trend?.low900d ?? '?'} — max $${ctx.trend?.high900d ?? '?'} | Позиция: ${ctx.trend?.positionIn900dRange != null ? ctx.trend.positionIn900dRange + '%' : '?'}
 
 Последние 10 свечей:
 - Направление: ${ctx.last10?.direction || 'нет данных'}
@@ -418,7 +430,6 @@ JSON формат:
                     { role: 'user', content: userMsg },
                 ],
                 temperature: 0.3,
-                max_tokens: 300,
             }),
             signal: AbortSignal.timeout(15000),
         });
