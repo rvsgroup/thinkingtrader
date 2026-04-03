@@ -218,6 +218,8 @@
     var _btnEl = null, _tooltipEl = null, _chatPanelEl = null, _containerEl = null, _tooltipVisible = false;
     var _aiChatHistory = [];
 
+    function _isMobile() { return window.innerWidth <= 900; }
+
     function ensureUI() {
         if (_btnEl) return;
         var wrap = document.getElementById('ourChartWrap');
@@ -231,7 +233,7 @@
         _btnEl.addEventListener('click', function(e) { e.stopPropagation(); toggleTooltip(); });
         wrap.appendChild(_btnEl);
 
-        // Единый контейнер — позиционируется один раз, тултип и чат внутри в потоке
+        // Единый контейнер
         _containerEl = document.createElement('div');
         _containerEl.id = 'aiContainer';
 
@@ -253,7 +255,7 @@
             '<div class="ai-tt-action"></div>' +
             '<div class="ai-tt-footer"><span>THINKING TRADER</span><span class="ai-tt-price"></span></div>';
 
-        // Чат-панель — сразу под тултипом в том же контейнере
+        // Чат-панель
         _chatPanelEl = document.createElement('div');
         _chatPanelEl.id = 'aiChatPanel';
         _chatPanelEl.innerHTML =
@@ -267,7 +269,17 @@
 
         _containerEl.appendChild(_tooltipEl);
         _containerEl.appendChild(_chatPanelEl);
-        wrap.appendChild(_containerEl);
+
+        // На мобилке — вешаем на body как fixed overlay, иначе внутрь графика
+        if (_isMobile()) {
+            document.body.appendChild(_containerEl);
+            // Backdrop клик — закрывает панель
+            _containerEl.addEventListener('click', function(e) {
+                if (e.target === _containerEl) toggleTooltip();
+            });
+        } else {
+            wrap.appendChild(_containerEl);
+        }
 
         _initChatHandlers();
         setTimeout(_updateChatPlaceholder, 0);

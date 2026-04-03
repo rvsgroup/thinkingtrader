@@ -330,12 +330,7 @@
 @keyframes aiSpin { to { transform: rotate(360deg); } }
 
 /* ── Mobile ──────────────────────────────────────────────────── */
-@media (max-width: 900px) {
-    #aiBtnCircle { top: 6px; right: 68px; width: 22px; height: 22px; font-size: 12px; }
-    #aiContainer { top: 4px; right: 96px; width: 230px; }
-    #aiTooltip   { width: 100%; }
-    .ai-tt-text  { font-size: 11px; }
-}
+/* mobile overridden below */
 
 /* ── Chat Panel — отдельный блок под тултипом ───────────────── */
 #aiChatPanel {
@@ -480,4 +475,139 @@
 .ai-tt-chat-send:disabled { cursor: not-allowed; opacity: 0.4; }
 
 @media (max-width: 900px) {
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE AI PANEL — fixed overlay (bottom sheet)
+   ══════════════════════════════════════════════════════════════ */
+
+@media (max-width: 900px) {
+
+    /* ── Кнопка AI (!) — позиция внутри графика ── */
+    #aiBtnCircle {
+        top: 6px;
+        right: 8px;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        z-index: 25;
+    }
+
+    /* ── Контейнер — полноэкранный fixed overlay ── */
+    /* position:fixed, body — это задаётся в JS через appendChild(body) */
+    #aiContainer {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        /* Затемнение сзади */
+        background: rgba(7, 11, 20, 0.75) !important;
+        backdrop-filter: blur(4px) !important;
+        -webkit-backdrop-filter: blur(4px) !important;
+        z-index: 5000 !important;
+        /* Flex — панель прижата к низу */
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-end !important;
+        align-items: stretch !important;
+        gap: 0 !important;
+        padding: 0 !important;
+        transform: none !important;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+    }
+
+    #aiContainer.visible {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+
+    /* ── Тултип — панель снизу, скроллируемая ── */
+    #aiTooltip {
+        width: 100% !important;
+        max-height: 70vh !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        border-radius: 16px 16px 0 0 !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        border-bottom: none !important;
+        background: #1E222D !important;
+        /* Анимация slide-up */
+        transform: translateY(30px);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #aiContainer.visible #aiTooltip {
+        transform: translateY(0) !important;
+    }
+
+    /* Handle-бар сверху тултипа (визуальная ручка) */
+    #aiTooltip::before {
+        content: '';
+        display: block;
+        width: 40px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255,255,255,0.2);
+        margin: 10px auto 4px;
+        flex-shrink: 0;
+    }
+
+    /* Шрифты внутри */
+    .ai-tt-text  { font-size: 13px !important; }
+    .ai-tt-footer { padding: 5px 12px 8px !important; }
+
+    /* ── Чат-панель — всегда видима на мобилке, прилипает к низу ── */
+    #aiChatPanel {
+        display: block !important;
+        width: 100% !important;
+        border-radius: 0 !important;
+        background: #1E222D !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        border-top: 1px solid rgba(41, 98, 255, 0.3) !important;
+        padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+        /* Анимация slide-up вместе с тултипом */
+        transform: translateY(30px);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.03s;
+        flex-shrink: 0;
+    }
+
+    #aiContainer.visible #aiChatPanel {
+        transform: translateY(0) !important;
+    }
+
+    /* Инпут чата */
+    .ai-tt-chat-input-wrap {
+        margin: 0 10px !important;
+    }
+
+    /* ── Правый блок инструментов — горизонтальный скролл ── */
+    #chartToolsRight {
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        flex-wrap: nowrap !important;
+        flex-shrink: 1;
+        min-width: 0;
+        -webkit-mask-image: linear-gradient(to right, transparent 0, black 6px, black calc(100% - 6px), transparent 100%);
+        mask-image: linear-gradient(to right, transparent 0, black 6px, black calc(100% - 6px), transparent 100%);
+    }
+    #chartToolsRight::-webkit-scrollbar { display: none; }
+
+    /* Для admin-mode — тулбар в 2 ряда */
+    body.admin-mode #ourChartControls {
+        flex-wrap: wrap !important;
+        gap: 4px !important;
+    }
+    body.admin-mode #ourChartControls > div:first-child {
+        width: 100%;
+    }
+    body.admin-mode #chartToolsRight {
+        width: 100%;
+    }
 }

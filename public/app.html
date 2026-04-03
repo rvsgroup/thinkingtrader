@@ -6181,7 +6181,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:4px;">
+                        <div id="chartToolsRight" style="display:flex;align-items:center;gap:4px;">
                             <!-- Replay (admin only) -->
                             <div class="replay-inline admin-only" id="replayInline" style="display:none;">
                                 <button class="replay-toggle-btn" id="replayToggleBtn" title="Replay">Replay</button>
@@ -13947,6 +13947,7 @@
         if (userEmail === adminEmail) {
             window._isAdminUser = true;
             document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+            document.body.classList.add('admin-mode');
             window.totalPages = 4;
             const arrowR = document.getElementById('arrowRight');
             if (arrowR) arrowR.classList.toggle('hidden', window.currentPage === window.totalPages - 1);
