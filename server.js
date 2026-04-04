@@ -287,132 +287,88 @@ app.post('/api/ai-scan', async (req, res) => {
 
         const lang = ctx.lang === 'en' ? 'en' : 'ru';
 
-        // Собираем системный промпт
+        // Собираем системный промпт (v3 — enriched data)
         const systemPrompt = lang === 'en'
-            ? `You are a crypto trader. User sends market data. Give a SPECIFIC analysis.
+            ? `You are a crypto trader analyst. User sends enriched market data. Give a SPECIFIC analysis.
+
+Data includes:
+- keyPoints — key prices at different horizons (30/90/180/365/900 days ago), yearly and all-time highs/lows, position in ranges
+- priceProfile — ~30 segments of ~33 days each: open, close, high, low, change%, avgVolume, avgBodySize. This is the SHAPE of the trend — study it carefully, find phases of growth, peaks, declines, consolidations
+- heavyZones — top 5 price zones by trading volume across all history. These are REAL levels confirmed by money. Zone below price = potential support, above = potential resistance
+- volatility — average candle size over 10/30/100 candles and volatility trend (compression/expansion/normal)
+- suggestedLevels — mathematically calculated entry/stop/target via average volatility. Use as BASE but adjust by levels and context
+- levels — technical support/resistance levels
+- last20candles — last 20 candles in detail
+- patterns — candlestick patterns from last 20 candles with winRate and result
+- anchorData (for 4H/1H only) — 1D levels, keyPoints, priceProfile, heavyZones. 1D data shows the BIG picture; local TF shows the current move
 
 Answer format — 3 parts:
 
-1. "situation" — What is ACTUALLY happening (1 sentence). No generic words like "weak trend".
-   Describe specific facts: which patterns appeared, did they work or not, where price came from.
-   Good: "Two bullish engulfings in 8 days — first failed, second still unconfirmed. Buyers trying but failing."
+1. "situation" — What is ACTUALLY happening (2-3 sentences).
+   Describe: cycle phase (growth/peak/decline/bottom) from priceProfile, specific prices (where price came from, where it is now), what heavyZones tell us (price in accumulation zone or not), volatility compression/expansion.
+   Good: "BTC completed a cycle: from $28K to ATH $126K, then crashed 47% to $67K. Price is trapped inside the heaviest volume zone $65.4K-$70.5K (13.8% of all volume), volatility compressing — average candle shrinking from 4% to 3.2%."
    Bad: "Price in range, weak trend."
 
 2. "verdict" — What it means (1 sentence).
    If Long and Short are close (difference less than 15%) — write "Uncertainty — better not to enter".
    If one direction is clearly stronger — explain why.
-   Example: "55/45 — uncertainty, no edge" or "70/30 Short — bearish trend and patterns failing".
 
 3. Probabilities and levels — Long %, Short %, entry/target/stop for both.
 
 Rules:
-- Base on: distance to levels (risk/reward), historical price trajectory (900d/800d/600d/400d/200d/100d/60d), last 5 candles structure, patterns and their results.
-- From trajectory MANDATORY: determine cycle phase (growth/peak/decline/bottom) and mention it in situation. Use specific prices — e.g. "price dropped from $116K to $67K over 200 days". Position in yearly range 10-15% means yearly bottom, 85-100% means top — use this in analysis.
-- winRate is the GLOBAL historical success rate of this pattern on this instrument and timeframe over the last 2 years. Not local, not subjective — it's pure statistics across all occurrences.
-- If a bullish pattern failed (workedOut: false) — that's a bearish signal. And vice versa.
-- For fresh patterns (workedOut: null, candlesAgo <= 2): use winRate as the signal strength. If winRate > 55% — treat it as a confirmed signal in that direction. If no winRate — treat as neutral.
-- If difference Long/Short is less than 15% — it's uncertainty, say it directly.
-- For 4H and 1H: consider anchor 1D levels. If local support coincides with 1D resistance — it's a trap, signal is weakened. 1D levels are more important than local ones.
+- entry/stop/target: take suggestedLevels as base, but ADJUST by nearest heavyZones and levels. Stop should not be behind a heavy volume zone (it will hold price). Target — to the next heavy zone (it will stop the move).
+- MINIMUM STOP-LOSS: stop must be at least 1.5 × suggestedLevels.avgCandleSize away from entry. If the calculated stop is closer — widen it. A stop that is too tight will be hit by normal noise.
+- MAXIMUM STOP-LOSS: stop must NEVER be more than 2-3% away from entry. If a volume zone boundary is further than 3% — ignore it for stop placement and use 2-3% from entry instead. Trader's capital protection is the priority.
+- For 4H and 1H: use anchorData (1D levels, priceProfile, heavyZones) as the BIG picture. 1D levels are more important than local ones. If local support coincides with 1D resistance — it's a trap.
+- winRate is the GLOBAL historical success rate of this pattern. If bullish pattern failed (workedOut: false) — bearish signal.
+- If difference Long/Short less than 15% — uncertainty, say it directly.
 - Specific prices. No fluff. No disclaimers.
-- entry/target/stop must be NUMBERS ONLY. No words like "above", "below", "near" — just the number.
+- entry/target/stop must be NUMBERS ONLY.
 
 JSON format:
 {"situation": "what is happening", "verdict": "what it means", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
 
-            : `Ты криптотрейдер. Пользователь шлёт данные рынка. Дай КОНКРЕТНЫЙ анализ.
+            : `Ты криптотрейдер-аналитик. Пользователь шлёт расширенные рыночные данные. Дай КОНКРЕТНЫЙ анализ.
+
+Данные включают:
+- keyPoints — ключевые цены на разных горизонтах (30/90/180/365/900 дней назад), годовые и исторические хай/лоу, позиция в диапазонах
+- priceProfile — ~30 отрезков по ~33 дня: open, close, high, low, change%, avgVolume, avgBodySize. Это ФОРМА тренда — изучи её внимательно, найди фазы роста, пиков, падений, боковиков
+- heavyZones — 5 ценовых зон с максимальным объёмом торгов за всю историю. Это РЕАЛЬНЫЕ уровни, подтверждённые деньгами. Зона ниже цены = потенциальная поддержка, выше = потенциальное сопротивление
+- volatility — средний размер свечи за 10/30/100 свечей и тренд волатильности (сжатие/расширение/норма)
+- suggestedLevels — математически рассчитанные entry/stop/target через среднюю волатильность. Используй как БАЗУ, но корректируй по уровням и контексту
+- levels — технические уровни поддержки/сопротивления
+- last20candles — последние 20 свечей детально
+- patterns — свечные паттерны за последние 20 свечей с winRate и результатом
+- anchorData (только для 4H/1H) — 1D уровни, keyPoints, priceProfile, heavyZones. 1D данные показывают ГЛОБАЛЬНУЮ картину; локальный TF показывает текущее движение
 
 Формат ответа — 3 части:
 
-1. "situation" — Что РЕАЛЬНО происходит (1 предложение). Не общие слова типа "слабый тренд".
-   Опиши конкретные факты: какие паттерны были, отработали или нет, откуда и куда шла цена.
-   Пример хорошо: "Два бычьих поглощения за 8 дней — первое провалилось, второе пока без результата. Покупатели пытаются развернуть, но безуспешно."
+1. "situation" — Что РЕАЛЬНО происходит (2-3 предложения).
+   Опиши: фазу цикла (рост/пик/падение/дно) на основе priceProfile, конкретные цены (откуда пришла цена, где сейчас), что говорят объёмные зоны heavyZones (цена в зоне накопления или нет), волатильность сжимается или расширяется.
+   Пример хорошо: "BTC завершил цикл: с $28K до ATH $126K, затем обвал на 47% до $67K. Цена зажата внутри самой тяжёлой объёмной зоны $65.4K-$70.5K (13.8% всего объёма), волатильность сжимается — средняя свеча уменьшается с 4% до 3.2%."
    Пример плохо: "Цена в диапазоне, тренд слабый."
 
 2. "verdict" — Что это значит (1 предложение).
    Если Long и Short близки (разница меньше 15%) — прямо пиши "Неопределённость — лучше не входить".
    Если одно направление явно сильнее — объясни почему.
-   Пример: "55/45 — неопределённость, ни у кого нет преимущества" или "70/30 в пользу Short — тренд медвежий и паттерны не работают".
 
 3. Вероятности и уровни — Long %, Short %, вход/цель/стоп для обоих.
 
 Правила:
-- Основывайся на: расстояние до уровней (risk/reward), исторические данные траектории цены (900д/800д/600д/400д/200д/100д/60д), структура последних 5 свечей, паттерны и их результат.
-- По траектории ОБЯЗАТЕЛЬНО: определи фазу цикла (рост/пик/падение/дно) и упомяни её в situation. Используй конкретные цены — например "цена упала с $116K до $67K за 200 дней". Позиция в годовом диапазоне 10-15% — это дно года, 85-100% — вершина, используй это в анализе.
-- winRate — это ГЛОБАЛЬНЫЙ исторический процент успешных срабатываний данного паттерна на этом инструменте и таймфрейме за последние 2 года. Не локальный и не субъективный — это статистика по всем случаям.
-- Если паттерн не отработал (workedOut: false) — это медвежий сигнал для бычьего паттерна и наоборот.
-- Для свежих паттернов (workedOut: null, candlesAgo <= 2): используй winRate как силу сигнала. Если winRate > 55% — считай это подтверждённым сигналом в том направлении. Если winRate нет — считай нейтральным.
-- Если разница Long/Short меньше 15% — это неопределённость, скажи это прямо.
-- Для 4H и 1H: учитывай якорные 1D уровни. Если локальный support совпадает с 1D resistance — это ловушка, сигнал ослаблен. 1D уровни важнее локальных.
+- entry/stop/target: бери suggestedLevels как базу, но КОРРЕКТИРУЙ по ближайшим heavyZones и levels. Стоп не должен быть за сильной объёмной зоной (она удержит цену). Тейк — до следующей тяжёлой зоны (она остановит движение).
+- МИНИМАЛЬНЫЙ СТОП-ЛОСС: стоп должен быть минимум 1.5 × suggestedLevels.avgCandleSize от entry. Если расчётный стоп ближе — расширь его. Слишком узкий стоп выбьет обычным шумом.
+- МАКСИМАЛЬНЫЙ СТОП-ЛОСС: стоп НИКОГДА не должен быть дальше 2-3% от entry. Если граница объёмной зоны дальше 3% — игнорируй её для стопа и ставь стоп на 2-3% от entry. Защита капитала трейдера — приоритет.
+- Для 4H и 1H: используй anchorData (1D уровни, priceProfile, heavyZones) как ГЛОБАЛЬНУЮ картину. 1D уровни важнее локальных. Если локальный support совпадает с 1D resistance — это ловушка.
+- winRate — ГЛОБАЛЬНЫЙ исторический процент успешности паттерна. Если бычий паттерн не отработал (workedOut: false) — медвежий сигнал.
+- Если разница Long/Short меньше 15% — неопределённость, скажи прямо.
 - Конкретные цены. Без воды. Без дисклеймеров.
-- entry/target/stop — ТОЛЬКО ЧИСЛА. Никаких слов "выше", "ниже", "около" — только число.
+- entry/target/stop — ТОЛЬКО ЧИСЛА.
 
 JSON формат:
 {"situation": "что происходит", "verdict": "что это значит", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
 
-        // Собираем пользовательское сообщение с данными
-        let userMsg = `Монета: ${ctx.coin}
-Таймфрейм: ${ctx.timeframe}
-Текущая цена: ${ctx.currentPrice}
-
-Уровни:
-- Поддержка: ${ctx.levels?.support || 'нет данных'}
-- Сопротивление: ${ctx.levels?.resistance || 'нет данных'}
-- Позиция цены в диапазоне: ${ctx.levels?.positionPct != null ? ctx.levels.positionPct + '%' : 'нет данных'}
-- До поддержки: ${ctx.distanceToLevels?.toSupport != null ? ctx.distanceToLevels.toSupport + '%' : '?'}
-- До сопротивления: ${ctx.distanceToLevels?.toResistance != null ? ctx.distanceToLevels.toResistance + '%' : '?'}
-
-Тренд (траектория цены):
-- 900 дней назад: ${ctx.trend?.priceAt900d != null ? '$' + ctx.trend.priceAt900d : 'нет данных'} (${ctx.trend?.change900d != null ? ctx.trend.change900d + '%' : '?'})
-- 800 дней назад: ${ctx.trend?.priceAt800d != null ? '$' + ctx.trend.priceAt800d : 'нет данных'} (${ctx.trend?.change800d != null ? ctx.trend.change800d + '%' : '?'})
-- 600 дней назад: ${ctx.trend?.priceAt600d != null ? '$' + ctx.trend.priceAt600d : 'нет данных'} (${ctx.trend?.change600d != null ? ctx.trend.change600d + '%' : '?'})
-- 400 дней назад: ${ctx.trend?.priceAt400d != null ? '$' + ctx.trend.priceAt400d : 'нет данных'} (${ctx.trend?.change400d != null ? ctx.trend.change400d + '%' : '?'})
-- 200 дней назад: ${ctx.trend?.priceAt200d != null ? '$' + ctx.trend.priceAt200d : 'нет данных'} (${ctx.trend?.change200d != null ? ctx.trend.change200d + '%' : '?'})
-- 100 дней назад: ${ctx.trend?.priceAt100d != null ? '$' + ctx.trend.priceAt100d : 'нет данных'} (${ctx.trend?.change100d != null ? ctx.trend.change100d + '%' : '?'})
-- 60 дней назад:  ${ctx.trend?.priceAt60d  != null ? '$' + ctx.trend.priceAt60d  : 'нет данных'} (${ctx.trend?.change60d  != null ? ctx.trend.change60d  + '%' : '?'})
-- Сегодня: $${ctx.currentPrice}
-Годовой диапазон (365д): min $${ctx.trend?.low365d ?? '?'} — max $${ctx.trend?.high365d ?? '?'} | Позиция: ${ctx.trend?.positionIn365dRange != null ? ctx.trend.positionIn365dRange + '%' : '?'}
-Диапазон 900д: min $${ctx.trend?.low900d ?? '?'} — max $${ctx.trend?.high900d ?? '?'} | Позиция: ${ctx.trend?.positionIn900dRange != null ? ctx.trend.positionIn900dRange + '%' : '?'}
-
-Последние 10 свечей:
-- Направление: ${ctx.last10?.direction || 'нет данных'}
-- Изменение: ${ctx.last10?.changePercent != null ? ctx.last10.changePercent + '%' : 'нет данных'}
-- Зелёных: ${ctx.last10?.greenCandles ?? '?'}, Красных: ${ctx.last10?.redCandles ?? '?'}
-- Последних подряд: ${ctx.last10?.consecutiveDirection || 'нет данных'}`;
-
-        // Структура последних 5 свечей
-        if (ctx.last5structure) {
-            userMsg += `\n\nСтруктура последних 5 закрытых свечей (% изменения тела, + зелёная / - красная):`;
-            userMsg += `\n[${ctx.last5structure.join('%, ')}%]`;
-            // Подсказка для AI
-            const greens = ctx.last5structure.filter(v => v > 0).length;
-            const reds = ctx.last5structure.filter(v => v < 0).length;
-            const avgBody = ctx.last5structure.reduce((s, v) => s + Math.abs(v), 0) / 5;
-            userMsg += `\nЗелёных: ${greens}, красных: ${reds}, средний размер тела: ${avgBody.toFixed(1)}%`;
-        }
-
-        // Добавляем ВСЕ паттерны за последние 10 свечей
-        if (ctx.recentPatterns && ctx.recentPatterns.length > 0) {
-            userMsg += `\n\nПаттерны за последние 10 свечей (${ctx.recentPatterns.length} шт.):`;
-            ctx.recentPatterns.forEach((p, i) => {
-                const worked = p.workedOut === true ? '✅ отработал' : p.workedOut === false ? '❌ не отработал' : 'ещё рано оценивать';
-                userMsg += `\n${i + 1}. ${p.type} (${p.direction}) — ${p.candlesAgo} свечей назад, close: ${p.patternClose}`;
-                userMsg += `\n   Win rate: ${p.winRate != null ? p.winRate + '%' : 'нет данных'} | Результат: ${worked}`;
-            });
-        } else {
-            userMsg += '\n\nПаттернов за последние 10 свечей нет.';
-        }
-
-        // Добавляем якорные уровни если есть (для 4H и 1H)
-        if (ctx.anchorLevels) {
-            userMsg += `
-
-Якорные уровни (1D):
-- 1D Поддержка: ${ctx.anchorLevels.support}
-- 1D Сопротивление: ${ctx.anchorLevels.resistance}
-- Позиция цены в 1D диапазоне: ${ctx.anchorLevels.positionPct}%`;
-        }
-
-        userMsg += '\n\nЧто делать прямо сейчас? Ответь в JSON.';
+        // Собираем пользовательское сообщение — передаём данные как JSON
+        const userMsg = JSON.stringify(ctx, null, 0) + '\n\nЧто делать прямо сейчас? Ответь в JSON.';
 
         // Запрос к OpenRouter
         const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -431,7 +387,7 @@ JSON формат:
                 ],
                 temperature: 0.3,
             }),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(25000),
         });
 
         if (!aiRes.ok) {

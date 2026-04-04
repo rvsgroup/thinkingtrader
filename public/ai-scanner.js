@@ -18,8 +18,104 @@
         return coinId + '_' + tf;
     }
 
-    // ── Кэш 1D якорных уровней ─────────────────────────────────
-    window._aiAnchorCache = {}; // v2 — 900d history
+    // ── Кэш 1D расширенных данных ──────────────────────────────
+    window._aiAnchorCache = {}; // v3 — enriched 1D data
+
+    // Вспомогательные функции расчёта
+    function _calcPriceProfile(candles, segments) {
+        var segLen = Math.floor(candles.length / segments);
+        var profile = [];
+        for (var i = 0; i < segments; i++) {
+            var start = i * segLen;
+            var end = Math.min(start + segLen, candles.length);
+            var slice = candles.slice(start, end);
+            var opens = slice[0].open;
+            var closes = slice[slice.length - 1].close;
+            var highs = -Infinity, lows = Infinity, volSum = 0, bodySum = 0;
+            for (var j = 0; j < slice.length; j++) {
+                if (slice[j].high > highs) highs = slice[j].high;
+                if (slice[j].low < lows) lows = slice[j].low;
+                volSum += (slice[j].volume || 0);
+                bodySum += Math.abs(slice[j].close - slice[j].open) / (slice[j].open || 1) * 100;
+            }
+            var d0 = new Date(slice[0].time * 1000).toISOString().slice(0, 10);
+            var d1 = new Date(slice[slice.length - 1].time * 1000).toISOString().slice(0, 10);
+            profile.push({
+                period: d0 + ' → ' + d1,
+                days: slice.length,
+                o: Math.round(opens * 100) / 100,
+                c: Math.round(closes * 100) / 100,
+                h: Math.round(highs * 100) / 100,
+                l: Math.round(lows * 100) / 100,
+                chg: Math.round((closes - opens) / (opens || 1) * 1000) / 10,
+                avgVol: Math.round(volSum / slice.length),
+                avgBody: Math.round(bodySum / slice.length * 10) / 10
+            });
+        }
+        return profile;
+    }
+
+    function _calcHeavyZones(candles, price, zones) {
+        var allHigh = -Infinity, allLow = Infinity;
+        for (var i = 0; i < candles.length; i++) {
+            if (candles[i].high > allHigh) allHigh = candles[i].high;
+            if (candles[i].low < allLow) allLow = candles[i].low;
+        }
+        var zoneSize = (allHigh - allLow) / zones;
+        var volArr = [];
+        var totalVol = 0;
+        for (var z = 0; z < zones; z++) {
+            var bottom = allLow + z * zoneSize;
+            var top = bottom + zoneSize;
+            var vol = 0;
+            for (var j = 0; j < candles.length; j++) {
+                var c = candles[j];
+                var overlap = Math.max(0, Math.min(c.high, top) - Math.max(c.low, bottom));
+                var range = c.high - c.low || 1;
+                vol += (c.volume || 0) * (overlap / range);
+            }
+            totalVol += vol;
+            volArr.push({ bottom: Math.round(bottom), top: Math.round(top), mid: Math.round((bottom + top) / 2 * 100) / 100, vol: Math.round(vol) });
+        }
+        volArr.sort(function(a, b) { return b.vol - a.vol; });
+        return volArr.slice(0, 5).map(function(z) {
+            return {
+                zone: '$' + z.bottom + '–$' + z.top,
+                mid: z.mid,
+                share: Math.round(z.vol / (totalVol || 1) * 1000) / 10 + '%',
+                vs: z.mid < price ? 'below' : 'above'
+            };
+        });
+    }
+
+    function _calcVolatility(candles) {
+        function avg(arr) {
+            if (!arr.length) return 0;
+            var s = 0;
+            for (var i = 0; i < arr.length; i++) s += (arr[i].high - arr[i].low) / (arr[i].close || 1) * 100;
+            return Math.round(s / arr.length * 100) / 100;
+        }
+        var v10 = avg(candles.slice(-10));
+        var v30 = avg(candles.slice(-30));
+        var v100 = avg(candles.slice(-100));
+        var trend = 'normal';
+        if (v10 < v100 * 0.7) trend = 'compression';
+        else if (v10 > v100 * 1.3) trend = 'expansion';
+        return { last10: v10 + '%', last30: v30 + '%', last100: v100 + '%', trend: trend };
+    }
+
+    function _calcSuggestedLevels(candles, price) {
+        var last20 = candles.slice(-20);
+        var sum = 0;
+        for (var i = 0; i < last20.length; i++) sum += (last20[i].high - last20[i].low);
+        var avg = sum / last20.length;
+        return {
+            avgCandleSize: Math.round(avg * 100) / 100,
+            avgCandlePct: Math.round(avg / (price || 1) * 1000) / 10 + '%',
+            long: { entry: Math.round(price * 100) / 100, stop: Math.round((price - avg * 1.5) * 100) / 100, target: Math.round((price + avg * 2.5) * 100) / 100 },
+            short: { entry: Math.round(price * 100) / 100, stop: Math.round((price + avg * 1.5) * 100) / 100, target: Math.round((price - avg * 2.5) * 100) / 100 }
+        };
+    }
 
     window.loadAnchorLevels = async function(coinId) {
         if (!coinId) return null;
@@ -32,50 +128,56 @@
             var data = await res.json();
             if (!Array.isArray(data) || data.length < 30) return null;
             var candles = data.map(function(k) {
-                return { time: Math.floor(k[0]/1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4] };
+                return { time: Math.floor(k[0]/1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +(k[5]||0) };
             });
-            if (typeof PatternScanner === 'undefined' || !PatternScanner.scanLevels) return null;
-            var levels = PatternScanner.scanLevels(candles, 1);
-            if (!levels) return null;
 
-            // Считаем тренд по 1D свечам — актуально для всех таймфреймов
             var currentClose = candles[candles.length - 1].close;
-            var trend1d = {};
-            var pct = function(from) { return Math.round((currentClose - from) / from * 1000) / 10; };
-            if (candles.length >= 60)  trend1d.change60d  = pct(candles[candles.length - 60].close);
-            if (candles.length >= 100) trend1d.change100d = pct(candles[candles.length - 100].close);
-            if (candles.length >= 200) trend1d.change200d = pct(candles[candles.length - 200].close);
-            if (candles.length >= 400) trend1d.change400d = pct(candles[candles.length - 400].close);
-            if (candles.length >= 600) trend1d.change600d = pct(candles[candles.length - 600].close);
-            if (candles.length >= 800) trend1d.change800d = pct(candles[candles.length - 800].close);
-            if (candles.length >= 900) trend1d.change900d = pct(candles[candles.length - 900].close);
+            var levels = null;
+            if (typeof PatternScanner !== 'undefined' && PatternScanner.scanLevels) {
+                levels = PatternScanner.scanLevels(candles, 1);
+            }
 
-            if (candles.length >= 60)  trend1d.priceAt60d  = Math.round(candles[candles.length - 60].close);
-            if (candles.length >= 100) trend1d.priceAt100d = Math.round(candles[candles.length - 100].close);
-            if (candles.length >= 200) trend1d.priceAt200d = Math.round(candles[candles.length - 200].close);
-            if (candles.length >= 400) trend1d.priceAt400d = Math.round(candles[candles.length - 400].close);
-            if (candles.length >= 600) trend1d.priceAt600d = Math.round(candles[candles.length - 600].close);
-            if (candles.length >= 800) trend1d.priceAt800d = Math.round(candles[candles.length - 800].close);
-            if (candles.length >= 900) trend1d.priceAt900d = Math.round(candles[candles.length - 900].close);
-
+            // Ключевые точки
             var c365 = candles.slice(-365);
-            var high365 = Math.round(Math.max.apply(null, c365.map(function(c) { return c.high; })));
-            var low365  = Math.round(Math.min.apply(null, c365.map(function(c) { return c.low; })));
-            trend1d.high365d = high365;
-            trend1d.low365d  = low365;
-            trend1d.positionIn365dRange = high365 !== low365 ? Math.round((currentClose - low365) / (high365 - low365) * 1000) / 10 : 50;
+            var c180 = candles.slice(-180);
+            var c90 = candles.slice(-90);
+            var c30 = candles.slice(-30);
+            var allHigh = -Infinity, allLow = Infinity;
+            for (var i = 0; i < candles.length; i++) {
+                if (candles[i].high > allHigh) allHigh = candles[i].high;
+                if (candles[i].low < allLow) allLow = candles[i].low;
+            }
+            var h365 = -Infinity, l365 = Infinity;
+            for (var i = 0; i < c365.length; i++) {
+                if (c365[i].high > h365) h365 = c365[i].high;
+                if (c365[i].low < l365) l365 = c365[i].low;
+            }
 
-            var c900 = candles.slice(-900);
-            var high900 = Math.round(Math.max.apply(null, c900.map(function(c) { return c.high; })));
-            var low900  = Math.round(Math.min.apply(null, c900.map(function(c) { return c.low; })));
-            trend1d.high900d = high900;
-            trend1d.low900d  = low900;
-            trend1d.positionIn900dRange = high900 !== low900 ? Math.round((currentClose - low900) / (high900 - low900) * 1000) / 10 : 50;
+            var keyPoints = {
+                price900dAgo: candles.length >= 900 ? Math.round(candles[candles.length - 900].close) : null,
+                price365dAgo: c365.length >= 365 ? Math.round(c365[0].close) : null,
+                price180dAgo: c180.length >= 180 ? Math.round(c180[0].close) : null,
+                price90dAgo: c90.length >= 90 ? Math.round(c90[0].close) : null,
+                price30dAgo: c30.length >= 30 ? Math.round(c30[0].close) : null,
+                currentPrice: Math.round(currentClose * 100) / 100,
+                high365d: Math.round(h365), low365d: Math.round(l365),
+                highAllTime: Math.round(allHigh), lowAllTime: Math.round(allLow),
+                positionIn365dRange: h365 !== l365 ? Math.round((currentClose - l365) / (h365 - l365) * 1000) / 10 + '%' : '50%',
+                positionInAllTimeRange: allHigh !== allLow ? Math.round((currentClose - allLow) / (allHigh - allLow) * 1000) / 10 + '%' : '50%'
+            };
 
-            var result = { support: levels.support, resistance: levels.resistance, positionPct: levels.positionPct, trend1d: trend1d, ts: Date.now() };
+            var result = {
+                levels: levels ? { support: levels.support, resistance: levels.resistance, positionPct: levels.positionPct } : null,
+                keyPoints: keyPoints,
+                priceProfile: _calcPriceProfile(candles, 30),
+                heavyZones: _calcHeavyZones(candles, currentClose, 20),
+                volatility: _calcVolatility(candles),
+                suggestedLevels: _calcSuggestedLevels(candles, currentClose),
+                ts: Date.now()
+            };
             window._aiAnchorCache[coinId] = result;
             return result;
-        } catch(e) { return null; }
+        } catch(e) { console.error('[AI] loadAnchorLevels error:', e); return null; }
     };
 
     setInterval(function() {
@@ -83,7 +185,7 @@
         if (coinId && !window._aiAnchorCache[coinId]) window.loadAnchorLevels(coinId);
     }, 10000);
 
-    // ── Сбор контекста ──────────────────────────────────────────
+    // ── Сбор контекста (v3 — enriched) ─────────────────────────
     window.collectAiContext = function() {
         var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
         var coinSymbol = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.symbol : 'BTC';
@@ -102,6 +204,7 @@
         });
         if (candles.length < 20) return null;
 
+        // ── Уровни поддержки/сопротивления ──
         var levels = null;
         if (window._lastLevels) {
             levels = {
@@ -111,51 +214,40 @@
             };
         }
 
-        var trend = {};
-        // Пересчитываем количество свечей в зависимости от таймфрейма
-        // 1H: 100 дней = 2400 свечей; 4H: 100 дней = 600; 1D: 100 свечей
-        var candlesPerDay = tfLabel === '1H' ? 24 : (tfLabel === '4H' ? 6 : 1);
-        var c100 = 100 * candlesPerDay;
-        var c200 = 200 * candlesPerDay;
-        // Считаем только если данных реально хватает — иначе не передаём в промпт
-        if (candles.length >= c100) trend.change100d = Math.round((price - candles[candles.length - c100].close) / candles[candles.length - c100].close * 1000) / 10;
-        if (candles.length >= c200) trend.change200d = Math.round((price - candles[candles.length - c200].close) / candles[candles.length - c200].close * 1000) / 10;
+        // ── Ценовой профиль (30 отрезков из текущего таймфрейма) ──
+        var priceProfile = _calcPriceProfile(candles, Math.min(30, Math.floor(candles.length / 5)));
 
-        var last10raw = candles.slice(-11, -1);
-        var last10 = {};
-        if (last10raw.length >= 5) {
-            last10.changePercent = Math.round((last10raw[last10raw.length-1].close - last10raw[0].open) / last10raw[0].open * 1000) / 10;
-            last10.direction = last10.changePercent >= 0 ? 'up' : 'down';
-            last10.greenCandles = last10raw.filter(function(c) { return c.close >= c.open; }).length;
-            last10.redCandles = last10raw.filter(function(c) { return c.close < c.open; }).length;
-            var consec = 0, lastDir = null;
-            for (var i = last10raw.length - 1; i >= 0; i--) {
-                var d = last10raw[i].close >= last10raw[i].open ? 'green' : 'red';
-                if (!lastDir) lastDir = d;
-                if (d === lastDir) consec++; else break;
-            }
-            last10.consecutiveDirection = consec + ' ' + (lastDir === 'green' ? (isEn ? 'green' : 'зелёных') : (isEn ? 'red' : 'красных'));
-        }
+        // ── Объёмные зоны (20 зон) ──
+        var heavyZones = _calcHeavyZones(candles, price, 20);
 
-        // ── Структура последних 5 закрытых свечей ──
-        var last5structure = null;
-        var last5raw = candles.slice(-6, -1); // 5 закрытых, без текущей
-        if (last5raw.length === 5) {
-            last5structure = last5raw.map(function(c) {
-                return Math.round((c.close - c.open) / c.open * 1000) / 10;
-            });
-        }
+        // ── Волатильность ──
+        var volatility = _calcVolatility(candles);
 
-        // ── ВСЕ паттерны за последние 10 свечей ──
+        // ── Математические уровни entry/stop/target ──
+        var suggestedLevels = _calcSuggestedLevels(candles, price);
+
+        // ── Последние 20 свечей детально ──
+        var last20 = candles.slice(-20).map(function(c) {
+            var d = new Date(c.time * 1000).toISOString().slice(0, 10);
+            return {
+                date: d,
+                o: Math.round(c.open * 100) / 100,
+                h: Math.round(c.high * 100) / 100,
+                l: Math.round(c.low * 100) / 100,
+                c: Math.round(c.close * 100) / 100,
+                chg: Math.round((c.close - c.open) / (c.open || 1) * 1000) / 10 + '%',
+                dir: c.close >= c.open ? 'green' : 'red'
+            };
+        });
+
+        // ── Паттерны за последние 20 свечей ──
         var recentPatterns = [];
         if (typeof PatternScanner !== 'undefined') {
             PatternScanner.enableAll();
             var allP = PatternScanner.scan(candles);
-            var cutoff = candles[Math.max(0, candles.length - 11)].time;
+            var cutoff = candles[Math.max(0, candles.length - 21)].time;
             var recent = allP.filter(function(p) { return p.time >= cutoff; });
 
-            // Берём ВСЕ паттерны — без дедупликации
-            // Два бычьих поглощения = важный контекст (первое не сработало, второе сработало и т.д.)
             recent.forEach(function(p) {
                 var idx = candles.findIndex(function(c) { return c.time === p.time; });
                 var candlesAgo = idx >= 0 ? candles.length - 1 - idx : 0;
@@ -165,71 +257,57 @@
                     candlesAgo: candlesAgo,
                     winRate: null,
                     patternClose: candles[idx] ? Math.round(candles[idx].close * 100) / 100 : 0,
-                    workedOut: null, // рассчитаем ниже
+                    workedOut: null,
                 };
-                // Win rate
                 if (window._fsWinRateCache) {
                     var wr = window._fsWinRateCache[p.key || p.type];
                     if (wr) pat.winRate = wr.pct;
                 }
-                // Отработал ли паттерн
                 if (p.direction === 'neutral') {
-                    // Доджи и нейтральные — winRate нет, workedOut всегда null
                     pat.workedOut = null;
                 } else if (candlesAgo <= 2) {
-                    // Паттерн свежий (≤2 свечи назад) — рано оценивать результат,
-                    // AI должен опираться только на winRate
                     pat.workedOut = null;
                 } else if (idx >= 0 && idx < candles.length - 1) {
-                    // Считаем только ЗАКРЫТЫЕ свечи после паттерна (без текущей незакрытой)
-                    var closedAfter = candles.slice(idx + 1, candles.length - 1); // -1 = исключаем текущую
+                    var closedAfter = candles.slice(idx + 1, candles.length - 1);
                     var patClose = candles[idx].close;
-
                     if (closedAfter.length < 2) {
-                        // Меньше 2 закрытых свечей — рано оценивать
                         pat.workedOut = null;
                     } else {
-                        // Берём первые 3 закрытые свечи (или сколько есть)
                         var check = closedAfter.slice(0, 3);
                         var aboveCount = check.filter(function(c) { return c.close > patClose; }).length;
                         var belowCount = check.filter(function(c) { return c.close < patClose; }).length;
                         var lastCheck = check[check.length - 1].close;
-
-                        if (p.direction === 'bullish') {
-                            // Отработал: минимум 2 из 3 закрылись выше И последняя выше
-                            pat.workedOut = aboveCount >= 2 && lastCheck > patClose;
-                        } else if (p.direction === 'bearish') {
-                            // Отработал: минимум 2 из 3 закрылись ниже И последняя ниже
-                            pat.workedOut = belowCount >= 2 && lastCheck < patClose;
-                        }
+                        if (p.direction === 'bullish') pat.workedOut = aboveCount >= 2 && lastCheck > patClose;
+                        else if (p.direction === 'bearish') pat.workedOut = belowCount >= 2 && lastCheck < patClose;
                     }
                 }
                 recentPatterns.push(pat);
             });
         }
 
-        // ── Расстояние до уровней в % ──
-        var distanceToLevels = null;
-        if (levels && price > 0) {
-            distanceToLevels = {
-                toSupport: Math.round((price - levels.support) / price * 1000) / 10,
-                toResistance: Math.round((levels.resistance - price) / price * 1000) / 10,
-            };
+        // ── Ключевые точки (для текущего таймфрейма) ──
+        var allHigh = -Infinity, allLow = Infinity;
+        for (var i = 0; i < candles.length; i++) {
+            if (candles[i].high > allHigh) allHigh = candles[i].high;
+            if (candles[i].low < allLow) allLow = candles[i].low;
         }
 
         var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
-        var anchorLevels = null;
-        if (periodDays < 1 && window._aiAnchorCache[coinId]) {
-            var a = window._aiAnchorCache[coinId];
-            anchorLevels = { support: a.support, resistance: a.resistance,
-                positionPct: a.resistance !== a.support ? Math.round((price - a.support) / (a.resistance - a.support) * 1000) / 10 : 50 };
-        }
 
-        return { coin: coinSymbol + '/USDT', timeframe: tfLabel, currentPrice: price, lang: isEn ? 'en' : 'ru',
-            levels: levels, distanceToLevels: distanceToLevels, trend: trend, last10: last10,
-            last5structure: last5structure,
-            recentPatterns: recentPatterns.length > 0 ? recentPatterns : null,
-            anchorLevels: anchorLevels };
+        return {
+            coin: coinSymbol + '/USDT',
+            timeframe: tfLabel,
+            currentPrice: price,
+            lang: isEn ? 'en' : 'ru',
+            totalCandles: candles.length,
+            levels: levels,
+            priceProfile: priceProfile,
+            heavyZones: heavyZones,
+            volatility: volatility,
+            suggestedLevels: suggestedLevels,
+            last20candles: last20,
+            patterns: recentPatterns.length > 0 ? recentPatterns : null
+        };
     };
 
     // ── API ─────────────────────────────────────────────────────
@@ -840,15 +918,22 @@
             var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
             var anchor = await window.loadAnchorLevels(coinId);
             if (anchor) {
-                // Для 4H и 1H — якорные уровни
+                // Для 4H и 1H — добавляем 1D данные как anchorData
                 if (ctx.timeframe !== '1D') {
-                    ctx.anchorLevels = { support: anchor.support, resistance: anchor.resistance,
-                        positionPct: anchor.resistance !== anchor.support
-                            ? Math.round((ctx.currentPrice - anchor.support) / (anchor.resistance - anchor.support) * 1000) / 10 : 50 };
-                }
-                // Для всех таймфреймов — мёрджим историческую траекторию
-                if (anchor.trend1d) {
-                    ctx.trend = Object.assign({}, anchor.trend1d, ctx.trend);
+                    ctx.anchorData = {
+                        levels: anchor.levels,
+                        keyPoints: anchor.keyPoints,
+                        priceProfile: anchor.priceProfile,
+                        heavyZones: anchor.heavyZones
+                    };
+                } else {
+                    // Для 1D — мёрджим keyPoints из anchor (там есть 900d/365d данные)
+                    ctx.keyPoints = anchor.keyPoints;
+                    // Если priceProfile с текущего TF совпадает (1D=1D), используем anchor (он из 1000 свечей)
+                    if (anchor.priceProfile) ctx.priceProfile = anchor.priceProfile;
+                    if (anchor.heavyZones) ctx.heavyZones = anchor.heavyZones;
+                    if (anchor.volatility) ctx.volatility = anchor.volatility;
+                    if (anchor.suggestedLevels) ctx.suggestedLevels = anchor.suggestedLevels;
                 }
             }
 
