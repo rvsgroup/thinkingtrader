@@ -361,7 +361,7 @@
             '<div class="ai-tt-verdict"></div>' +
             '<div class="ai-tt-action"></div>' +
             '<div class="ai-tt-footer"><span>THINKING TRADER</span><span class="ai-tt-time" style="color:#475569;font-size:10px;margin-left:auto;margin-right:6px;"></span><span class="ai-tt-price"></span></div>' +
-            '<button class="ai-chat-open-btn" id="aiChatOpenBtn">💬 Чат</button>';
+            '<button class="ai-chat-open-btn" id="aiChatOpenBtn"><svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg> AI Chat</button>';
 
         // Чат-панель — сразу под тултипом в том же контейнере
         _chatPanelEl = document.createElement('div');
@@ -516,11 +516,11 @@
                 } else {
                     panel.classList.remove('chat-empty');
                 }
-                if (btn) btn.textContent = isEn ? '✕ Close chat' : '✕ Закрыть чат';
+                if (btn) btn.innerHTML = isEn ? '✕ Close' : '✕ Закрыть';
             } else {
                 panel.classList.remove('visible', 'chat-side', 'chat-empty');
                 panel.style.height = '';
-                if (btn) btn.textContent = isEn ? '💬 Chat' : '💬 Чат';
+                if (btn) btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg> AI Chat';
             }
         }
     }
@@ -677,10 +677,11 @@
         // Кнопка открытия/закрытия чата
         var chatBtn = document.getElementById('aiChatOpenBtn');
         if (chatBtn) {
+            var _chatIcon = '<svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg>';
             if (_chatOpen) {
-                chatBtn.textContent = isEn ? '✕ Close chat' : '✕ Закрыть чат';
+                chatBtn.innerHTML = isEn ? '✕ Close' : '✕ Закрыть';
             } else {
-                chatBtn.textContent = isEn ? '💬 Chat' : '💬 Чат';
+                chatBtn.innerHTML = _chatIcon + ' AI Chat';
             }
         }
     }

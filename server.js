@@ -267,7 +267,7 @@ app.get('/api/translate', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
-const AI_MODEL = 'deepseek/deepseek-chat-v3-0324';
+const AI_MODEL = 'openai/gpt-5.4';
 const AI_CACHE_TTL = 10 * 60 * 1000; // 10 минут
 
 app.post('/api/ai-scan', async (req, res) => {
@@ -297,7 +297,15 @@ Data includes:
 - heavyZones — top 5 price zones by trading volume across all history. These are REAL levels confirmed by money. Zone below price = potential support, above = potential resistance
 - volatility — average candle size over 10/30/100 candles and volatility trend (compression/expansion/normal)
 - suggestedLevels — mathematically calculated entry/stop/target via average volatility. Use as BASE but adjust by levels and context
-- levels — technical support/resistance levels
+- levels — THE MAIN support/resistance levels (daily channel). This is the CORRIDOR where price moves. These levels are MORE IMPORTANT than heavyZones, patterns, or trend.
+- pricePosition — where price is relative to the channel. THIS IS THE MOST IMPORTANT FIELD:
+  * "inside_channel_middle" — price is in the middle of the channel, no clear edge
+  * "inside_near_resistance" — price is near resistance, SHORT zone
+  * "inside_near_support" — price is near support, LONG zone
+  * "above_resistance_not_confirmed" — price broke above resistance but NOT confirmed (less than 3 closed candles above). This is likely a FALSE BREAKOUT — SHORT is preferred
+  * "above_resistance_confirmed" — price confirmed above resistance (3+ closed candles above). Resistance is now support, LONG is valid
+  * "below_support_not_confirmed" — price broke below support but NOT confirmed. Likely a false breakdown — LONG is preferred
+  * "below_support_confirmed" — price confirmed below support. Support is now resistance, SHORT is valid
 - last20candles — last 20 candles in detail
 - patterns — candlestick patterns from last 20 candles with winRate and result
 - anchorData (for 4H/1H only) — 1D levels, keyPoints, priceProfile, heavyZones. 1D data shows the BIG picture; local TF shows the current move
@@ -305,7 +313,7 @@ Data includes:
 Answer format — 3 parts:
 
 1. "situation" — What is ACTUALLY happening (2-3 sentences).
-   Describe: cycle phase (growth/peak/decline/bottom) from priceProfile, specific prices (where price came from, where it is now), what heavyZones tell us (price in accumulation zone or not), volatility compression/expansion.
+   Describe: cycle phase (growth/peak/decline/bottom) from priceProfile, specific prices (where price came from, where it is now), what heavyZones tell us (price in accumulation zone or not), volatility compression/expansion. MUST mention pricePosition and what it means.
    Good: "BTC completed a cycle: from $28K to ATH $126K, then crashed 47% to $67K. Price is trapped inside the heaviest volume zone $65.4K-$70.5K (13.8% of all volume), volatility compressing — average candle shrinking from 4% to 3.2%."
    Bad: "Price in range, weak trend."
 
@@ -316,9 +324,12 @@ Answer format — 3 parts:
 3. Probabilities and levels — Long %, Short %, entry/target/stop for both.
 
 Rules:
+- PRICE POSITION IS KING: pricePosition determines the primary direction. If "inside_near_resistance" or "above_resistance_not_confirmed" — shortPct must be at least 60%. If "inside_near_support" or "below_support_not_confirmed" — longPct must be at least 60%. If "not_confirmed" — this is a likely TRAP, trade the return to channel. Only "confirmed" breakouts allow trading in the breakout direction.
+- ENTRY RULE: entry for the dominant direction must ALWAYS be within 1% of currentPrice. Never place entry far from the current price — the trader enters NOW, not after a 5% move.
 - entry/stop/target: take suggestedLevels as base, but ADJUST by nearest heavyZones and levels. Stop should not be behind a heavy volume zone (it will hold price). Target — to the next heavy zone (it will stop the move).
 - MINIMUM STOP-LOSS: stop must be at least 1.5 × suggestedLevels.avgCandleSize away from entry. If the calculated stop is closer — widen it. A stop that is too tight will be hit by normal noise.
 - MAXIMUM STOP-LOSS: stop must NEVER be more than 2-3% away from entry. If a volume zone boundary is further than 3% — ignore it for stop placement and use 2-3% from entry instead. Trader's capital protection is the priority.
+- MAXIMUM TARGET: target must NEVER be more than 12% away from entry. Realistic targets are 3-8%. Only set target at 10-12% if ALL signals align (trend, pricePosition, heavyZones, patterns all confirm the same direction). 15%+ targets are FORBIDDEN — they are unrealistic and mislead the trader.
 - For 4H and 1H: use anchorData (1D levels, priceProfile, heavyZones) as the BIG picture. 1D levels are more important than local ones. If local support coincides with 1D resistance — it's a trap.
 - winRate is the GLOBAL historical success rate of this pattern. If bullish pattern failed (workedOut: false) — bearish signal.
 - If difference Long/Short less than 15% — uncertainty, say it directly.
@@ -336,7 +347,15 @@ JSON format:
 - heavyZones — 5 ценовых зон с максимальным объёмом торгов за всю историю. Это РЕАЛЬНЫЕ уровни, подтверждённые деньгами. Зона ниже цены = потенциальная поддержка, выше = потенциальное сопротивление
 - volatility — средний размер свечи за 10/30/100 свечей и тренд волатильности (сжатие/расширение/норма)
 - suggestedLevels — математически рассчитанные entry/stop/target через среднюю волатильность. Используй как БАЗУ, но корректируй по уровням и контексту
-- levels — технические уровни поддержки/сопротивления
+- levels — ГЛАВНЫЕ уровни поддержки/сопротивления (дневной коридор). Это КОРИДОР движения цены. Эти уровни ВАЖНЕЕ чем heavyZones, паттерны или тренд.
+- pricePosition — где цена относительно коридора. ЭТО САМОЕ ВАЖНОЕ ПОЛЕ:
+  * "inside_channel_middle" — цена в середине коридора, нет явного края
+  * "inside_near_resistance" — цена у сопротивления, зона ШОРТА
+  * "inside_near_support" — цена у поддержки, зона ЛОНГА
+  * "above_resistance_not_confirmed" — цена пробила сопротивление, но НЕ закрепилась (менее 3 закрытых свечей выше). Скорее всего ЛОЖНЫЙ ПРОБОЙ — предпочтение ШОРТ
+  * "above_resistance_confirmed" — цена закрепилась выше сопротивления (3+ закрытых свечей выше). Сопротивление стало поддержкой, ЛОНГ обоснован
+  * "below_support_not_confirmed" — цена пробила поддержку, но НЕ закрепилась. Скорее всего ложный пробой — предпочтение ЛОНГ
+  * "below_support_confirmed" — цена закрепилась ниже поддержки. Поддержка стала сопротивлением, ШОРТ обоснован
 - last20candles — последние 20 свечей детально
 - patterns — свечные паттерны за последние 20 свечей с winRate и результатом
 - anchorData (только для 4H/1H) — 1D уровни, keyPoints, priceProfile, heavyZones. 1D данные показывают ГЛОБАЛЬНУЮ картину; локальный TF показывает текущее движение
@@ -344,7 +363,7 @@ JSON format:
 Формат ответа — 3 части:
 
 1. "situation" — Что РЕАЛЬНО происходит (2-3 предложения).
-   Опиши: фазу цикла (рост/пик/падение/дно) на основе priceProfile, конкретные цены (откуда пришла цена, где сейчас), что говорят объёмные зоны heavyZones (цена в зоне накопления или нет), волатильность сжимается или расширяется.
+   Опиши: фазу цикла (рост/пик/падение/дно) на основе priceProfile, конкретные цены (откуда пришла цена, где сейчас), что говорят объёмные зоны heavyZones (цена в зоне накопления или нет), волатильность сжимается или расширяется. ОБЯЗАТЕЛЬНО упомяни pricePosition и что он означает.
    Пример хорошо: "BTC завершил цикл: с $28K до ATH $126K, затем обвал на 47% до $67K. Цена зажата внутри самой тяжёлой объёмной зоны $65.4K-$70.5K (13.8% всего объёма), волатильность сжимается — средняя свеча уменьшается с 4% до 3.2%."
    Пример плохо: "Цена в диапазоне, тренд слабый."
 
@@ -355,9 +374,12 @@ JSON format:
 3. Вероятности и уровни — Long %, Short %, вход/цель/стоп для обоих.
 
 Правила:
+- ПОЗИЦИЯ ЦЕНЫ — ГЛАВНЫЙ ФАКТОР: pricePosition определяет основное направление. Если "inside_near_resistance" или "above_resistance_not_confirmed" — shortPct минимум 60%. Если "inside_near_support" или "below_support_not_confirmed" — longPct минимум 60%. Если "not_confirmed" — это скорее всего ЛОВУШКА, торгуй возврат в коридор. Только "confirmed" пробои позволяют торговать в сторону пробоя.
+- ПРАВИЛО ВХОДА: entry для основного направления ВСЕГДА должен быть в пределах 1% от currentPrice. Никогда не ставь entry далеко от текущей цены — трейдер входит СЕЙЧАС, а не после движения на 5%.
 - entry/stop/target: бери suggestedLevels как базу, но КОРРЕКТИРУЙ по ближайшим heavyZones и levels. Стоп не должен быть за сильной объёмной зоной (она удержит цену). Тейк — до следующей тяжёлой зоны (она остановит движение).
 - МИНИМАЛЬНЫЙ СТОП-ЛОСС: стоп должен быть минимум 1.5 × suggestedLevels.avgCandleSize от entry. Если расчётный стоп ближе — расширь его. Слишком узкий стоп выбьет обычным шумом.
 - МАКСИМАЛЬНЫЙ СТОП-ЛОСС: стоп НИКОГДА не должен быть дальше 2-3% от entry. Если граница объёмной зоны дальше 3% — игнорируй её для стопа и ставь стоп на 2-3% от entry. Защита капитала трейдера — приоритет.
+- МАКСИМАЛЬНЫЙ ТЕЙК-ПРОФИТ: цель НИКОГДА не должна быть дальше 12% от entry. Реалистичные цели — 3-8%. Ставь цель 10-12% только если ВСЕ сигналы совпадают (тренд, pricePosition, heavyZones, паттерны — всё подтверждает одно направление). Цели 15%+ ЗАПРЕЩЕНЫ — они нереалистичны и вводят трейдера в заблуждение.
 - Для 4H и 1H: используй anchorData (1D уровни, priceProfile, heavyZones) как ГЛОБАЛЬНУЮ картину. 1D уровни важнее локальных. Если локальный support совпадает с 1D resistance — это ловушка.
 - winRate — ГЛОБАЛЬНЫЙ исторический процент успешности паттерна. Если бычий паттерн не отработал (workedOut: false) — медвежий сигнал.
 - Если разница Long/Short меньше 15% — неопределённость, скажи прямо.
@@ -387,7 +409,7 @@ JSON формат:
                 ],
                 temperature: 0.3,
             }),
-            signal: AbortSignal.timeout(25000),
+            signal: AbortSignal.timeout(35000),
         });
 
         if (!aiRes.ok) {

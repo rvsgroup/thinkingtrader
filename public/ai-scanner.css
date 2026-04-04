@@ -101,7 +101,7 @@
     top: 6px;
     right: 128px;
     z-index: 1000;
-    width: 272px;
+    width: 380px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -229,6 +229,8 @@
     border-left: 2px solid #2A2E39;
     margin: 0 10px;
     transition: border-color 0.4s ease;
+    max-height: 200px;
+    overflow-y: auto;
 }
 
 .signal-loading .ai-tt-text { border-left-color: rgba(41, 98, 255, 0.45); }
@@ -593,20 +595,24 @@
 
 /* ── Кнопка открытия чата в футере ── */
 .ai-chat-open-btn {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     width: calc(100% - 20px);
     margin: 0 10px 10px;
-    padding: 7px 0;
+    padding: 8px 0;
     background: rgba(41,98,255,0.08);
     border: 1px solid rgba(41,98,255,0.25);
-    border-radius: 5px;
-    color: #2962FF;
-    font-size: 11px;
-    font-weight: 600;
+    border-radius: 8px;
+    color: #B2B5BE;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
     text-align: center;
     transition: background 0.15s;
 }
+.ai-chat-open-btn svg { flex-shrink: 0; }
 .ai-chat-open-btn:hover { background: rgba(41,98,255,0.15); }
 
 /* ── Чат сбоку (десктоп) — абсолютное позиционирование ── */
@@ -615,8 +621,8 @@
     flex-direction: column;
     position: absolute;
     top: 0;
-    left: calc(-272px - 6px);
-    width: 272px;
+    left: calc(-380px - 6px);
+    width: 380px;
     border-radius: 6px;
     border: 1px solid transparent;
     background:
@@ -656,7 +662,7 @@
     margin: 0 8px 8px;
     flex-shrink: 0;
     border-radius: 6px;
-    border: 1px solid #2A2E39;
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Нормальное состояние — сообщения сверху, инпут внизу */
@@ -674,7 +680,7 @@
     flex: 0 !important;
 }
 #aiChatPanel.chat-side.chat-empty .ai-tt-chat-input-wrap {
-    border: 1px solid #2A2E39;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
     padding: 8px 10px;
     margin: auto 8px;
