@@ -466,6 +466,7 @@ const PatternScanner = (function() {
     function detectFormingPatterns(candles, days, confirmedPatterns) {
         if (candles.length < 5) return [];
         const interval   = getIntervalFromDays(days);
+        if (interval === '1h' || interval === '4h') return [];
         const params     = getDoubleParams(interval);
         const tolerance  = 0.020;
         const minRetrace = 0.03;

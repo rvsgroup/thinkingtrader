@@ -1157,7 +1157,7 @@
             display: flex; align-items: center; gap: 10px; margin-left: 12px;
         }
         .user-avatar {
-            width: 26px; height: 26px; border-radius: 50%;
+            width: 26px; height: 26px; border-radius: 6px;
             border: 1.5px solid rgba(99,102,241,0.5);
             background: linear-gradient(135deg, #4F46E5, #7C3AED);
             display: flex; align-items: center; justify-content: center;
@@ -1320,8 +1320,8 @@
             animation: aiScanPulse 2.5s ease-in-out infinite;
         }
         @keyframes aiScanPulse {
-            0%,100% { box-shadow: 0 0 0 1px rgba(41,98,255,0.25), 0 0 10px rgba(41,98,255,0.12); }
-            50%      { box-shadow: 0 0 0 2px rgba(41,98,255,0.9), 0 0 30px rgba(41,98,255,0.45), 0 0 60px rgba(123,97,255,0.2); }
+            0%,100% { box-shadow: inset 0 0 0 1px rgba(41,98,255,0.25), inset 0 0 10px rgba(41,98,255,0.12); }
+            50%      { box-shadow: inset 0 0 0 2px rgba(41,98,255,0.9), inset 0 0 30px rgba(41,98,255,0.45), inset 0 0 60px rgba(123,97,255,0.2); }
         }
         .chart-column #lwPriceChart { width: 100%; height: 100%; }
         .chart-coin-bar {
@@ -4241,6 +4241,8 @@
             .chart-title h3 { font-size: 13px; }
             .chart-header { flex-wrap: wrap; gap: 6px; }
             #ourChartControls { flex-wrap: wrap; gap: 4px; padding: 2px 0; }
+            #chartToolsRight { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; flex-wrap: nowrap !important; flex-shrink: 1; min-width: 0; }
+            #chartToolsRight::-webkit-scrollbar { display: none; }
             .period-btn { padding: 0 6px; font-size: 10px; }
             .chart-coin-bar { flex-wrap: wrap; gap: 6px; }
             .coin-select-trigger { white-space: nowrap; max-width: calc(100vw - 48px); overflow: hidden; text-overflow: ellipsis; }
@@ -6205,9 +6207,9 @@
                     </div>
                 </div>
                 <div class="user-profile" id="userProfile" style="display:none;">
-                    <div class="user-avatar" id="userAvatar"></div>
-                    <span class="user-name" id="userName"></span>
                     <button class="btn-logout" id="btnLogout">Sign out</button>
+                    <div class="user-avatar" id="userAvatar"></div>
+                    <span class="user-name" id="userName" style="display:none;"></span>
                 </div>
             </div>
         </div>
@@ -6241,7 +6243,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:4px;">
+                        <div id="chartToolsRight" style="display:flex;align-items:center;gap:4px;">
                             <!-- Replay (admin only) -->
                             <div class="replay-inline admin-only" id="replayInline" style="display:none;">
                                 <button class="replay-toggle-btn" id="replayToggleBtn" title="Replay">Replay</button>
@@ -9782,7 +9784,7 @@
             touchStartY = e.touches[0].clientY;
             touchLocked = false;
             // Проверяем — начался ли свайп на графике
-            touchOnChart = !!(e.target.closest('.chart-container') || e.target.closest('.tv-lightweight-charts') || e.target.tagName === 'CANVAS');
+            touchOnChart = !!(e.target.closest('.chart-container') || e.target.closest('.tv-lightweight-charts') || e.target.tagName === 'CANVAS' || e.target.closest('#chartToolsRight'));
         }, { passive: true });
         document.addEventListener('touchmove', e => {
             if (touchLocked || touchOnChart) return;
@@ -11324,6 +11326,9 @@
                 const fk = {all:'jFilterAll',week:'jFilterWeek',month:'jFilterMonth',long:'jFilterLong',short:'jFilterShort'};
                 mfSel.querySelectorAll('option').forEach(o => { if (fk[o.value] && tr[fk[o.value]]) o.textContent = tr[fk[o.value]]; });
             }
+
+            // AI Chat — обновляем заголовок и placeholder
+            if (typeof window.updateAiChatLang === 'function') window.updateAiChatLang();
 
             // Re-trigger active calculator to refresh translated results
             const activeCalcBtn = document.querySelector('.calc-btn.active');

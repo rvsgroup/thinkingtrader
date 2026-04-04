@@ -590,3 +590,98 @@
     body.admin-mode #ourChartControls > div:first-child { width: 100%; }
     body.admin-mode #chartToolsRight { width: 100%; }
 }
+
+/* ── Кнопка открытия чата в футере ── */
+.ai-chat-open-btn {
+    display: block;
+    width: calc(100% - 20px);
+    margin: 0 10px 10px;
+    padding: 7px 0;
+    background: rgba(41,98,255,0.08);
+    border: 1px solid rgba(41,98,255,0.25);
+    border-radius: 5px;
+    color: #2962FF;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s;
+}
+.ai-chat-open-btn:hover { background: rgba(41,98,255,0.15); }
+
+/* ── Чат сбоку (десктоп) — абсолютное позиционирование ── */
+#aiChatPanel.chat-side {
+    display: flex !important;
+    flex-direction: column;
+    position: absolute;
+    top: 0;
+    left: calc(-272px - 6px);
+    width: 272px;
+    border-radius: 6px;
+    border: 1px solid #2A2E39 !important;
+    background: #1E222D;
+    background-image: none !important;
+    animation: none !important;
+    padding: 0 !important;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.45);
+}
+
+/* Заголовок */
+#aiChatPanel.chat-side .ai-chat-header {
+    padding: 8px 12px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #636B76;
+    letter-spacing: 1px;
+    border-bottom: 1px solid #2A2E39;
+    flex-shrink: 0;
+}
+
+/* Сообщения */
+#aiChatPanel.chat-side .ai-tt-chat {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    padding: 8px 10px;
+}
+
+/* Инпут снизу */
+#aiChatPanel.chat-side .ai-tt-chat-input-wrap {
+    border-top: 1px solid #2A2E39;
+    padding: 8px 10px;
+    margin: 0 8px 8px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    border: 1px solid #2A2E39;
+}
+
+/* Нормальное состояние — сообщения сверху, инпут внизу */
+#aiChatPanel.chat-side {
+    justify-content: flex-start;
+}
+#aiChatPanel.chat-side .ai-tt-chat {
+    flex: 1 !important;
+    max-height: none !important;
+}
+
+/* Пустое состояние — инпут по центру */
+#aiChatPanel.chat-side.chat-empty .ai-tt-chat {
+    display: none !important;
+    flex: 0 !important;
+}
+#aiChatPanel.chat-side.chat-empty .ai-tt-chat-input-wrap {
+    border: 1px solid #2A2E39;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: auto 8px;
+}
+
+@media (max-width: 900px) {
+    .ai-chat-open-btn { display: none; }
+    #aiChatPanel.chat-side {
+        position: static;
+        width: 100%;
+        left: auto;
+    }
+}

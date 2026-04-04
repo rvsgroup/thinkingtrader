@@ -19,7 +19,7 @@
     }
 
     // ── Кэш 1D якорных уровней ─────────────────────────────────
-    window._aiAnchorCache = {};
+    window._aiAnchorCache = {}; // v2 — 900d history
 
     window.loadAnchorLevels = async function(coinId) {
         if (!coinId) return null;
@@ -28,7 +28,7 @@
         try {
             var sym = (typeof BINANCE_SYMBOLS !== 'undefined') ? BINANCE_SYMBOLS[coinId] : null;
             if (!sym) return null;
-            var res = await fetch('/api/ohlc?symbol=' + sym + '&interval=1d&limit=210');
+            var res = await fetch('/api/ohlc?symbol=' + sym + '&interval=1d&limit=1000');
             var data = await res.json();
             if (!Array.isArray(data) || data.length < 30) return null;
             var candles = data.map(function(k) {
@@ -41,8 +41,36 @@
             // Считаем тренд по 1D свечам — актуально для всех таймфреймов
             var currentClose = candles[candles.length - 1].close;
             var trend1d = {};
-            if (candles.length >= 100) trend1d.change100d = Math.round((currentClose - candles[candles.length - 100].close) / candles[candles.length - 100].close * 1000) / 10;
-            if (candles.length >= 200) trend1d.change200d = Math.round((currentClose - candles[candles.length - 200].close) / candles[candles.length - 200].close * 1000) / 10;
+            var pct = function(from) { return Math.round((currentClose - from) / from * 1000) / 10; };
+            if (candles.length >= 60)  trend1d.change60d  = pct(candles[candles.length - 60].close);
+            if (candles.length >= 100) trend1d.change100d = pct(candles[candles.length - 100].close);
+            if (candles.length >= 200) trend1d.change200d = pct(candles[candles.length - 200].close);
+            if (candles.length >= 400) trend1d.change400d = pct(candles[candles.length - 400].close);
+            if (candles.length >= 600) trend1d.change600d = pct(candles[candles.length - 600].close);
+            if (candles.length >= 800) trend1d.change800d = pct(candles[candles.length - 800].close);
+            if (candles.length >= 900) trend1d.change900d = pct(candles[candles.length - 900].close);
+
+            if (candles.length >= 60)  trend1d.priceAt60d  = Math.round(candles[candles.length - 60].close);
+            if (candles.length >= 100) trend1d.priceAt100d = Math.round(candles[candles.length - 100].close);
+            if (candles.length >= 200) trend1d.priceAt200d = Math.round(candles[candles.length - 200].close);
+            if (candles.length >= 400) trend1d.priceAt400d = Math.round(candles[candles.length - 400].close);
+            if (candles.length >= 600) trend1d.priceAt600d = Math.round(candles[candles.length - 600].close);
+            if (candles.length >= 800) trend1d.priceAt800d = Math.round(candles[candles.length - 800].close);
+            if (candles.length >= 900) trend1d.priceAt900d = Math.round(candles[candles.length - 900].close);
+
+            var c365 = candles.slice(-365);
+            var high365 = Math.round(Math.max.apply(null, c365.map(function(c) { return c.high; })));
+            var low365  = Math.round(Math.min.apply(null, c365.map(function(c) { return c.low; })));
+            trend1d.high365d = high365;
+            trend1d.low365d  = low365;
+            trend1d.positionIn365dRange = high365 !== low365 ? Math.round((currentClose - low365) / (high365 - low365) * 1000) / 10 : 50;
+
+            var c900 = candles.slice(-900);
+            var high900 = Math.round(Math.max.apply(null, c900.map(function(c) { return c.high; })));
+            var low900  = Math.round(Math.min.apply(null, c900.map(function(c) { return c.low; })));
+            trend1d.high900d = high900;
+            trend1d.low900d  = low900;
+            trend1d.positionIn900dRange = high900 !== low900 ? Math.round((currentClose - low900) / (high900 - low900) * 1000) / 10 : 50;
 
             var result = { support: levels.support, resistance: levels.resistance, positionPct: levels.positionPct, trend1d: trend1d, ts: Date.now() };
             window._aiAnchorCache[coinId] = result;
@@ -254,12 +282,14 @@
             '<div class="ai-tt-text"></div>' +
             '<div class="ai-tt-verdict"></div>' +
             '<div class="ai-tt-action"></div>' +
-            '<div class="ai-tt-footer"><span>THINKING TRADER</span><span class="ai-tt-price"></span></div>';
+            '<div class="ai-tt-footer"><span>THINKING TRADER</span><span class="ai-tt-time" style="color:#475569;font-size:10px;margin-left:auto;margin-right:6px;"></span><span class="ai-tt-price"></span></div>' +
+            '<button class="ai-chat-open-btn" id="aiChatOpenBtn">💬 Чат</button>';
 
         // Чат-панель — сразу под тултипом в том же контейнере
         _chatPanelEl = document.createElement('div');
         _chatPanelEl.id = 'aiChatPanel';
         _chatPanelEl.innerHTML =
+            '<div class="ai-chat-header" id="aiChatHeaderLabel">ЧАТ</div>' +
             '<div class="ai-tt-chat" id="aiChatMessages"></div>' +
             '<div class="ai-tt-chat-input-wrap" id="aiChatInputWrap">' +
                 '<textarea class="ai-tt-chat-input" id="aiChatInput" placeholder="..." maxlength="400" rows="1"></textarea>' +
@@ -304,6 +334,16 @@
 
         _initChatHandlers();
         setTimeout(_updateChatPlaceholder, 0);
+
+        // Кнопка открытия/закрытия чата
+        setTimeout(function() {
+            var openBtn = document.getElementById('aiChatOpenBtn');
+            if (openBtn) {
+                openBtn.addEventListener('click', function() {
+                    _toggleChat();
+                });
+            }
+        }, 0);
     }
 
     // Свайп вниз для закрытия
@@ -378,6 +418,34 @@
     };
 
     function _positionChatPanel() { /* позиция управляется контейнером */ }
+
+    var _chatOpen = false;
+    function _toggleChat() {
+        if (!_isMobile()) {
+            _chatOpen = !_chatOpen;
+            var panel = _chatPanelEl;
+            var btn = document.getElementById('aiChatOpenBtn');
+            var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+            if (_chatOpen) {
+                panel.classList.add('visible', 'chat-side');
+                // Подстраиваем высоту чата под высоту блока анализа
+                var tooltipH = _tooltipEl ? _tooltipEl.offsetHeight : 0;
+                if (tooltipH > 0) panel.style.height = tooltipH + 'px';
+                // Проверяем есть ли сообщения
+                var msgs = panel.querySelector('#aiChatMessages');
+                if (!msgs || msgs.children.length === 0) {
+                    panel.classList.add('chat-empty');
+                } else {
+                    panel.classList.remove('chat-empty');
+                }
+                if (btn) btn.textContent = isEn ? '✕ Close chat' : '✕ Закрыть чат';
+            } else {
+                panel.classList.remove('visible', 'chat-side', 'chat-empty');
+                panel.style.height = '';
+                if (btn) btn.textContent = isEn ? '💬 Chat' : '💬 Чат';
+            }
+        }
+    }
     function _initChatHandlers() {
         var input = document.getElementById('aiChatInput');
         var sendBtn = document.getElementById('aiChatSend');
@@ -390,6 +458,8 @@
             input.style.height = 'auto';
             _positionChatPanel();
             _sendChatMessage(text);
+            // Возвращаем фокус после отправки
+            setTimeout(function() { input.focus(); }, 50);
         }
 
         sendBtn.addEventListener('click', function(e) { e.stopPropagation(); sendMsg(); });
@@ -415,6 +485,16 @@
         });
     }
 
+    function _updateChatEmptyState() {
+        if (!_chatPanelEl || !_chatPanelEl.classList.contains('chat-side')) return;
+        var msgs = _chatPanelEl.querySelector('#aiChatMessages');
+        if (msgs && msgs.children.length > 0) {
+            _chatPanelEl.classList.remove('chat-empty');
+            // Сбрасываем justify-content чтобы инпут упал вниз
+            _chatPanelEl.style.justifyContent = 'flex-start';
+        }
+    }
+
     function _appendChatBubble(role, text) {
         var box = document.getElementById('aiChatMessages');
         if (!box) return;
@@ -429,6 +509,7 @@
         box.appendChild(bubble);
         box.scrollTop = box.scrollHeight;
         _positionChatPanel();
+        _updateChatEmptyState();
     }
 
     function _setChatInputLoading(on) {
@@ -512,7 +593,22 @@
             var btn = document.getElementById('aiChatSend');
             if (btn) btn.disabled = true;
         }
+        // Заголовок чата
+        var header = document.getElementById('aiChatHeaderLabel');
+        if (header) header.textContent = isEn ? 'CHAT' : 'ЧАТ';
+        // Кнопка открытия/закрытия чата
+        var chatBtn = document.getElementById('aiChatOpenBtn');
+        if (chatBtn) {
+            if (_chatOpen) {
+                chatBtn.textContent = isEn ? '✕ Close chat' : '✕ Закрыть чат';
+            } else {
+                chatBtn.textContent = isEn ? '💬 Chat' : '💬 Чат';
+            }
+        }
     }
+
+    // Экспорт для вызова из applyLang
+    window.updateAiChatLang = function() { _updateChatPlaceholder(); };
 
     // Сброс истории чата (при смене монеты/таймфрейма)
     window.resetAiChat = function() {
@@ -742,16 +838,17 @@
             if (!ctx) { _aiScanInFlight = false; return; }
 
             var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
-            if (ctx.timeframe !== '1D') {
-                var anchor = await window.loadAnchorLevels(coinId);
-                if (anchor) {
+            var anchor = await window.loadAnchorLevels(coinId);
+            if (anchor) {
+                // Для 4H и 1H — якорные уровни
+                if (ctx.timeframe !== '1D') {
                     ctx.anchorLevels = { support: anchor.support, resistance: anchor.resistance,
                         positionPct: anchor.resistance !== anchor.support
                             ? Math.round((ctx.currentPrice - anchor.support) / (anchor.resistance - anchor.support) * 1000) / 10 : 50 };
-                    // Добавляем 1D тренд если локальный тренд не посчитан (мало свечей)
-                    if (anchor.trend1d && Object.keys(ctx.trend).length === 0) {
-                        ctx.trend = anchor.trend1d;
-                    }
+                }
+                // Для всех таймфреймов — мёрджим историческую траекторию
+                if (anchor.trend1d) {
+                    ctx.trend = Object.assign({}, anchor.trend1d, ctx.trend);
                 }
             }
 
@@ -801,7 +898,10 @@
             ];
 
             renderResult(result, ctx);
-            if (_chatPanelEl) _chatPanelEl.classList.add('visible');
+            // На десктопе чат скрыт по умолчанию — открывается кнопкой
+            if (_isMobile()) {
+                if (_chatPanelEl) _chatPanelEl.classList.add('visible');
+            }
             setTimeout(_positionChatPanel, 50);
             setTimeout(_positionChatPanel, 300);
         } catch(e) {
