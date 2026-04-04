@@ -618,10 +618,13 @@
     left: calc(-272px - 6px);
     width: 272px;
     border-radius: 6px;
-    border: 1px solid #2A2E39 !important;
-    background: #1E222D;
-    background-image: none !important;
-    animation: none !important;
+    border: 1px solid transparent;
+    background:
+        linear-gradient(#1E222D, #1E222D) padding-box,
+        linear-gradient(180deg, #0d2a56, #2962ff, #a0c4ff, #2962ff, #0d2a56) border-box;
+    background-size: 100% 100%, 100% 400%;
+    background-position: 0% 0%, 0% 0%;
+    animation: aiChatBorder 6s ease infinite;
     padding: 0 !important;
     box-shadow: 0 4px 24px rgba(0,0,0,0.45);
 }
