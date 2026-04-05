@@ -1221,10 +1221,9 @@
             // FREE: счётчик + кнопка Upgrade
             if (counter) {
                 var left = Math.max(0, max - used);
-                counter.textContent = 'AI: ' + used + '/' + max;
+                counter.textContent = used + '/' + max;
                 counter.style.display = 'inline-block';
                 counter.style.color = used >= max ? '#EF5350' : '#9598A1';
-                // Тултип — подсказка при наведении
                 if (isEn) {
                     counter.title = left > 0
                         ? left + ' of ' + max + ' free AI scans left today. Resets at 00:00 UTC.'
