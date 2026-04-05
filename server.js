@@ -586,7 +586,8 @@ async function _isPro(uid) {
         const data = doc.data();
         return data.proUntil && data.proUntil > Date.now();
     } catch(e) {
-        console.error('_isPro error:', e.message);
+        // Если Firestore недоступен — не ломаем, просто возвращаем false
+        console.warn('_isPro Firestore error (treating as Free):', e.message.slice(0, 60));
         return false;
     }
 }
@@ -1993,11 +1994,16 @@ app.get('/api/pay/status', requireAuth, async (req, res) => {
         let proUntil = null;
 
         if (adminDb) {
-            const doc = await adminDb.collection('subscriptions').doc(uid).get();
-            if (doc.exists) {
-                const data = doc.data();
-                proUntil = data.proUntil || null;
-                isPro = proUntil && proUntil > Date.now();
+            try {
+                const doc = await adminDb.collection('subscriptions').doc(uid).get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    proUntil = data.proUntil || null;
+                    isPro = proUntil && proUntil > Date.now();
+                }
+            } catch(e) {
+                console.warn('pay/status Firestore error (continuing):', e.message.slice(0, 60));
+                // Firestore недоступен — отдаём Free статус, не ломаем ответ
             }
         }
 
