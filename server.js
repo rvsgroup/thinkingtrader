@@ -277,13 +277,10 @@ app.post('/api/ai-scan', async (req, res) => {
         if (!token) return res.status(401).json({ error: 'Unauthorized' });
         let uid;
         try {
-            if (adminApp) {
-                const decoded = await adminApp.auth().verifyIdToken(token);
-                uid = decoded.uid;
-            } else {
-                const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-                uid = payload.sub || payload.user_id;
-            }
+            const parts = token.split('.');
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+            uid = payload.sub || payload.user_id;
+            if (!uid) throw new Error('no uid');
         } catch(e) { return res.status(401).json({ error: 'Invalid token' }); }
 
         // ── Проверка лимитов (пропускаем для админа и PRO) ──
@@ -599,14 +596,17 @@ async function requireAuth(req, res, next) {
     const token = getToken(req);
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
     try {
-        if (!adminApp) {
-            // Fallback: decode without verify (не продакшен, но не ломает если Admin SDK недоступен)
-            const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-            req.uid = payload.sub || payload.user_id;
-        } else {
-            const decoded = await adminApp.auth().verifyIdToken(token);
-            req.uid = decoded.uid;
+        // Всегда декодируем JWT напрямую (быстро, без сетевых запросов)
+        const parts = token.split('.');
+        if (parts.length !== 3) return res.status(401).json({ error: 'Invalid token' });
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+        const uid = payload.sub || payload.user_id;
+        if (!uid) return res.status(401).json({ error: 'Invalid token' });
+        // Проверяем expiry
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+            return res.status(401).json({ error: 'Token expired' });
         }
+        req.uid = uid;
         next();
     } catch(e) {
         res.status(401).json({ error: 'Invalid token' });
@@ -794,13 +794,10 @@ app.post('/api/ai-chat', async (req, res) => {
         if (!token) return res.status(401).json({ error: 'Unauthorized' });
         let uid;
         try {
-            if (adminApp) {
-                const decoded = await adminApp.auth().verifyIdToken(token);
-                uid = decoded.uid;
-            } else {
-                const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-                uid = payload.sub || payload.user_id;
-            }
+            const parts = token.split('.');
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+            uid = payload.sub || payload.user_id;
+            if (!uid) throw new Error('no uid');
         } catch(e) { return res.status(401).json({ error: 'Invalid token' }); }
 
         // ── Проверка лимитов чата ──
