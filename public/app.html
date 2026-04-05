@@ -6301,14 +6301,16 @@
                             <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <button id="scanBtnApp">Scan</button>
                             <button id="aiBtnApp">
-                                <svg width="11" height="11" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <svg id="aiBtnIcon" width="11" height="11" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M10 2L12.5 7.5H18L13.5 11L15.5 17L10 13.5L4.5 17L6.5 11L2 7.5H7.5L10 2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
                                 </svg>
-                                AI
+                                <span id="aiBtnLabel">AI</span>
                             </button>
                             <span id="aiScanCounter" style="display:none;font-size:10px;font-weight:600;color:#9598A1;padding:0 4px;line-height:28px;cursor:default;white-space:nowrap;"></span>
-                            <span id="aiProBadge" style="display:none;font-size:9px;font-weight:700;color:#F7A600;background:rgba(247,166,0,0.12);border:1px solid rgba(247,166,0,0.3);border-radius:4px;padding:2px 6px;line-height:1;align-items:center;white-space:nowrap;">PRO</span>
-                            <button id="aiUpgradeBtn" style="display:none;height:22px;padding:0 8px;font-size:9px;font-weight:700;background:rgba(41,98,255,0.15);border:1px solid rgba(41,98,255,0.4);border-radius:4px;color:#2962FF;cursor:pointer;white-space:nowrap;">↑ PRO</button>
+                            <button id="aiUpgradeBtn" style="display:none;height:24px;padding:0 9px;font-size:9px;font-weight:700;background:rgba(247,166,0,0.12);border:1px solid rgba(247,166,0,0.45);border-radius:5px;color:#F7A600;cursor:pointer;white-space:nowrap;display:none;align-items:center;gap:4px;letter-spacing:0.03em;">
+                                <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M6 1l1.5 3.2 3.5.5-2.5 2.4.6 3.4L6 9l-3.1 1.5.6-3.4L1 4.7l3.5-.5L6 1z" fill="#F7A600"/></svg>
+                                <span id="aiUpgradeBtnLabel">Upgrade · $15</span>
+                            </button>
                             <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <button id="rulerBtnSmall" title="Линейка (Shift+клик)">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><line x1="7.5" y1="16.5" x2="10" y2="14"/><line x1="10.5" y1="13.5" x2="12" y2="12"/><line x1="13.5" y1="10.5" x2="16" y2="8"/></svg>

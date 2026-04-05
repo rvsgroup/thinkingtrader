@@ -1193,22 +1193,61 @@
 
     // ── Обновить PRO-бейдж и счётчик сканов ──────────────────────
     function _updateProBadge(statusData) {
-        var badge = document.getElementById('aiProBadge');
-        var counter = document.getElementById('aiScanCounter');
+        var counter    = document.getElementById('aiScanCounter');
+        var upgradeBtn = document.getElementById('aiUpgradeBtn');
+        var aiBtnIcon  = document.getElementById('aiBtnIcon');
+        var aiBtnLabel = document.getElementById('aiBtnLabel');
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
         if (!statusData) return;
 
-        if (statusData.isPro || statusData.isAdmin) {
-            if (badge) { badge.textContent = 'PRO'; badge.style.display = 'inline-flex'; }
-            if (counter) counter.style.display = 'none';
-        } else {
-            if (badge) badge.style.display = 'none';
-            if (counter) {
-                var used = statusData.scansUsed || 0;
-                var max  = statusData.scansLimit || 3;
-                counter.textContent = 'AI: ' + used + '/' + max;
-                counter.style.display = 'inline-flex';
-                counter.style.color = used >= max ? '#EF5350' : '#9598A1';
+        var isPro  = statusData.isPro || statusData.isAdmin;
+        var used   = statusData.scansUsed || 0;
+        var max    = statusData.scansLimit || 3;
+
+        if (isPro) {
+            // PRO: звезда в кнопке AI, счётчик скрыт, кнопка Upgrade скрыта
+            if (counter)    counter.style.display = 'none';
+            if (upgradeBtn) upgradeBtn.style.display = 'none';
+
+            // Кнопка AI — золотая звезда + "AI"
+            if (aiBtnIcon) {
+                aiBtnIcon.innerHTML = '<path d="M6 1l1.5 3.2 3.5.5-2.5 2.4.6 3.4L6 9l-3.1 1.5.6-3.4L1 4.7l3.5-.5L6 1z" fill="#F7A600"/>';
+                aiBtnIcon.setAttribute('viewBox', '0 0 12 12');
+                aiBtnIcon.style.filter = 'drop-shadow(0 0 3px rgba(247,166,0,0.4))';
             }
+            if (aiBtnLabel) aiBtnLabel.textContent = 'AI';
+
+        } else {
+            // FREE: счётчик + кнопка Upgrade
+            if (counter) {
+                var left = Math.max(0, max - used);
+                counter.textContent = 'AI: ' + used + '/' + max;
+                counter.style.display = 'inline-block';
+                counter.style.color = used >= max ? '#EF5350' : '#9598A1';
+                // Тултип — подсказка при наведении
+                if (isEn) {
+                    counter.title = left > 0
+                        ? left + ' of ' + max + ' free AI scans left today. Resets at 00:00 UTC.'
+                        : 'Daily limit reached. Resets at 00:00 UTC.';
+                } else {
+                    counter.title = left > 0
+                        ? 'Осталось ' + left + ' из ' + max + ' бесплатных AI-сканов сегодня. Сброс в 00:00 UTC.'
+                        : 'Дневной лимит исчерпан. Сброс в 00:00 UTC.';
+                }
+            }
+            if (upgradeBtn) {
+                upgradeBtn.style.display = 'inline-flex';
+                var labelEl = document.getElementById('aiUpgradeBtnLabel');
+                if (labelEl) labelEl.textContent = isEn ? 'Upgrade · $15' : 'PRO · $15';
+            }
+
+            // Кнопка AI — обычная звёздочка
+            if (aiBtnIcon) {
+                aiBtnIcon.innerHTML = '<path d="M10 2L12.5 7.5H18L13.5 11L15.5 17L10 13.5L4.5 17L6.5 11L2 7.5H7.5L10 2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/>';
+                aiBtnIcon.setAttribute('viewBox', '0 0 20 20');
+                aiBtnIcon.style.filter = '';
+            }
+            if (aiBtnLabel) aiBtnLabel.textContent = 'AI';
         }
     }
     window._updateProBadge = _updateProBadge;
@@ -1252,7 +1291,15 @@
     }
 
     // Экспорт для вызова из applyLang
-    window.updateAiChatLang = function() { _updateChatPlaceholder(); };
+    window.updateAiChatLang = function() {
+        _updateChatPlaceholder();
+        // Обновляем лейбл кнопки Upgrade при смене языка
+        var labelEl = document.getElementById('aiUpgradeBtnLabel');
+        if (labelEl && document.getElementById('aiUpgradeBtn').style.display !== 'none') {
+            var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+            labelEl.textContent = isEn ? 'Upgrade · $15' : 'PRO · $15';
+        }
+    };
     window._openProPayment = _openProPayment;
 
     // ── Инициализация статуса PRO при загрузке ────────────────────

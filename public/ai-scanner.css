@@ -984,37 +984,27 @@
     letter-spacing: 0.3px;
 }
 
-/* PRO badge in topbar */
-#aiProBadge {
-    font-size: 9px;
-    font-weight: 700;
-    color: #F7A600;
-    background: rgba(247,166,0,0.12);
-    border: 1px solid rgba(247,166,0,0.3);
-    border-radius: 4px;
-    padding: 2px 6px;
-    white-space: nowrap;
-    letter-spacing: 0.5px;
-}
-
-/* Upgrade button in topbar */
+/* Upgrade button — amber star style */
 #aiUpgradeBtn {
-    height: 22px;
-    padding: 0 8px;
+    height: 24px;
+    padding: 0 9px;
     font-size: 9px;
     font-weight: 700;
-    background: rgba(41,98,255,0.15);
-    border: 1px solid rgba(41,98,255,0.4);
-    border-radius: 4px;
-    color: #2962FF;
+    background: rgba(247,166,0,0.12);
+    border: 1px solid rgba(247,166,0,0.45);
+    border-radius: 5px;
+    color: #F7A600;
     cursor: pointer;
     white-space: nowrap;
+    align-items: center;
+    gap: 4px;
+    letter-spacing: 0.03em;
     transition: background 0.15s, border-color 0.15s;
 }
 
 #aiUpgradeBtn:hover {
-    background: rgba(41,98,255,0.25);
-    border-color: rgba(41,98,255,0.7);
+    background: rgba(247,166,0,0.22);
+    border-color: rgba(247,166,0,0.7);
 }
 
 /* PRO tag near user name */
