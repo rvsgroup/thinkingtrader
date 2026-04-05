@@ -272,6 +272,31 @@ const AI_CACHE_TTL = 10 * 60 * 1000; // 10 минут
 
 app.post('/api/ai-scan', async (req, res) => {
     try {
+        // ── Авторизация ──
+        const token = getToken(req);
+        if (!token) return res.status(401).json({ error: 'Unauthorized' });
+        let uid;
+        try {
+            if (adminApp) {
+                const decoded = await adminApp.auth().verifyIdToken(token);
+                uid = decoded.uid;
+            } else {
+                const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+                uid = payload.sub || payload.user_id;
+            }
+        } catch(e) { return res.status(401).json({ error: 'Invalid token' }); }
+
+        // ── Проверка лимитов (пропускаем для админа и PRO) ──
+        const isAdminReq = uid === ADMIN_UID;
+        const proUser = isAdminReq ? true : await _isPro(uid);
+
+        if (!isAdminReq && !proUser) {
+            const limits = _getFreeLimits(uid);
+            if (limits.scanCount >= FREE_SCAN_LIMIT) {
+                return res.status(429).json({ error: 'limit', type: 'scan_limit', used: limits.scanCount, max: FREE_SCAN_LIMIT });
+            }
+        }
+
         const ctx = req.body;
         if (!ctx || !ctx.coin || !ctx.currentPrice) {
             return res.status(400).json({ error: 'Missing context data' });
@@ -506,6 +531,14 @@ JSON формат:
         // Сохраняем в кэш
         cacheSet(cacheKey, result, AI_CACHE_TTL);
         console.log(`💾 AI Scanner cached: ${cacheKey} (TTL ${AI_CACHE_TTL / 1000}s)`);
+
+        // ── Увеличиваем счётчик сканов для Free-пользователей ──
+        if (uid && uid !== ADMIN_UID && !proUser) {
+            const limits = _getFreeLimits(uid);
+            limits.scanCount++;
+            console.log(`📊 Free scan used: ${uid} → ${limits.scanCount}/${FREE_SCAN_LIMIT}`);
+        }
+
         res.json(result);
 
     } catch (e) {
@@ -518,6 +551,67 @@ JSON формат:
 // ADMIN CONTEXT — контекст аналитика для AI-сканера
 // ══════════════════════════════════════════════════════════════
 const ADMIN_UID = process.env.ADMIN_UID;
+
+// ══════════════════════════════════════════════════════════════
+// ПОДПИСКА PRO — лимиты и NOWPayments
+// ══════════════════════════════════════════════════════════════
+const NOWPAY_API_KEY  = process.env.NOWPAY_API_KEY;
+const NOWPAY_IPN_SECRET = process.env.NOWPAY_IPN_SECRET;
+
+// Дневные лимиты Free-пользователей (хранятся в памяти, сбрасываются при рестарте)
+// Структура: uid → { scanCount, scanDate, chatSessions: { sessionKey → count } }
+const _freeLimits = new Map();
+
+const FREE_SCAN_LIMIT = 3;
+const FREE_CHAT_LIMIT = 3;
+const PRO_CHAT_LIMIT  = 7;
+
+function _todayUtc() {
+    return new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+}
+
+function _getFreeLimits(uid) {
+    const today = _todayUtc();
+    let entry = _freeLimits.get(uid);
+    if (!entry || entry.scanDate !== today) {
+        entry = { scanCount: 0, scanDate: today, chatSessions: {} };
+        _freeLimits.set(uid, entry);
+    }
+    return entry;
+}
+
+// Проверка подписки PRO через Firestore Admin SDK
+async function _isPro(uid) {
+    if (!adminDb) return false;
+    try {
+        const doc = await adminDb.collection('subscriptions').doc(uid).get();
+        if (!doc.exists) return false;
+        const data = doc.data();
+        return data.proUntil && data.proUntil > Date.now();
+    } catch(e) {
+        console.error('_isPro error:', e.message);
+        return false;
+    }
+}
+
+// Middleware: верифицировать токен и вернуть uid
+async function requireAuth(req, res, next) {
+    const token = getToken(req);
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        if (!adminApp) {
+            // Fallback: decode without verify (не продакшен, но не ломает если Admin SDK недоступен)
+            const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+            req.uid = payload.sub || payload.user_id;
+        } else {
+            const decoded = await adminApp.auth().verifyIdToken(token);
+            req.uid = decoded.uid;
+        }
+        next();
+    } catch(e) {
+        res.status(401).json({ error: 'Invalid token' });
+    }
+}
 
 function verifyAdmin(req) {
     const auth = req.headers.authorization;
@@ -695,6 +789,38 @@ app.delete('/api/admin/context/:coinId/:id', async (req, res) => {
 // ── AI Chat — диалог на основе анализа ──────────────────────
 app.post('/api/ai-chat', async (req, res) => {
     try {
+        // ── Авторизация ──
+        const token = getToken(req);
+        if (!token) return res.status(401).json({ error: 'Unauthorized' });
+        let uid;
+        try {
+            if (adminApp) {
+                const decoded = await adminApp.auth().verifyIdToken(token);
+                uid = decoded.uid;
+            } else {
+                const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+                uid = payload.sub || payload.user_id;
+            }
+        } catch(e) { return res.status(401).json({ error: 'Invalid token' }); }
+
+        // ── Проверка лимитов чата ──
+        const isAdminReq = uid === ADMIN_UID;
+        const proUser = isAdminReq ? true : await _isPro(uid);
+        const chatLimit = proUser ? PRO_CHAT_LIMIT : FREE_CHAT_LIMIT;
+
+        if (!isAdminReq && !proUser) {
+            const { sessionKey } = req.body;
+            if (sessionKey) {
+                const limits = _getFreeLimits(uid);
+                const chatCount = limits.chatSessions[sessionKey] || 0;
+                if (chatCount >= FREE_CHAT_LIMIT) {
+                    return res.status(429).json({ error: 'limit', type: 'chat_limit', used: chatCount, max: FREE_CHAT_LIMIT });
+                }
+                // Увеличиваем счётчик
+                limits.chatSessions[sessionKey] = chatCount + 1;
+            }
+        }
+
         const { messages, lang } = req.body;
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
             return res.status(400).json({ error: 'Missing messages' });
@@ -1750,6 +1876,149 @@ app.delete('/api/user/alerts/:coin', async (req, res) => {
         await firestoreDelete(`users/${uid}/alerts/${req.params.coin}`, idToken);
         res.json({ ok: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════════════════════
+// ПЛАТЁЖНАЯ СИСТЕМА — NOWPayments
+// ══════════════════════════════════════════════════════════════
+
+// POST /api/pay/create — создать invoice через NOWPayments
+app.post('/api/pay/create', requireAuth, async (req, res) => {
+    try {
+        const uid = req.uid;
+        if (!NOWPAY_API_KEY) return res.status(503).json({ error: 'Payment system not configured' });
+
+        const body = {
+            price_amount: 15,
+            price_currency: 'usd',
+            order_id: uid,
+            order_description: 'Thinking Trader PRO — 30 days',
+            ipn_callback_url: 'https://www.thinkingtrader.com/api/pay/webhook',
+            success_url: 'https://www.thinkingtrader.com/app',
+            cancel_url: 'https://www.thinkingtrader.com/app',
+            is_fixed_rate: false,
+            is_fee_paid_by_user: false,
+        };
+
+        const nowRes = await fetch('https://api.nowpayments.io/v1/invoice', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': NOWPAY_API_KEY,
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15000),
+        });
+
+        if (!nowRes.ok) {
+            const errBody = await nowRes.text();
+            console.error('❌ NOWPayments invoice error:', nowRes.status, errBody);
+            return res.status(502).json({ error: 'Payment provider error' });
+        }
+
+        const data = await nowRes.json();
+        console.log(`💳 Invoice created for uid=${uid}: id=${data.id}`);
+        res.json({ invoice_url: data.invoice_url, invoice_id: data.id });
+
+    } catch(e) {
+        console.error('❌ /api/pay/create error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/pay/webhook — колбэк от NOWPayments
+// Используем raw body для верификации подписи
+app.post('/api/pay/webhook', express.json({ type: '*/*' }), async (req, res) => {
+    try {
+        if (!NOWPAY_IPN_SECRET) {
+            console.warn('⚠️ NOWPAY_IPN_SECRET не задан — webhook принят без верификации');
+        } else {
+            // Верифицируем HMAC-SHA512 подпись
+            const sig = req.headers['x-nowpayments-sig'];
+            if (!sig) return res.status(400).json({ error: 'Missing signature' });
+
+            const crypto = require('crypto');
+            // Сортируем ключи тела для HMAC
+            const sortedBody = JSON.stringify(sortObjectKeys(req.body));
+            const expected = crypto.createHmac('sha512', NOWPAY_IPN_SECRET)
+                .update(sortedBody)
+                .digest('hex');
+
+            if (sig !== expected) {
+                console.warn('⚠️ NOWPayments webhook: signature mismatch');
+                return res.status(401).json({ error: 'Invalid signature' });
+            }
+        }
+
+        const { payment_status, order_id, payment_id, pay_amount, pay_currency } = req.body;
+        console.log(`💳 Webhook received: status=${payment_status}, order_id=${order_id}, payment_id=${payment_id}`);
+
+        if (payment_status === 'finished' || payment_status === 'confirmed') {
+            const uid = order_id;
+            if (!uid) return res.status(400).json({ error: 'Missing order_id' });
+
+            if (adminDb) {
+                const proUntil = Date.now() + 30 * 24 * 60 * 60 * 1000; // +30 дней
+                await adminDb.collection('subscriptions').doc(uid).set({
+                    proUntil,
+                    paymentId: String(payment_id || ''),
+                    paidAt: Date.now(),
+                    payAmount: pay_amount || null,
+                    payCurrency: pay_currency || null,
+                });
+                console.log(`✅ PRO activated: uid=${uid}, proUntil=${new Date(proUntil).toISOString()}`);
+            } else {
+                console.warn('⚠️ adminDb not available — cannot save subscription');
+            }
+        }
+
+        res.status(200).json({ ok: true });
+    } catch(e) {
+        console.error('❌ /api/pay/webhook error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+function sortObjectKeys(obj) {
+    if (typeof obj !== 'object' || obj === null) return obj;
+    if (Array.isArray(obj)) return obj.map(sortObjectKeys);
+    return Object.keys(obj).sort().reduce((acc, k) => {
+        acc[k] = sortObjectKeys(obj[k]);
+        return acc;
+    }, {});
+}
+
+// GET /api/pay/status — статус подписки пользователя
+app.get('/api/pay/status', requireAuth, async (req, res) => {
+    try {
+        const uid = req.uid;
+        let isPro = false;
+        let proUntil = null;
+
+        if (adminDb) {
+            const doc = await adminDb.collection('subscriptions').doc(uid).get();
+            if (doc.exists) {
+                const data = doc.data();
+                proUntil = data.proUntil || null;
+                isPro = proUntil && proUntil > Date.now();
+            }
+        }
+
+        const limits = _getFreeLimits(uid);
+        const isAdm = uid === ADMIN_UID;
+
+        res.json({
+            isPro: isAdm || !!isPro,
+            isAdmin: isAdm,
+            proUntil: isPro ? proUntil : null,
+            scansUsed: limits.scanCount,
+            scansLimit: FREE_SCAN_LIMIT,
+            chatLimit: (isAdm || isPro) ? PRO_CHAT_LIMIT : FREE_CHAT_LIMIT,
+        });
+    } catch(e) {
+        console.error('❌ /api/pay/status error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // ── Запуск ─────────────────────────────────────────────────────

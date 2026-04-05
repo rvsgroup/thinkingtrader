@@ -9,20 +9,25 @@
     window._aiCache = {};
     window._aiLastPrompt = null;
 
+    // ── Получение Firebase ID Token ──────────────────────────────
+    async function _getIdToken() {
+        try {
+            var auth = typeof firebase !== 'undefined' ? firebase.auth() : null;
+            if (!auth || !auth.currentUser) return null;
+            return await auth.currentUser.getIdToken();
+        } catch(e) {
+            console.warn('[AI] getIdToken error:', e);
+            return null;
+        }
+    }
+
     // ── Определение администратора ───────────────────────────────
     function isAdmin() {
         return window._isAdminUser === true;
     }
 
     async function getAdminIdToken() {
-        try {
-            var auth = typeof firebase !== 'undefined' ? firebase.auth() : null;
-            if (!auth || !auth.currentUser) return null;
-            return await auth.currentUser.getIdToken();
-        } catch(e) {
-            console.error('[AI] getAdminIdToken error:', e);
-            return null;
-        }
+        return _getIdToken();
     }
 
     window._isAdmin = isAdmin;
@@ -381,7 +386,18 @@
             }
         }
 
-        var res = await fetch('/api/ai-scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ctx) });
+        var token = await _getIdToken();
+        var headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        var res = await fetch('/api/ai-scan', { method: 'POST', headers: headers, body: JSON.stringify(ctx) });
+
+        if (res.status === 429) {
+            var errData = await res.json().catch(function() { return {}; });
+            _showScanLimitOverlay(errData);
+            throw new Error('scan_limit');
+        }
+        if (res.status === 401) throw new Error('Unauthorized');
         if (!res.ok) throw new Error('AI Scanner error: ' + res.status);
         return res.json();
     };
@@ -1013,11 +1029,29 @@
         if (box) box.scrollTop = box.scrollHeight;
 
         try {
+            var token = await _getIdToken();
+            var headers = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+
+            // sessionKey — уникальный ключ текущего анализа для счётчика чата
+            var sessionKey = window._lastAnalysisTs ? String(window._lastAnalysisTs) : 'default';
+
             var res = await fetch('/api/ai-chat', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages: _aiChatHistory, lang: isEn ? 'en' : 'ru' })
+                headers: headers,
+                body: JSON.stringify({ messages: _aiChatHistory, lang: isEn ? 'en' : 'ru', sessionKey: sessionKey })
             });
+
+            if (res.status === 429) {
+                if (box && typing.parentNode) box.removeChild(typing);
+                _aiChatHistory.pop();
+                _questionCount--;
+                _showChatLimitBlock();
+                _setChatInputLoading(false);
+                _updateChatPlaceholder();
+                return;
+            }
+
             if (!res.ok) {
                 var errText = await res.text();
                 throw new Error('Chat error ' + res.status);
@@ -1039,8 +1073,149 @@
         }
     }
 
-    var _MAX_QUESTIONS = 7;
+    var _MAX_QUESTIONS = 3; // будет обновлён из /api/pay/status
     var _questionCount = 0;
+
+    // ── Paywall: оверлей при превышении лимита сканов ────────────
+    function _showScanLimitOverlay(errData) {
+        if (!_tooltipEl) return;
+        var old = _tooltipEl.querySelector('#aiScanLimitOverlay');
+        if (old) old.remove();
+
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        var used = (errData && errData.used != null) ? errData.used : 3;
+        var max  = (errData && errData.max)  ? errData.max  : 3;
+
+        var overlay = document.createElement('div');
+        overlay.id = 'aiScanLimitOverlay';
+        overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(13,17,28,0.92);border-radius:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:10;padding:20px;';
+
+        var lockIcon = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F7A600" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>';
+
+        overlay.innerHTML =
+            '<div style="display:flex;flex-direction:column;align-items:center;gap:8px;">' +
+                lockIcon +
+                '<span style="color:#D1D4DC;font-size:14px;font-weight:600;">' + (isEn ? 'Daily limit reached' : 'Дневной лимит исчерпан') + '</span>' +
+                '<span style="color:#636B76;font-size:12px;text-align:center;">' +
+                    (isEn ? 'You used all ' + max + ' free scans today' : 'Вы использовали все ' + max + ' бесплатных скана сегодня') +
+                '</span>' +
+            '</div>' +
+            '<button id="aiScanLimitProBtn" style="background:#2962FF;border:none;border-radius:8px;color:white;font-size:13px;font-weight:600;padding:10px 28px;cursor:pointer;width:100%;max-width:200px;">PRO — $15/мес</button>' +
+            '<span style="color:#475569;font-size:11px;text-align:center;">' +
+                (isEn ? 'Resets at 00:00 UTC' : 'Сбросится в 00:00 UTC') +
+            '</span>';
+
+        _tooltipEl.style.position = 'relative';
+        _tooltipEl.appendChild(overlay);
+
+        overlay.querySelector('#aiScanLimitProBtn').addEventListener('click', function() {
+            _openProPayment();
+        });
+
+        _tooltipVisible = true;
+        _containerEl && _containerEl.classList.add('visible');
+        _btnEl && _btnEl.classList.add('active');
+    }
+
+    // ── Paywall: блокировка чата при превышении лимита ───────────
+    function _showChatLimitBlock() {
+        var input = document.getElementById('aiChatInput');
+        var sendBtn = document.getElementById('aiChatSend');
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        if (input) {
+            input.disabled = true;
+            input.placeholder = isEn ? 'Limit ' + _MAX_QUESTIONS + '/' + _MAX_QUESTIONS + '. Upgrade to PRO' : 'Лимит ' + _MAX_QUESTIONS + '/' + _MAX_QUESTIONS + '. Подключите PRO';
+        }
+        if (sendBtn) sendBtn.disabled = true;
+
+        // Добавляем маленькую кнопку PRO под чатом
+        var box = document.getElementById('aiChatMessages');
+        if (box && !box.querySelector('#chatProBtn')) {
+            var proBlock = document.createElement('div');
+            proBlock.id = 'chatProBtn';
+            proBlock.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:10px;';
+            proBlock.innerHTML = '<button style="background:rgba(41,98,255,0.15);border:1px solid rgba(41,98,255,0.4);border-radius:6px;color:#2962FF;font-size:11px;font-weight:600;padding:6px 16px;cursor:pointer;" id="chatProPayBtn">⭐ ' + (isEn ? 'Upgrade to PRO' : 'Подключить PRO') + '</button>';
+            box.appendChild(proBlock);
+            box.scrollTop = box.scrollHeight;
+            proBlock.querySelector('#chatProPayBtn').addEventListener('click', function() { _openProPayment(); });
+        }
+    }
+
+    // ── Открыть оплату PRO ────────────────────────────────────────
+    async function _openProPayment() {
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        try {
+            var token = await _getIdToken();
+            if (!token) { alert(isEn ? 'Please log in' : 'Необходимо войти в аккаунт'); return; }
+            var res = await fetch('/api/pay/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            var data = await res.json();
+            if (data.invoice_url) {
+                var payWin = window.open(data.invoice_url, '_blank');
+                // Polling статуса каждые 10 сек
+                var pollInterval = setInterval(async function() {
+                    try {
+                        var token2 = await _getIdToken();
+                        var sRes = await fetch('/api/pay/status', { headers: { 'Authorization': 'Bearer ' + token2 } });
+                        var sData = await sRes.json();
+                        if (sData.isPro) {
+                            clearInterval(pollInterval);
+                            window._userIsPro = true;
+                            window._proUntil = sData.proUntil;
+                            _MAX_QUESTIONS = 7;
+                            _updateProBadge(sData);
+                            // Убираем оверлеи лимитов
+                            var ol = _tooltipEl && _tooltipEl.querySelector('#aiScanLimitOverlay');
+                            if (ol) ol.remove();
+                            // Разблокируем чат
+                            var input = document.getElementById('aiChatInput');
+                            var sendBtn = document.getElementById('aiChatSend');
+                            if (input) { input.disabled = false; input.placeholder = ''; }
+                            if (sendBtn) sendBtn.disabled = false;
+                            var cpb = document.getElementById('chatProBtn');
+                            if (cpb) cpb.remove();
+                            _updateChatPlaceholder();
+                            _updateScanCounter(sData);
+                        }
+                    } catch(e) { /* игнорируем */ }
+                }, 10000);
+                // Остановить polling через 15 минут
+                setTimeout(function() { clearInterval(pollInterval); }, 15 * 60 * 1000);
+            }
+        } catch(e) {
+            console.error('[AI] _openProPayment error:', e.message);
+            alert(isEn ? 'Payment error. Try again.' : 'Ошибка оплаты. Попробуйте снова.');
+        }
+    }
+
+    // ── Обновить PRO-бейдж и счётчик сканов ──────────────────────
+    function _updateProBadge(statusData) {
+        var badge = document.getElementById('aiProBadge');
+        var counter = document.getElementById('aiScanCounter');
+        if (!statusData) return;
+
+        if (statusData.isPro || statusData.isAdmin) {
+            if (badge) { badge.textContent = 'PRO'; badge.style.display = 'inline-flex'; }
+            if (counter) counter.style.display = 'none';
+        } else {
+            if (badge) badge.style.display = 'none';
+            if (counter) {
+                var used = statusData.scansUsed || 0;
+                var max  = statusData.scansLimit || 3;
+                counter.textContent = 'AI: ' + used + '/' + max;
+                counter.style.display = 'inline-flex';
+                counter.style.color = used >= max ? '#EF5350' : '#9598A1';
+            }
+        }
+    }
+    window._updateProBadge = _updateProBadge;
+
+    function _updateScanCounter(statusData) {
+        _updateProBadge(statusData);
+    }
 
     function _updateChatPlaceholder() {
         var input = document.getElementById('aiChatInput');
@@ -1078,6 +1253,34 @@
 
     // Экспорт для вызова из applyLang
     window.updateAiChatLang = function() { _updateChatPlaceholder(); };
+    window._openProPayment = _openProPayment;
+
+    // ── Инициализация статуса PRO при загрузке ────────────────────
+    window._initProStatus = async function() {
+        try {
+            var token = await _getIdToken();
+            if (!token) return;
+            var res = await fetch('/api/pay/status', { headers: { 'Authorization': 'Bearer ' + token } });
+            if (!res.ok) return;
+            var data = await res.json();
+            window._userIsPro = data.isPro;
+            window._proUntil  = data.proUntil;
+            _MAX_QUESTIONS = data.chatLimit || (data.isPro ? 7 : 3);
+            _updateProBadge(data);
+            _updateChatPlaceholder();
+
+            // Напоминание если PRO истекает < 3 дней
+            if (data.isPro && data.proUntil) {
+                var daysLeft = Math.ceil((data.proUntil - Date.now()) / 86400000);
+                if (daysLeft <= 3) {
+                    console.log('[AI] PRO expires in', daysLeft, 'days');
+                    // Показываем тонкое напоминание — добавим в topbar позже если нужно
+                }
+            }
+        } catch(e) {
+            console.warn('[AI] _initProStatus error:', e.message);
+        }
+    };
 
     // Сброс истории чата (при смене монеты/таймфрейма)
     window.resetAiChat = function() {

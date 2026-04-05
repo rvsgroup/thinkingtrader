@@ -6306,6 +6306,9 @@
                                 </svg>
                                 AI
                             </button>
+                            <span id="aiScanCounter" style="display:none;font-size:10px;font-weight:600;color:#9598A1;padding:0 4px;line-height:28px;cursor:default;white-space:nowrap;"></span>
+                            <span id="aiProBadge" style="display:none;font-size:9px;font-weight:700;color:#F7A600;background:rgba(247,166,0,0.12);border:1px solid rgba(247,166,0,0.3);border-radius:4px;padding:2px 6px;line-height:1;align-items:center;white-space:nowrap;">PRO</span>
+                            <button id="aiUpgradeBtn" style="display:none;height:22px;padding:0 8px;font-size:9px;font-weight:700;background:rgba(41,98,255,0.15);border:1px solid rgba(41,98,255,0.4);border-radius:4px;color:#2962FF;cursor:pointer;white-space:nowrap;">↑ PRO</button>
                             <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <button id="rulerBtnSmall" title="Линейка (Shift+клик)">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><line x1="7.5" y1="16.5" x2="10" y2="14"/><line x1="10.5" y1="13.5" x2="12" y2="12"/><line x1="13.5" y1="10.5" x2="16" y2="8"/></svg>
@@ -14046,6 +14049,49 @@
         if (typeof window.initAlerts === 'function') {
             window.initAlerts(user.uid, firebase.firestore());
         }
+
+        // ── Загрузка статуса PRO подписки ──────────────────────
+        (async function() {
+            try {
+                var token = await user.getIdToken();
+                var res = await fetch('/api/pay/status', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.ok) {
+                    var data = await res.json();
+                    window._userIsPro = data.isPro;
+                    window._proUntil  = data.proUntil;
+
+                    // Обновить счётчик / PRO-бейдж
+                    if (typeof window._updateProBadge === 'function') window._updateProBadge(data);
+
+                    // Показать кнопку Upgrade только Free-пользователям
+                    var upgradeBtn = document.getElementById('aiUpgradeBtn');
+                    if (upgradeBtn) {
+                        upgradeBtn.style.display = (!data.isPro && !data.isAdmin) ? 'inline-flex' : 'none';
+                        upgradeBtn.addEventListener('click', function() {
+                            if (typeof window._openProPayment === 'function') window._openProPayment();
+                        });
+                    }
+
+                    // PRO-бейдж рядом с аватаром
+                    var existingProTag = document.getElementById('userProTag');
+                    if (!existingProTag && (data.isPro || data.isAdmin)) {
+                        var nameEl2 = document.getElementById('userName');
+                        if (nameEl2 && nameEl2.parentNode) {
+                            var proTag = document.createElement('span');
+                            proTag.id = 'userProTag';
+                            proTag.style.cssText = 'font-size:9px;font-weight:700;color:#F7A600;background:rgba(247,166,0,0.12);border:1px solid rgba(247,166,0,0.3);border-radius:4px;padding:2px 6px;margin-left:4px;';
+                            proTag.textContent = data.isAdmin ? 'ADMIN' : 'PRO';
+                            nameEl2.parentNode.insertBefore(proTag, nameEl2.nextSibling);
+                        }
+                    }
+
+                    // Передать лимит чата в ai-scanner
+                    if (typeof window._initProStatus === 'function') window._initProStatus();
+                }
+            } catch(e) {
+                console.warn('[PRO] Status fetch error:', e.message);
+            }
+        })();
 
         // Show admin page if admin email
         const adminEmail = String(window.ADMIN_EMAIL || 'bayramov0506@gmail.com').trim().toLowerCase();
