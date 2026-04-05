@@ -226,11 +226,22 @@
         // ── Уровни поддержки/сопротивления ──
         var levels = null;
         if (window._lastLevels) {
-            levels = {
-                support: Math.round(window._lastLevels.support * 100) / 100,
-                resistance: Math.round(window._lastLevels.resistance * 100) / 100,
-                positionPct: Math.round(window._lastLevels.positionPct * 10) / 10,
-            };
+            // Санити-чек: уровни должны быть в адекватном диапазоне от текущей цены
+            var sup = window._lastLevels.support;
+            var res = window._lastLevels.resistance;
+            var priceOk = price > 0 && sup > 0 && res > 0;
+            var ratio = priceOk ? Math.max(price / sup, sup / price, price / res, res / price) : 999;
+            if (priceOk && ratio < 5) {
+                levels = {
+                    support: Math.round(sup * 100) / 100,
+                    resistance: Math.round(res * 100) / 100,
+                    positionPct: Math.round(window._lastLevels.positionPct * 10) / 10,
+                };
+            } else {
+                // Уровни от другой монеты — сбрасываем
+                window._lastLevels = null;
+                window._lastLevelsCoin = null;
+            }
         }
 
         // ── Ценовой профиль (30 отрезков из текущего таймфрейма) ──
@@ -360,6 +371,16 @@
             ctx.adminContext = adminCtx;
             console.log('[AI] Admin context loaded:', adminCtx.slice(0, 80) + '...');
         }
+
+        // Для альткоинов — дополнительно подгружаем BTC admin context как якорный
+        if (coinId !== 'bitcoin') {
+            var btcAdminCtx = await _fetchAdminContext('bitcoin', ctx.lang || 'ru');
+            if (btcAdminCtx) {
+                ctx.btcAdminContext = btcAdminCtx;
+                console.log('[AI] BTC anchor context loaded:', btcAdminCtx.slice(0, 80) + '...');
+            }
+        }
+
         var res = await fetch('/api/ai-scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ctx) });
         if (!res.ok) throw new Error('AI Scanner error: ' + res.status);
         return res.json();
@@ -1313,15 +1334,19 @@
         var sym = (typeof BINANCE_SYMBOLS !== 'undefined') ? BINANCE_SYMBOLS[coinId] : null;
         if (!sym || typeof PatternScanner === 'undefined') return;
 
-        // Уровни — если _lastLevels пустой
-        if (!window._lastLevels && typeof rawOhlcCache !== 'undefined' && rawOhlcCache.length >= 20) {
+        // Уровни — пересчитываем если пустой ИЛИ если сменилась монета
+        var levelsStale = !window._lastLevels || window._lastLevelsCoin !== coinId;
+        if (levelsStale && typeof rawOhlcCache !== 'undefined' && rawOhlcCache.length >= 20) {
             try {
                 var candles = rawOhlcCache.map(function(k) {
                     return { time: Math.floor(k[0]/1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4] };
                 });
                 if (PatternScanner.scanLevels) {
                     var levels = PatternScanner.scanLevels(candles, 1);
-                    if (levels) window._lastLevels = levels;
+                    if (levels) {
+                        window._lastLevels = levels;
+                        window._lastLevelsCoin = coinId;
+                    }
                 }
             } catch(e) {}
         }
@@ -1400,6 +1425,20 @@
                     if (anchor.heavyZones) ctx.heavyZones = anchor.heavyZones;
                     if (anchor.volatility) ctx.volatility = anchor.volatility;
                     if (anchor.suggestedLevels) ctx.suggestedLevels = anchor.suggestedLevels;
+                }
+            }
+
+            // ── BTC якорный контекст для альткоинов ──
+            if (coinId !== 'bitcoin') {
+                var btcAnchor = await window.loadAnchorLevels('bitcoin');
+                if (btcAnchor) {
+                    ctx.btcAnchor = {
+                        price: btcAnchor.keyPoints ? btcAnchor.keyPoints.currentPrice : null,
+                        levels: btcAnchor.levels,
+                        keyPoints: btcAnchor.keyPoints,
+                        volatility: btcAnchor.volatility,
+                        heavyZones: btcAnchor.heavyZones ? btcAnchor.heavyZones.slice(0, 3) : null
+                    };
                 }
             }
 

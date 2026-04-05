@@ -413,6 +413,15 @@ JSON формат:
             delete ctx.adminContext;
         }
 
+        // ── BTC anchor admin context для альткоинов ──
+        if (ctx.btcAdminContext) {
+            adminContextBlock += lang === 'en'
+                ? '\n\nBTC ANCHOR CONTEXT (BTC is the anchor asset — its state affects ALL altcoins, HIGH PRIORITY):\n' + ctx.btcAdminContext
+                : '\n\nЯКОРНЫЙ КОНТЕКСТ BTC (BTC — якорный актив, его состояние влияет на ВСЕ альткоины, ВЫСОКИЙ ПРИОРИТЕТ):\n' + ctx.btcAdminContext;
+            console.log('📌 BTC anchor context received: ' + ctx.btcAdminContext.slice(0, 80));
+            delete ctx.btcAdminContext;
+        }
+
         // Собираем пользовательское сообщение — передаём данные как JSON
         const userMsg = JSON.stringify(ctx, null, 0) + adminContextBlock + '\n\nЧто делать прямо сейчас? Ответь в JSON.';
 
