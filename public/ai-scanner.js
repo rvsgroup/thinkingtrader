@@ -1100,7 +1100,14 @@
                     (isEn ? 'You used all ' + max + ' free scans today' : 'Вы использовали все ' + max + ' бесплатных скана сегодня') +
                 '</span>' +
             '</div>' +
-            '<button id="aiScanLimitProBtn" style="background:#2962FF;border:none;border-radius:8px;color:white;font-size:13px;font-weight:600;padding:10px 28px;cursor:pointer;width:100%;max-width:200px;">PRO — $15/мес</button>' +
+            '<button id="aiScanLimitProBtn" style="background:#F7A600;border:none;border-radius:8px;color:#0D1117;font-size:13px;font-weight:700;padding:10px 28px;cursor:pointer;width:100%;max-width:200px;display:flex;align-items:center;justify-content:center;gap:6px;">' +
+                '<svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1l1.5 3.2 3.5.5-2.5 2.4.6 3.4L6 9l-3.1 1.5.6-3.4L1 4.7l3.5-.5L6 1z" fill="#0D1117"/></svg>' +
+                (isEn ? 'Upgrade PRO · $15' : 'Upgrade PRO · $15') +
+            '</button>' +
+            '<div style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;width:100%;max-width:240px;">' +
+                '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#26C6DA" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+                '<span style="font-size:10px;color:#636B76;">' + (isEn ? 'Pay with <strong style="color:#D1D4DC;">USDT</strong> via <strong style="color:#F7A600;">BSC</strong> network' : 'Оплата <strong style="color:#D1D4DC;">USDT</strong> · сеть <strong style="color:#F7A600;">BSC</strong>') + '</span>' +
+            '</div>' +
             '<span style="color:#475569;font-size:11px;text-align:center;">' +
                 (isEn ? 'Resets at 00:00 UTC' : 'Сбросится в 00:00 UTC') +
             '</span>';
@@ -1141,54 +1148,142 @@
         }
     }
 
-    // ── Открыть оплату PRO ────────────────────────────────────────
+    // ── Открыть модалку оплаты PRO ────────────────────────────────
     async function _openProPayment() {
         var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
-        try {
-            var token = await _getIdToken();
-            if (!token) { alert(isEn ? 'Please log in' : 'Необходимо войти в аккаунт'); return; }
-            var res = await fetch('/api/pay/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
-            });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            var data = await res.json();
-            if (data.invoice_url) {
-                var payWin = window.open(data.invoice_url, '_blank');
-                // Polling статуса каждые 10 сек
-                var pollInterval = setInterval(async function() {
-                    try {
-                        var token2 = await _getIdToken();
-                        var sRes = await fetch('/api/pay/status', { headers: { 'Authorization': 'Bearer ' + token2 } });
-                        var sData = await sRes.json();
-                        if (sData.isPro) {
-                            clearInterval(pollInterval);
-                            window._userIsPro = true;
-                            window._proUntil = sData.proUntil;
-                            _MAX_QUESTIONS = 7;
-                            _updateProBadge(sData);
-                            // Убираем оверлеи лимитов
-                            var ol = _tooltipEl && _tooltipEl.querySelector('#aiScanLimitOverlay');
-                            if (ol) ol.remove();
-                            // Разблокируем чат
-                            var input = document.getElementById('aiChatInput');
-                            var sendBtn = document.getElementById('aiChatSend');
-                            if (input) { input.disabled = false; input.placeholder = ''; }
-                            if (sendBtn) sendBtn.disabled = false;
-                            var cpb = document.getElementById('chatProBtn');
-                            if (cpb) cpb.remove();
-                            _updateChatPlaceholder();
-                            _updateScanCounter(sData);
-                        }
-                    } catch(e) { /* игнорируем */ }
-                }, 10000);
-                // Остановить polling через 15 минут
-                setTimeout(function() { clearInterval(pollInterval); }, 15 * 60 * 1000);
+        _showPaymentModal(isEn);
+    }
+
+    // ── Модалка с инструкцией перед оплатой ──────────────────────
+    function _showPaymentModal(isEn) {
+        // Убираем старую если есть
+        var old = document.getElementById('aiPayModal');
+        if (old) old.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'aiPayModal';
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,11,20,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+        overlay.innerHTML =
+            '<div style="background:#131B2E;border:1px solid rgba(255,255,255,0.08);border-radius:14px;width:100%;max-width:340px;overflow:hidden;font-family:inherit;">' +
+
+                // Шапка
+                '<div style="padding:18px 20px 14px;border-bottom:1px solid rgba(255,255,255,0.06);">' +
+                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">' +
+                        '<svg width="16" height="16" viewBox="0 0 12 12" fill="none"><path d="M6 1l1.5 3.2 3.5.5-2.5 2.4.6 3.4L6 9l-3.1 1.5.6-3.4L1 4.7l3.5-.5L6 1z" fill="#F7A600"/></svg>' +
+                        '<span style="font-size:15px;font-weight:700;color:#D1D4DC;">Thinking Trader PRO</span>' +
+                    '</div>' +
+                    '<span style="font-size:12px;color:#636B76;">' + (isEn ? 'Unlimited AI scans · 30 days' : 'Безлимитные AI-сканы · 30 дней') + '</span>' +
+                '</div>' +
+
+                // Тело
+                '<div style="padding:16px 20px;">' +
+
+                    // Предупреждение
+                    '<div style="background:rgba(239,83,80,0.08);border:1px solid rgba(239,83,80,0.25);border-radius:8px;padding:12px 14px;margin-bottom:14px;">' +
+                        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+                            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#EF5350" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+                            '<span style="font-size:11px;font-weight:700;color:#EF5350;letter-spacing:0.03em;">' + (isEn ? 'IMPORTANT — read before paying' : 'ВАЖНО — не потеряйте деньги') + '</span>' +
+                        '</div>' +
+                        '<div style="display:flex;flex-direction:column;gap:6px;">' +
+                            '<div style="display:flex;align-items:center;gap:8px;">' +
+                                '<span style="width:20px;height:20px;background:rgba(38,198,218,0.15);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+                                    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#26C6DA" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+                                '</span>' +
+                                '<span style="font-size:12px;color:#D1D4DC;">' + (isEn ? 'Token: ' : 'Монета: ') + '<strong style="color:white;">USDT</strong></span>' +
+                            '</div>' +
+                            '<div style="display:flex;align-items:center;gap:8px;">' +
+                                '<span style="width:20px;height:20px;background:rgba(38,198,218,0.15);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+                                    '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#26C6DA" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+                                '</span>' +
+                                '<span style="font-size:12px;color:#D1D4DC;">' + (isEn ? 'Network: ' : 'Сеть: ') + '<strong style="color:#F7A600;">BSC (Binance Smart Chain)</strong></span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(239,83,80,0.15);">' +
+                            '<span style="font-size:11px;color:#636B76;">' + (isEn ? 'Wrong network = lost funds. We cannot recover payments sent via other networks.' : 'Другая сеть = потеря средств. Мы не сможем вернуть платёж отправленный по другой сети.') + '</span>' +
+                        '</div>' +
+                    '</div>' +
+
+                    // Сумма
+                    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px;">' +
+                        '<span style="font-size:13px;color:#9598A1;">' + (isEn ? 'Amount' : 'Сумма') + '</span>' +
+                        '<span style="font-size:16px;font-weight:700;color:#D1D4DC;">$15 <span style="font-size:12px;font-weight:400;color:#636B76;">/ 30 ' + (isEn ? 'days' : 'дней') + '</span></span>' +
+                    '</div>' +
+
+                    // Кнопка оплаты
+                    '<button id="aiPayProceedBtn" style="width:100%;height:40px;background:#F7A600;border:none;border-radius:8px;font-size:13px;font-weight:700;color:#0D1117;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;letter-spacing:0.02em;font-family:inherit;">' +
+                        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1l1.5 3.2 3.5.5-2.5 2.4.6 3.4L6 9l-3.1 1.5.6-3.4L1 4.7l3.5-.5L6 1z" fill="#0D1117"/></svg>' +
+                        (isEn ? 'Proceed to payment' : 'Перейти к оплате') +
+                    '</button>' +
+                    '<button id="aiPayCancelBtn" style="width:100%;height:34px;background:transparent;border:none;font-size:12px;color:#475569;cursor:pointer;margin-top:6px;font-family:inherit;">' + (isEn ? 'Cancel' : 'Отмена') + '</button>' +
+                '</div>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+
+        // Закрыть по клику на фон
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        // Кнопка отмены
+        document.getElementById('aiPayCancelBtn').addEventListener('click', function() {
+            overlay.remove();
+        });
+
+        // Кнопка оплаты — реальный запрос
+        document.getElementById('aiPayProceedBtn').addEventListener('click', async function() {
+            var btn = this;
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+            btn.textContent = isEn ? 'Opening...' : 'Открываю...';
+            try {
+                var token = await _getIdToken();
+                if (!token) { alert(isEn ? 'Please log in' : 'Необходимо войти в аккаунт'); overlay.remove(); return; }
+                var res = await fetch('/api/pay/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                var data = await res.json();
+                if (data.invoice_url) {
+                    overlay.remove();
+                    var payWin = window.open(data.invoice_url, '_blank');
+                    // Polling статуса каждые 10 сек
+                    var pollInterval = setInterval(async function() {
+                        try {
+                            var token2 = await _getIdToken();
+                            var sRes = await fetch('/api/pay/status', { headers: { 'Authorization': 'Bearer ' + token2 } });
+                            var sData = await sRes.json();
+                            if (sData.isPro) {
+                                clearInterval(pollInterval);
+                                window._userIsPro = true;
+                                window._proUntil = sData.proUntil;
+                                _MAX_QUESTIONS = 7;
+                                _updateProBadge(sData);
+                                var ol = _tooltipEl && _tooltipEl.querySelector('#aiScanLimitOverlay');
+                                if (ol) ol.remove();
+                                var input = document.getElementById('aiChatInput');
+                                var sendBtn = document.getElementById('aiChatSend');
+                                if (input) { input.disabled = false; input.placeholder = ''; }
+                                if (sendBtn) sendBtn.disabled = false;
+                                var cpb = document.getElementById('chatProBtn');
+                                if (cpb) cpb.remove();
+                                _updateChatPlaceholder();
+                                _updateScanCounter(sData);
+                            }
+                        } catch(e) { /* игнорируем */ }
+                    }, 10000);
+                    setTimeout(function() { clearInterval(pollInterval); }, 15 * 60 * 1000);
+                }
+            } catch(e) {
+                console.error('[AI] payment error:', e.message);
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.textContent = isEn ? 'Proceed to payment' : 'Перейти к оплате';
+                alert(isEn ? 'Payment error. Try again.' : 'Ошибка оплаты. Попробуйте снова.');
             }
-        } catch(e) {
-            console.error('[AI] _openProPayment error:', e.message);
-            alert(isEn ? 'Payment error. Try again.' : 'Ошибка оплаты. Попробуйте снова.');
-        }
+        });
     }
 
     // ── Обновить PRO-бейдж и счётчик сканов ──────────────────────
@@ -1237,7 +1332,7 @@
             if (upgradeBtn) {
                 upgradeBtn.style.display = 'inline-flex';
                 var labelEl = document.getElementById('aiUpgradeBtnLabel');
-                if (labelEl) labelEl.textContent = isEn ? 'Upgrade · $15' : 'PRO · $15';
+                if (labelEl) labelEl.textContent = 'Upgrade PRO · $15';
             }
 
             // Кнопка AI — обычная звёздочка
@@ -1296,7 +1391,7 @@
         var labelEl = document.getElementById('aiUpgradeBtnLabel');
         if (labelEl && document.getElementById('aiUpgradeBtn').style.display !== 'none') {
             var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
-            labelEl.textContent = isEn ? 'Upgrade · $15' : 'PRO · $15';
+            labelEl.textContent = 'Upgrade PRO · $15';
         }
     };
     window._openProPayment = _openProPayment;
@@ -1740,6 +1835,18 @@
             ];
 
             renderResult(result, ctx);
+
+            // Обновляем счётчик сканов на фронте
+            try {
+                var token = await _getIdToken();
+                if (token) {
+                    var sRes = await fetch('/api/pay/status', { headers: { 'Authorization': 'Bearer ' + token } });
+                    if (sRes.ok) {
+                        var sData = await sRes.json();
+                        _updateProBadge(sData);
+                    }
+                }
+            } catch(e) { /* не критично */ }
             // На десктопе чат скрыт по умолчанию — открывается кнопкой
             if (_isMobile()) {
                 if (_chatPanelEl) _chatPanelEl.classList.add('visible');
