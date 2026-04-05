@@ -9,6 +9,25 @@
     window._aiCache = {};
     window._aiLastPrompt = null;
 
+    // ── Определение администратора ───────────────────────────────
+    function isAdmin() {
+        return window._isAdminUser === true;
+    }
+
+    async function getAdminIdToken() {
+        try {
+            var auth = typeof firebase !== 'undefined' ? firebase.auth() : null;
+            if (!auth || !auth.currentUser) return null;
+            return await auth.currentUser.getIdToken();
+        } catch(e) {
+            console.error('[AI] getAdminIdToken error:', e);
+            return null;
+        }
+    }
+
+    window._isAdmin = isAdmin;
+    window._getAdminIdToken = getAdminIdToken;
+
     function getCacheKey() {
         var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
         var pd = (typeof currentPeriod !== 'undefined') ? currentPeriod : 1;
@@ -310,8 +329,37 @@
         };
     };
 
+    // ── Загрузка admin context из Firebase (клиентская) ────────
+    async function _fetchAdminContext(coinId, lang) {
+        try {
+            if (typeof firebase === 'undefined') return null;
+            var db = firebase.firestore();
+            var doc = await db.collection('admin_context').doc(coinId).get();
+            if (!doc.exists) return null;
+            var items = (doc.data().items || []).filter(function(i) { return i.active !== false; });
+            if (!items.length) return null;
+            var isEn = lang === 'en';
+            var lines = items.map(function(i) {
+                var text = isEn ? (i.text_en || i.text_ru) : i.text_ru;
+                var date = new Date(i.createdAt).toISOString().slice(0, 10);
+                return '[' + date + '] ' + text;
+            });
+            return lines.join('\n');
+        } catch(e) {
+            console.warn('[AI] fetchAdminContext error:', e.message);
+            return null;
+        }
+    }
+
     // ── API ─────────────────────────────────────────────────────
     window.callAiScanner = async function(ctx) {
+        // Подгружаем admin context из Firebase и добавляем в ctx
+        var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+        var adminCtx = await _fetchAdminContext(coinId, ctx.lang || 'ru');
+        if (adminCtx) {
+            ctx.adminContext = adminCtx;
+            console.log('[AI] Admin context loaded:', adminCtx.slice(0, 80) + '...');
+        }
         var res = await fetch('/api/ai-scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ctx) });
         if (!res.ok) throw new Error('AI Scanner error: ' + res.status);
         return res.json();
@@ -366,14 +414,33 @@
         // Чат-панель — сразу под тултипом в том же контейнере
         _chatPanelEl = document.createElement('div');
         _chatPanelEl.id = 'aiChatPanel';
+
+        // Шапка чата — кнопки админа только для администратора
+        var chatHeaderHTML;
+        if (isAdmin()) {
+            chatHeaderHTML =
+                '<div class="ai-chat-header ai-chat-header-admin">' +
+                    '<span id="aiChatHeaderLabel">ЧАТ</span>' +
+                    '<div class="ai-admin-btns">' +
+                        '<button class="ai-admin-btn-ctx" id="aiAdminAddCtx">+ Контекст</button>' +
+                        '<button class="ai-admin-btn-list" id="aiAdminListCtx">Список</button>' +
+                    '</div>' +
+                '</div>';
+        } else {
+            chatHeaderHTML = '<div class="ai-chat-header" id="aiChatHeaderLabel">ЧАТ</div>';
+        }
+
         _chatPanelEl.innerHTML =
-            '<div class="ai-chat-header" id="aiChatHeaderLabel">ЧАТ</div>' +
+            chatHeaderHTML +
             '<div class="ai-tt-chat" id="aiChatMessages"></div>' +
-            '<div class="ai-tt-chat-input-wrap" id="aiChatInputWrap">' +
-                '<textarea class="ai-tt-chat-input" id="aiChatInput" placeholder="..." maxlength="400" rows="1"></textarea>' +
-                '<button class="ai-tt-chat-send" id="aiChatSend">' +
-                    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
-                '</button>' +
+            '<div id="aiChatInputWrap">' +
+                '<div class="ai-ctx-mode-label" id="aiCtxModeLabel" style="display:none;"></div>' +
+                '<div class="ai-tt-chat-input-wrap">' +
+                    '<textarea class="ai-tt-chat-input" id="aiChatInput" placeholder="..." maxlength="600" rows="1"></textarea>' +
+                    '<button class="ai-tt-chat-send" id="aiChatSend">' +
+                        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
+                    '</button>' +
+                '</div>' +
             '</div>';
 
         _containerEl.appendChild(_tooltipEl);
@@ -412,6 +479,7 @@
 
         _initChatHandlers();
         setTimeout(_updateChatPlaceholder, 0);
+        if (isAdmin()) setTimeout(_initAdminListBtn, 0);
 
         // Кнопка открытия/закрытия чата
         setTimeout(function() {
@@ -524,19 +592,137 @@
             }
         }
     }
+    // ── Режим контекста (переключение поля ввода) ────────────
+    var _ctxMode = false;
+    var _editingCtxId = null; // id редактируемого контекста
+
+    function _setCtxMode(on) {
+        _ctxMode = on;
+        _editingCtxId = null;
+        var input = document.getElementById('aiChatInput');
+        var sendBtn = document.getElementById('aiChatSend');
+        var label = document.getElementById('aiCtxModeLabel');
+        var addBtn = document.getElementById('aiAdminAddCtx');
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+
+        if (on) {
+            if (input) {
+                input.classList.add('ctx-mode');
+                input.placeholder = isEn ? 'Write analyst context (RU → auto-translated to EN)...' : 'Напишите контекст для AI-сканера (RU → авто-перевод на EN)...';
+                input.value = '';
+                input.focus();
+            }
+            if (label) {
+                label.style.display = 'flex';
+                label.textContent = isEn ? 'Context mode — save to Firebase' : 'Режим контекста — сохраняется в Firebase';
+            }
+            if (sendBtn) {
+                sendBtn.classList.add('save-mode');
+                sendBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2962FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
+            }
+            if (addBtn) addBtn.classList.add('active');
+        } else {
+            if (input) {
+                input.classList.remove('ctx-mode');
+                input.placeholder = isEn ? 'Ask a question...' : 'Задать вопрос...';
+                input.value = '';
+            }
+            if (label) label.style.display = 'none';
+            if (sendBtn) {
+                sendBtn.classList.remove('save-mode');
+                sendBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+            }
+            if (addBtn) addBtn.classList.remove('active');
+        }
+    }
+
+    async function _saveContext(text) {
+        var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+        try {
+            var db = firebase.firestore();
+            var docRef = db.collection('admin_context').doc(coinId);
+            var doc = await docRef.get();
+            var existing = doc.exists ? (doc.data().items || []) : [];
+
+            if (_editingCtxId) {
+                // Обновляем существующий
+                var items = existing.map(function(i) {
+                    return i.id === _editingCtxId
+                        ? Object.assign({}, i, { text_ru: text.trim(), updatedAt: Date.now() })
+                        : i;
+                });
+                await docRef.set({ items: items });
+            } else {
+                // Создаём новый
+                var item = {
+                    id: 'ctx_' + Date.now(),
+                    text_ru: text.trim(),
+                    text_en: '',
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    active: true
+                };
+                await docRef.set({ items: existing.concat([item]) });
+                // Переводим на EN асинхронно через сервер
+                _translateContextItem(coinId, item.id, text.trim());
+            }
+            console.log('[AI Admin] Context saved OK');
+            return true;
+        } catch(e) {
+            console.error('[AI Admin] Save context error:', e);
+            alert('Ошибка сохранения: ' + e.message);
+            return false;
+        }
+    }
+
+    async function _translateContextItem(coinId, itemId, text) {
+        try {
+            var res = await fetch('/api/admin/context/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ coinId: coinId, itemId: itemId, text: text })
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            console.log('[AI Admin] Translation requested for', itemId);
+        } catch(e) {
+            console.error('[AI Admin] Translate error:', e.message);
+        }
+    }
+
     function _initChatHandlers() {
         var input = document.getElementById('aiChatInput');
         var sendBtn = document.getElementById('aiChatSend');
         if (!input || !sendBtn) return;
 
-        function sendMsg() {
+        // Кнопка "Контекст" — переключает режим
+        var addCtxBtn = document.getElementById('aiAdminAddCtx');
+        if (addCtxBtn) {
+            addCtxBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                _setCtxMode(!_ctxMode);
+            });
+        }
+
+        async function sendMsg() {
             var text = input.value.trim();
             if (!text) return;
+
+            // Режим контекста — сохраняем в Firebase
+            if (_ctxMode) {
+                var ok = await _saveContext(text);
+                if (ok) {
+                    _setCtxMode(false);
+                    // Обновляем список если открыт
+                    if (typeof _loadContextList === 'function') _loadContextList();
+                }
+                return;
+            }
+
+            // Обычный режим — отправляем в чат
             input.value = '';
             input.style.height = 'auto';
             _positionChatPanel();
             _sendChatMessage(text);
-            // Возвращаем фокус после отправки
             setTimeout(function() { input.focus(); }, 50);
         }
 
@@ -554,12 +740,195 @@
             _positionChatPanel();
         });
         input.addEventListener('click', function(e) { e.stopPropagation(); });
+    }
 
-        // Авторастяжение textarea
-        input.addEventListener('input', function() {
+    // ── Панель списка контекстов (пункты 10 + 11) ───────────
+    var _ctxListPanelEl = null;
+
+    async function _loadContextList() {
+        var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+        try {
+            var db = firebase.firestore();
+            var doc = await db.collection('admin_context').doc(coinId).get();
+            var items = doc.exists ? (doc.data().items || []).filter(function(i) { return i.active !== false; }) : [];
+            _renderContextList(items, coinId);
+        } catch(e) {
+            console.error('[AI Admin] Load context list error:', e);
+        }
+    }
+
+    function _renderContextList(items, coinId) {
+        if (!_ctxListPanelEl) return;
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        var list = _ctxListPanelEl.querySelector('#aiCtxList');
+        if (!list) return;
+
+        if (items.length === 0) {
+            list.innerHTML = '<div style="color:#475569;font-size:11px;text-align:center;padding:20px 10px;">' + (isEn ? 'No contexts yet' : 'Контекстов пока нет') + '</div>';
+            return;
+        }
+
+        list.innerHTML = items.map(function(item) {
+            var date = new Date(item.createdAt).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+            var updated = item.updatedAt !== item.createdAt
+                ? '<span style="color:#2962ff;font-size:9px;margin-left:4px;">изм.</span>'
+                : '';
+            return '<div class="ai-ctx-item" data-id="' + item.id + '">' +
+                '<div class="ai-ctx-item-meta">' +
+                    '<span class="ai-ctx-active-dot"></span>' +
+                    '<span class="ai-ctx-date">' + date + updated + '</span>' +
+                '</div>' +
+                '<div class="ai-ctx-text">' + _escapeHtml(item.text_ru) + '</div>' +
+                '<div class="ai-ctx-actions">' +
+                    '<button class="ai-ctx-btn-edit" data-id="' + item.id + '" data-text="' + _escapeAttr(item.text_ru) + '">' + (isEn ? 'Edit' : 'Изменить') + '</button>' +
+                    '<button class="ai-ctx-btn-del" data-id="' + item.id + '" data-coin="' + coinId + '">' + (isEn ? 'Delete' : 'Удалить') + '</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        // Обработчики кнопок
+        list.querySelectorAll('.ai-ctx-btn-edit').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var id = btn.getAttribute('data-id');
+                var text = btn.getAttribute('data-text');
+                _editContext(id, text);
+            });
+        });
+        list.querySelectorAll('.ai-ctx-btn-del').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var id = btn.getAttribute('data-id');
+                var coin = btn.getAttribute('data-coin');
+                _deleteContext(id, coin);
+            });
+        });
+    }
+
+    function _escapeHtml(str) {
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function _escapeAttr(str) {
+        return String(str).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function _editContext(id, text) {
+        // Подгружаем текст в поле ввода и переключаем в режим редактирования
+        _editingCtxId = id;
+        _ctxMode = true;
+        var input = document.getElementById('aiChatInput');
+        var label = document.getElementById('aiCtxModeLabel');
+        var sendBtn = document.getElementById('aiChatSend');
+        var addBtn = document.getElementById('aiAdminAddCtx');
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+
+        if (input) {
+            input.classList.add('ctx-mode');
+            input.value = text;
+            input.placeholder = isEn ? 'Edit context...' : 'Редактируйте контекст...';
             input.style.height = 'auto';
             input.style.height = Math.min(input.scrollHeight, 80) + 'px';
-            _positionChatPanel();
+            input.focus();
+        }
+        if (label) {
+            label.style.display = 'flex';
+            label.textContent = isEn ? 'Edit mode — save to update' : 'Режим редактирования — сохранить для обновления';
+        }
+        if (sendBtn) {
+            sendBtn.classList.add('save-mode');
+            sendBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2962FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
+        }
+        if (addBtn) addBtn.classList.add('active');
+    }
+
+    async function _deleteContext(id, coinId) {
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        var confirm_msg = isEn ? 'Delete this context?' : 'Удалить этот контекст?';
+        if (!window.confirm(confirm_msg)) return;
+        try {
+            var db = firebase.firestore();
+            var docRef = db.collection('admin_context').doc(coinId);
+            var doc = await docRef.get();
+            if (!doc.exists) return;
+            var items = (doc.data().items || []).filter(function(i) { return i.id !== id; });
+            await docRef.set({ items: items });
+            _loadContextList();
+            console.log('[AI Admin] Context deleted:', id);
+        } catch(e) {
+            console.error('[AI Admin] Delete error:', e);
+            alert('Ошибка удаления: ' + e.message);
+        }
+    }
+
+    function _toggleContextListPanel() {
+        var listBtn = document.getElementById('aiAdminListCtx');
+        if (_ctxListPanelEl) {
+            // Закрываем
+            _ctxListPanelEl.remove();
+            _ctxListPanelEl = null;
+            if (listBtn) listBtn.classList.remove('active');
+
+            return;
+        }
+
+        // Открываем — создаём панель слева от чата
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
+        var coinName = coinId.toUpperCase();
+
+        _ctxListPanelEl = document.createElement('div');
+        _ctxListPanelEl.id = 'aiCtxListPanel';
+        _ctxListPanelEl.innerHTML =
+            '<div class="ai-ctx-panel-header">' +
+                '<div class="ai-ctx-panel-title">' +
+                    '<span class="ai-ctx-panel-dot"></span>' +
+                    (isEn ? 'Contexts · ' : 'Контексты · ') + coinName +
+                '</div>' +
+                '<button class="ai-ctx-panel-close" id="aiCtxPanelClose">✕</button>' +
+            '</div>' +
+            '<div class="ai-ctx-list" id="aiCtxList">' +
+                '<div style="color:#475569;font-size:11px;text-align:center;padding:20px;">' + (isEn ? 'Loading...' : 'Загрузка...') + '</div>' +
+            '</div>';
+
+        // Добавляем панель в body и позиционируем fixed слева от чат-панели
+        document.body.appendChild(_ctxListPanelEl);
+
+        // Вычисляем позицию и высоту после рендера
+        setTimeout(function() {
+            if (!_ctxListPanelEl || !_chatPanelEl) return;
+            var chatRect = _chatPanelEl.getBoundingClientRect();
+            // Высота = высота AI блока (tooltipEl) или чата — берём большее
+            var refEl = _tooltipEl || _chatPanelEl;
+            var refRect = refEl.getBoundingClientRect();
+            var panelH = refRect.height || chatRect.height || 400;
+            _ctxListPanelEl.style.top = chatRect.top + 'px';
+            _ctxListPanelEl.style.left = (chatRect.left - 260 - 8) + 'px';
+            _ctxListPanelEl.style.height = panelH + 'px';
+            _ctxListPanelEl.style.maxHeight = panelH + 'px';
+        }, 0);
+
+        // Кнопка закрыть
+        var closeBtn = _ctxListPanelEl.querySelector('#aiCtxPanelClose');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                _toggleContextListPanel();
+            });
+        }
+
+        if (listBtn) listBtn.classList.add('active');
+
+        // Загружаем данные
+        _loadContextList();
+    }
+
+    // Инициализация кнопки Список — вызывается после рендера чат-панели
+    function _initAdminListBtn() {
+        var listBtn = document.getElementById('aiAdminListCtx');
+        if (!listBtn) return;
+        listBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            _toggleContextListPanel();
         });
     }
 
@@ -746,11 +1115,6 @@
         ensureUI();
         _tooltipEl.querySelector('.ai-tt-tf').textContent = '· ' + (ctx ? ctx.timeframe : '1D');
 
-        // Situation
-        _tooltipEl.querySelector('.ai-tt-text').textContent = data.situation || data.text || '';
-
-        // Verdict — colored based on signal
-        var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict');
         var longPct = data.longPct || 50;
         var shortPct = data.shortPct || 50;
         var diff = Math.abs(longPct - shortPct);
@@ -759,87 +1123,188 @@
         var shortData = data.short || {};
         var isEn = ctx && ctx.lang === 'en';
 
+        // Determine signal strength — use AI response or fallback to diff
+        var strength = data.signalStrength || (diff >= 20 ? 'strong' : diff >= 10 ? 'weak' : 'neutral');
+
+        // Signal colors
+        var signalColor = strength === 'neutral' ? '#FBBF24' : (dominant === 'long' ? '#26A69A' : '#EF5350');
+        var signalBg = strength === 'neutral' ? 'rgba(251,191,36,0.06)' : (dominant === 'long' ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)');
+
+        // ── Trend Row ──
+        var trendIcon = strength === 'neutral' ? '⏸' : (dominant === 'long' ? '▲' : '▼');
+        var trendLabel = data.trendLabel || (strength === 'neutral' ? (isEn ? 'Consolidation' : 'Консолидация') : (dominant === 'long' ? (isEn ? 'Bullish' : 'Бычий') : (isEn ? 'Bearish' : 'Медвежий')));
+        var trendDetail = data.trendDetail || '';
+
+        // Build trend row HTML
+        var trendHtml = '<div class="ai-tt-trend" style="display:flex;align-items:center;gap:8px;margin:0 10px 8px;padding:8px 10px;background:' + signalBg + ';border-radius:8px;border-left:3px solid ' + signalColor + ';">';
+        trendHtml += '<span style="font-size:14px;">' + trendIcon + '</span>';
+        trendHtml += '<span style="font-size:12px;font-weight:600;color:' + signalColor + ';">' + trendLabel + '</span>';
+        if (trendDetail) trendHtml += '<span style="font-size:11px;color:#9598A1;margin-left:auto;">' + trendDetail + '</span>';
+        trendHtml += '</div>';
+
+        // ── Price Scale ──
+        var support = ctx && ctx.levels ? ctx.levels.support : null;
+        var resistance = ctx && ctx.levels ? ctx.levels.resistance : null;
+        var price = ctx ? ctx.currentPrice : 0;
+        var scaleHtml = '';
+        if (support && resistance && resistance > support) {
+            var pct = Math.max(2, Math.min(98, Math.round((price - support) / (resistance - support) * 100)));
+            scaleHtml = '<div class="ai-tt-scale" style="margin:0 10px 10px;position:relative;">';
+            scaleHtml += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#636B76;margin-bottom:4px;">';
+            scaleHtml += '<span>' + (isEn ? 'Support' : 'Поддержка') + ' $' + Math.round(support).toLocaleString('en-US') + '</span>';
+            scaleHtml += '<span>' + (isEn ? 'Resistance' : 'Сопротивление') + ' $' + Math.round(resistance).toLocaleString('en-US') + '</span>';
+            scaleHtml += '</div>';
+            scaleHtml += '<div style="height:6px;background:linear-gradient(to right,rgba(239,83,80,0.3) 0%,rgba(239,83,80,0.3) 30%,#2A2E39 30%,#2A2E39 70%,rgba(38,166,154,0.3) 70%,rgba(38,166,154,0.3) 100%);border-radius:3px;position:relative;">';
+            scaleHtml += '<span style="position:absolute;top:-18px;left:' + pct + '%;transform:translateX(-50%);font-size:10px;font-weight:600;color:' + signalColor + ';background:#1E222D;padding:0 4px;">$' + Math.round(price).toLocaleString('en-US') + '</span>';
+            scaleHtml += '<div style="position:absolute;width:12px;height:12px;background:' + signalColor + ';border:2px solid #D1D4DC;border-radius:50%;top:-3px;left:' + pct + '%;transform:translateX(-50%);"></div>';
+            scaleHtml += '</div></div>';
+        }
+
+        // ── Situation text (insert trend + scale before text) ──
+        var textEl = _tooltipEl.querySelector('.ai-tt-text');
+        textEl.style.fontStyle = 'normal';
+        textEl.style.color = '#9598A1';
+        textEl.style.borderLeftColor = '';
+        textEl.innerHTML = trendHtml + scaleHtml + '<div style="padding:0 10px 4px;font-size:12px;line-height:1.55;color:#9598A1;">' + (data.situation || data.text || '') + '</div>';
+
+        // ── Verdict ──
+        var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict');
         if (data.verdict) {
-            var verdictColor = diff < 15 ? '#FBBF24' : (dominant === 'long' ? '#26A69A' : '#EF5350');
-            verdictEl.style.cssText = 'padding:0 10px 8px;margin:0 10px;font-size:11.5px;font-weight:600;color:' + verdictColor + ';line-height:1.45;';
+            verdictEl.style.cssText = 'padding:8px 10px;margin:0 10px 8px;font-size:11.5px;font-weight:600;color:' + signalColor + ';line-height:1.45;background:' + signalBg + ';border-radius:6px;';
             verdictEl.textContent = data.verdict;
         } else {
             verdictEl.style.cssText = '';
             verdictEl.textContent = '';
         }
 
-        // #2 #3 #4 — переключаем рамку и цвет кнопки по сигналу
-        _tooltipEl.classList.remove('signal-long', 'signal-short', 'signal-loading');
-        _tooltipEl.classList.add(dominant === 'short' ? 'signal-short' : 'signal-long');
-        _btnEl.classList.remove('signal-long', 'signal-short');
-        _btnEl.classList.add(dominant === 'short' ? 'signal-short' : 'signal-long');
+        // ── Border animation class ──
+        _tooltipEl.classList.remove('signal-long', 'signal-short', 'signal-neutral', 'signal-loading');
+        _btnEl.classList.remove('signal-long', 'signal-short', 'signal-neutral');
+        if (strength === 'neutral') {
+            _tooltipEl.classList.add('signal-neutral');
+            _btnEl.classList.add('signal-neutral');
+        } else {
+            _tooltipEl.classList.add(dominant === 'short' ? 'signal-short' : 'signal-long');
+            _btnEl.classList.add(dominant === 'short' ? 'signal-short' : 'signal-long');
+        }
 
+        // ── Action area ──
         var ae = _tooltipEl.querySelector('.ai-tt-action');
         ae.style.cssText = 'padding:0;background:transparent;border:none;margin:0 10px 8px;';
 
-        var html = '<div style="display:flex;gap:2px;margin-bottom:8px;height:28px;border-radius:4px;overflow:hidden;">';
-        html += '<div id="aiBarLong" style="flex:' + longPct + ';background:rgba(38,166,154,' + (dominant === 'long' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#26A69A;min-width:44px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'long' ? '#26A69A' : 'transparent') + ';">↑ Long ' + longPct + '%</div>';
-        html += '<div id="aiBarShort" style="flex:' + shortPct + ';background:rgba(239,83,80,' + (dominant === 'short' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#EF5350;min-width:44px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'short' ? '#EF5350' : 'transparent') + ';">↓ Short ' + shortPct + '%</div>';
-        html += '</div>';
-        html += '<div id="aiDetails"></div>';
-
-        ae.innerHTML = html;
-
-        function showDetails(side) {
-            var d = side === 'long' ? longData : shortData;
-            var mainC = side === 'long' ? '#26A69A' : '#EF5350';
-            var bg = '#131722';
-            var bd = '#2A2E39';
-            var label = side === 'long' ? 'Long' : 'Short';
-            var box = document.getElementById('aiDetails');
-            if (!box) return;
-
-            // Извлекаем только число из строки (убираем текстовые пояснения)
-            function extractNum(val) {
-                if (!val) return null;
-                var s = String(val).replace(/[$\s]/g, '').replace(/,/g, '');
-                // Берём первое число из строки (до пробела/скобки/буквы)
-                var m = s.match(/[\d]+\.?[\d]*/);
-                return m ? parseFloat(m[0]) : null;
-            }
-
-            var entryNum = extractNum(d.entry);
-            var targetNum = extractNum(d.target);
-            var stopNum = extractNum(d.stop);
-            var profit = (entryNum && targetNum && entryNum > 0)
-                ? Math.round(Math.abs((targetNum - entryNum) / entryNum) * 1000) / 10
-                : null;
-
-            var h = '';
-            if (d.entry || d.target || d.stop) {
-                h = '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-radius:4px;overflow:hidden;">';
-                h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-bottom:1px solid ' + bd + ';">';
-                h += '<span style="font-size:11.5px;font-weight:700;color:' + mainC + ';">' + label + '</span>';
-                if (profit !== null) h += '<span style="font-size:10.5px;font-weight:700;color:' + mainC + ';">profit +' + profit + '%</span>';
-                h += '</div>';
-                h += '<div style="padding:5px 10px 7px;">';
-                if (entryNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Entry' : 'Вход') + '</span><span style="color:#9598A1;font-size:11px;font-weight:500;">$' + entryNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                if (targetNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Target' : 'Цель') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + targetNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                if (stopNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Stop' : 'Стоп') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + stopNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                h += '</div></div>';
-            }
-            box.innerHTML = h;
-
-            var bl = document.getElementById('aiBarLong');
-            var bs = document.getElementById('aiBarShort');
-            if (bl) { bl.style.background = side === 'long' ? 'rgba(38,166,154,0.18)' : 'rgba(38,166,154,0.06)'; bl.style.borderBottom = side === 'long' ? '2px solid #26A69A' : '2px solid transparent'; }
-            if (bs) { bs.style.background = side === 'short' ? 'rgba(239,83,80,0.18)' : 'rgba(239,83,80,0.06)'; bs.style.borderBottom = side === 'short' ? '2px solid #EF5350' : '2px solid transparent'; }
+        // Helper: extract number from entry/stop/target
+        function extractNum(val) {
+            if (!val) return null;
+            var s = String(val).replace(/[$\s]/g, '').replace(/,/g, '');
+            var m = s.match(/[\d]+\.?[\d]*/);
+            return m ? parseFloat(m[0]) : null;
         }
 
-        showDetails(dominant);
+        // ═══ MODE: NEUTRAL — no bars, show activation conditions ═══
+        if (strength === 'neutral') {
+            var actHtml = '<div style="padding:10px;background:rgba(251,191,36,0.04);border:1px solid #2A2E39;border-radius:8px;">';
+            actHtml += '<div style="font-size:11px;font-weight:600;color:#FBBF24;margin-bottom:8px;display:flex;align-items:center;gap:6px;">';
+            actHtml += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+            actHtml += (isEn ? 'Signal activation conditions' : 'Условия активации сигнала') + '</div>';
 
-        var barL = document.getElementById('aiBarLong');
-        var barS = document.getElementById('aiBarShort');
-        if (barL) barL.addEventListener('click', function(e) { e.stopPropagation(); showDetails('long'); });
-        if (barS) barS.addEventListener('click', function(e) { e.stopPropagation(); showDetails('short'); });
+            var activation = data.activation || {};
+            var longTarget = extractNum(longData.target);
+            var longStop = extractNum(longData.stop);
+            var shortTarget = extractNum(shortData.target);
+            var shortStop = extractNum(shortData.stop);
 
+            // Long condition
+            actHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #1E222D;">';
+            actHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(38,166,154,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#26A69A;flex-shrink:0;margin-top:1px;">L</div>';
+            actHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Long</strong> — ' + (activation.long || (isEn ? 'Confirm above resistance' : 'Подтверждение выше сопротивления')) + '</div>';
+            if (longTarget || longStop) actHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (longTarget ? longTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (longStop ? longStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
+            actHtml += '</div></div>';
+
+            // Short condition
+            actHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;">';
+            actHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(239,83,80,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#EF5350;flex-shrink:0;margin-top:1px;">S</div>';
+            actHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Short</strong> — ' + (activation.short || (isEn ? 'Confirm below support' : 'Подтверждение ниже поддержки')) + '</div>';
+            if (shortTarget || shortStop) actHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (shortTarget ? shortTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (shortStop ? shortStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
+            actHtml += '</div></div>';
+
+            actHtml += '</div>';
+            ae.innerHTML = actHtml;
+
+        // ═══ MODE: WEAK or STRONG — show bars + details ═══
+        } else {
+            var html = '<div style="display:flex;gap:2px;margin-bottom:8px;height:28px;border-radius:4px;overflow:hidden;">';
+            html += '<div id="aiBarLong" style="flex:' + longPct + ';background:rgba(38,166,154,' + (dominant === 'long' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#26A69A;min-width:44px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'long' ? '#26A69A' : 'transparent') + ';">↑ Long ' + longPct + '%</div>';
+            html += '<div id="aiBarShort" style="flex:' + shortPct + ';background:rgba(239,83,80,' + (dominant === 'short' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#EF5350;min-width:44px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'short' ? '#EF5350' : 'transparent') + ';">↓ Short ' + shortPct + '%</div>';
+            html += '</div>';
+
+            // Weak signal badge
+            if (strength === 'weak') {
+                html += '<div style="text-align:center;margin-bottom:6px;"><span style="font-size:10px;color:#FBBF24;background:rgba(251,191,36,0.1);padding:2px 8px;border-radius:4px;">' + (isEn ? 'Weak signal — caution' : 'Слабый сигнал — осторожно') + '</span></div>';
+            }
+
+            html += '<div id="aiDetails"></div>';
+
+            // Activation hint for weak signals
+            if (strength === 'weak' && data.activation) {
+                var actText = dominant === 'long' ? (data.activation.long || '') : (data.activation.short || '');
+                if (actText) {
+                    html += '<div style="margin-top:6px;padding:6px 8px;background:rgba(251,191,36,0.04);border:1px solid #2A2E39;border-radius:6px;font-size:10px;color:#9598A1;line-height:1.4;">';
+                    html += '<span style="color:#FBBF24;font-weight:600;">' + (isEn ? 'Activation: ' : 'Активация: ') + '</span>' + actText;
+                    html += '</div>';
+                }
+            }
+
+            ae.innerHTML = html;
+
+            function showDetails(side) {
+                var d = side === 'long' ? longData : shortData;
+                var mainC = side === 'long' ? '#26A69A' : '#EF5350';
+                var bg = '#131722';
+                var bd = '#2A2E39';
+                var label = side === 'long' ? 'Long' : 'Short';
+                var box = document.getElementById('aiDetails');
+                if (!box) return;
+
+                var entryNum = extractNum(d.entry);
+                var targetNum = extractNum(d.target);
+                var stopNum = extractNum(d.stop);
+                var profit = (entryNum && targetNum && entryNum > 0)
+                    ? Math.round(Math.abs((targetNum - entryNum) / entryNum) * 1000) / 10
+                    : null;
+
+                var h = '';
+                if (d.entry || d.target || d.stop) {
+                    h = '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-radius:4px;overflow:hidden;">';
+                    h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-bottom:1px solid ' + bd + ';">';
+                    h += '<span style="font-size:11.5px;font-weight:700;color:' + mainC + ';">' + label + '</span>';
+                    if (profit !== null) h += '<span style="font-size:10.5px;font-weight:700;color:' + mainC + ';">profit +' + profit + '%</span>';
+                    h += '</div>';
+                    h += '<div style="padding:5px 10px 7px;">';
+                    if (entryNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Entry' : 'Вход') + '</span><span style="color:#9598A1;font-size:11px;font-weight:500;">$' + entryNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                    if (targetNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Target' : 'Цель') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + targetNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                    if (stopNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Stop' : 'Стоп') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + stopNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                    h += '</div></div>';
+                }
+                box.innerHTML = h;
+
+                var bl = document.getElementById('aiBarLong');
+                var bs = document.getElementById('aiBarShort');
+                if (bl) { bl.style.background = side === 'long' ? 'rgba(38,166,154,0.18)' : 'rgba(38,166,154,0.06)'; bl.style.borderBottom = side === 'long' ? '2px solid #26A69A' : '2px solid transparent'; }
+                if (bs) { bs.style.background = side === 'short' ? 'rgba(239,83,80,0.18)' : 'rgba(239,83,80,0.06)'; bs.style.borderBottom = side === 'short' ? '2px solid #EF5350' : '2px solid transparent'; }
+            }
+
+            showDetails(dominant);
+
+            var barL = document.getElementById('aiBarLong');
+            var barS = document.getElementById('aiBarShort');
+            if (barL) barL.addEventListener('click', function(e) { e.stopPropagation(); showDetails('long'); });
+            if (barS) barS.addEventListener('click', function(e) { e.stopPropagation(); showDetails('short'); });
+        }
+
+        // ── Footer price + time ──
         _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
-        var _now = new Date(); var _timeStr = _now.toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit'}) + ' ' + _now.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
+        var _tsToUse = window._lastAnalysisTs ? new Date(window._lastAnalysisTs) : new Date();
+        var _timeStr = _tsToUse.toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit'}) + ' ' + _tsToUse.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
         var _timeEl = _tooltipEl.querySelector('.ai-tt-time'); if (_timeEl) _timeEl.textContent = _timeStr;
     }
 
@@ -943,6 +1408,7 @@
             var cached = window._aiCache[key];
             if (!forceRefresh && cached && Date.now() - cached.ts < 180000) {
                 showBtn();
+                window._lastAnalysisTs = cached.ts;
                 renderResult(cached.result, cached.ctx);
                 _tooltipVisible = true;
                 _containerEl && _containerEl.classList.add('visible');
@@ -974,7 +1440,9 @@
             console.log('[AI Scanner] Prompt:', JSON.stringify(ctx, null, 2));
 
             var result = await window.callAiScanner(ctx);
-            window._aiCache[key] = { result: result, ctx: ctx, ts: Date.now() };
+            var _resultTs = Date.now();
+            window._aiCache[key] = { result: result, ctx: ctx, ts: _resultTs };
+            window._lastAnalysisTs = _resultTs;
             console.log('[AI Scanner] Result:', JSON.stringify(result, null, 2));
 
             // Сохраняем анализ как первое сообщение в истории чата

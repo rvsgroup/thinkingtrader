@@ -336,8 +336,14 @@ Rules:
 - Specific prices. No fluff. No disclaimers.
 - entry/target/stop must be NUMBERS ONLY.
 
+4. NEW FIELDS for improved UI:
+- "trendLabel" — short trend label (2-3 words). Examples: "Bullish reversal", "False breakout up", "Consolidation", "Bearish impulse", "Accumulation". This is the FIRST thing the trader reads.
+- "trendDetail" — short context (max 6 words). Examples: "+12.4% from low $58K", "Not confirmed (1/3 candles)", "33 days in 6.5% range".
+- "signalStrength" — "strong" if |longPct - shortPct| >= 20, "weak" if 10-19, "neutral" if < 10. This determines how the UI displays the result.
+- "activation" — ONLY when signalStrength is "neutral" or "weak": describe what must happen for a clear signal. Example: {"long": "Price must close above $67,500 (3+ candles)", "short": "Price must close below $65,800 (3+ candles)"}. When signalStrength is "strong", set activation to null.
+
 JSON format:
-{"situation": "what is happening", "verdict": "what it means", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
+{"situation": "what is happening", "verdict": "what it means", "trendLabel": "Bearish impulse", "trendDetail": "-26.6% from ATH", "signalStrength": "strong", "activation": null, "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
 
             : `Ты криптотрейдер-аналитик. Пользователь шлёт расширенные рыночные данные. Дай КОНКРЕТНЫЙ анализ.
 
@@ -386,11 +392,27 @@ JSON format:
 - Конкретные цены. Без воды. Без дисклеймеров.
 - entry/target/stop — ТОЛЬКО ЧИСЛА.
 
+4. НОВЫЕ ПОЛЯ для улучшенного UI:
+- "trendLabel" — короткий ярлык тренда (2-3 слова). Примеры: "Бычий разворот", "Ложный пробой вверх", "Консолидация", "Медвежий импульс", "Накопление". Это ПЕРВОЕ, что трейдер прочитает.
+- "trendDetail" — короткий контекст (максимум 6 слов). Примеры: "+12.4% от лоу $58K", "Не подтверждён (1/3 свечей)", "33 дня в диапазоне 6.5%".
+- "signalStrength" — "strong" если |longPct - shortPct| >= 20, "weak" если 10-19, "neutral" если < 10. Определяет как UI показывает результат.
+- "activation" — ТОЛЬКО когда signalStrength = "neutral" или "weak": опиши что должно случиться для чёткого сигнала. Пример: {"long": "Цена должна закрепиться выше $67,500 (3+ свечи)", "short": "Цена должна закрепиться ниже $65,800 (3+ свечи)"}. Когда signalStrength = "strong", ставь activation = null.
+
 JSON формат:
-{"situation": "что происходит", "verdict": "что это значит", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
+{"situation": "что происходит", "verdict": "что это значит", "trendLabel": "Медвежий импульс", "trendDetail": "–26.6% от ATH", "signalStrength": "strong", "activation": null, "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
+
+        // ── Admin context передаётся с фронта (загружен из Firebase клиентом) ──
+        let adminContextBlock = '';
+        if (ctx.adminContext) {
+            adminContextBlock = lang === 'en'
+                ? '\n\nANALYST CONTEXT (written by professional trader, HIGH PRIORITY):\n' + ctx.adminContext + '\n\nIMPORTANT: Check currentPrice against the breakout levels and determine current status automatically.'
+                : '\n\nКОНТЕКСТ АНАЛИТИКА (профессиональный трейдер, ВЫСОКИЙ ПРИОРИТЕТ):\n' + ctx.adminContext + '\n\nВАЖНО: Сопоставь currentPrice с уровнями пробоя и определи текущий статус.';
+            console.log('📌 Admin context received: ' + ctx.adminContext.slice(0, 80));
+            delete ctx.adminContext;
+        }
 
         // Собираем пользовательское сообщение — передаём данные как JSON
-        const userMsg = JSON.stringify(ctx, null, 0) + '\n\nЧто делать прямо сейчас? Ответь в JSON.';
+        const userMsg = JSON.stringify(ctx, null, 0) + adminContextBlock + '\n\nЧто делать прямо сейчас? Ответь в JSON.';
 
         // Запрос к OpenRouter
         const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -432,20 +454,35 @@ JSON формат:
 
         let result;
         if (parsed && parsed.situation && parsed.longPct != null && parsed.shortPct != null) {
+            const lp = parseInt(parsed.longPct) || 50;
+            const sp = parseInt(parsed.shortPct) || 50;
+            const diff = Math.abs(lp - sp);
+            const strength = parsed.signalStrength || (diff >= 20 ? 'strong' : diff >= 10 ? 'weak' : 'neutral');
             result = {
                 situation: parsed.situation,
                 verdict: parsed.verdict || '',
-                longPct: parseInt(parsed.longPct) || 50,
-                shortPct: parseInt(parsed.shortPct) || 50,
+                trendLabel: parsed.trendLabel || '',
+                trendDetail: parsed.trendDetail || '',
+                signalStrength: strength,
+                activation: parsed.activation || null,
+                longPct: lp,
+                shortPct: sp,
                 long: parsed.long || { entry: null, target: null, stop: null },
                 short: parsed.short || { entry: null, target: null, stop: null },
             };
         } else if (parsed && (parsed.situation || parsed.text)) {
+            const lp = parseInt(parsed.longPct) || 50;
+            const sp = parseInt(parsed.shortPct) || 50;
+            const diff = Math.abs(lp - sp);
             result = {
                 situation: parsed.situation || parsed.text || '',
                 verdict: parsed.verdict || '',
-                longPct: parseInt(parsed.longPct) || 50,
-                shortPct: parseInt(parsed.shortPct) || 50,
+                trendLabel: parsed.trendLabel || '',
+                trendDetail: parsed.trendDetail || '',
+                signalStrength: parsed.signalStrength || (diff >= 20 ? 'strong' : diff >= 10 ? 'weak' : 'neutral'),
+                activation: parsed.activation || null,
+                longPct: lp,
+                shortPct: sp,
                 long: parsed.long || { entry: null, target: null, stop: null },
                 short: parsed.short || { entry: null, target: null, stop: null },
             };
@@ -453,6 +490,10 @@ JSON формат:
             result = {
                 situation: raw.slice(0, 200),
                 verdict: '',
+                trendLabel: '',
+                trendDetail: '',
+                signalStrength: 'neutral',
+                activation: null,
                 longPct: 50,
                 shortPct: 50,
                 long: { entry: null, target: null, stop: null },
@@ -467,6 +508,184 @@ JSON формат:
 
     } catch (e) {
         console.error('❌ AI Scanner exception:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ══════════════════════════════════════════════════════════════
+// ADMIN CONTEXT — контекст аналитика для AI-сканера
+// ══════════════════════════════════════════════════════════════
+const ADMIN_UID = process.env.ADMIN_UID;
+
+function verifyAdmin(req) {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) return false;
+    try {
+        const token = auth.split('Bearer ')[1];
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        return (payload.sub || payload.user_id) === ADMIN_UID;
+    } catch { return false; }
+}
+
+async function translateToEn(text) {
+    try {
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENROUTER_KEY}`,
+            },
+            body: JSON.stringify({
+                model: AI_MODEL,
+                max_tokens: 1000,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are a professional financial translator. Translate the following crypto trading analyst context from Russian to English. Preserve all numbers, price levels ($), and technical terms exactly. Return ONLY the translated text, nothing else.'
+                    },
+                    { role: 'user', content: text }
+                ]
+            }),
+            signal: AbortSignal.timeout(15000),
+        });
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content?.trim() || text;
+    } catch (e) {
+        console.error('❌ translateToEn error:', e.message);
+        return text;
+    }
+}
+
+function invalidateContextCache(coinId) {
+    ['1D', '4H', '1H'].forEach(tf => {
+        ['ru', 'en'].forEach(lang => {
+            const key = `ai:v2:${coinId}/USDT:${tf}:${lang}`;
+            cache.delete(key);
+            console.log(`🗑️ Cache invalidated: ${key}`);
+        });
+    });
+}
+
+// POST /api/admin/context/translate — перевести текст контекста и сохранить EN версию
+app.post('/api/admin/context/translate', async (req, res) => {
+    try {
+        const { coinId, itemId, text } = req.body;
+        if (!coinId || !itemId || !text) return res.status(400).json({ error: 'Missing params' });
+        const text_en = await translateToEn(text);
+        // Обновляем text_en в Firebase
+        if (adminDb) {
+            const docRef = adminDb.collection('admin_context').doc(coinId);
+            const doc = await docRef.get();
+            if (doc.exists) {
+                const items = (doc.data().items || []).map(i =>
+                    i.id === itemId ? { ...i, text_en } : i
+                );
+                await docRef.set({ items });
+            }
+        }
+        // Инвалидируем кэш
+        invalidateContextCache(coinId);
+        console.log(`✅ Context translated: ${coinId}/${itemId}`);
+        res.json({ ok: true, text_en });
+    } catch(e) {
+        console.error('❌ translate error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/admin/context — сохранить новый контекст
+app.post('/api/admin/context', async (req, res) => {
+    console.log(`[admin/context POST] auth: ${req.headers.authorization ? 'present' : 'missing'}, ADMIN_UID: ${ADMIN_UID ? 'set' : 'NOT SET'}, adminDb: ${adminDb ? 'ok' : 'null'}`);
+    if (!verifyAdmin(req)) {
+        console.log('[admin/context POST] verifyAdmin FAILED');
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!adminDb) return res.status(503).json({ error: 'Firebase not available' });
+    try {
+        const { coinId, text } = req.body;
+        console.log(`[admin/context POST] coinId=${coinId}, text length=${text?.length}`);
+        if (!coinId || !text || !text.trim()) {
+            return res.status(400).json({ error: 'coinId and text required' });
+        }
+        const text_en = await translateToEn(text.trim());
+        const item = {
+            id: `ctx_${Date.now()}`,
+            text_ru: text.trim(),
+            text_en,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            active: true,
+        };
+        const docRef = adminDb.collection('admin_context').doc(coinId);
+        const doc = await docRef.get();
+        const existing = doc.exists ? (doc.data().items || []) : [];
+        await docRef.set({ items: [...existing, item] });
+        invalidateContextCache(coinId);
+        console.log(`✅ Admin context saved: ${coinId} / ${item.id}`);
+        res.json({ ok: true, item });
+    } catch (e) {
+        console.error('❌ admin/context POST error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/admin/context/:coinId — получить все активные контексты
+app.get('/api/admin/context/:coinId', async (req, res) => {
+    if (!verifyAdmin(req)) return res.status(403).json({ error: 'Forbidden' });
+    if (!adminDb) return res.status(503).json({ error: 'Firebase not available' });
+    try {
+        const { coinId } = req.params;
+        const doc = await adminDb.collection('admin_context').doc(coinId).get();
+        const items = doc.exists ? (doc.data().items || []) : [];
+        const active = items.filter(i => i.active !== false);
+        res.json({ items: active });
+    } catch (e) {
+        console.error('❌ admin/context GET error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// PUT /api/admin/context/:coinId/:id — обновить контекст
+app.put('/api/admin/context/:coinId/:id', async (req, res) => {
+    if (!verifyAdmin(req)) return res.status(403).json({ error: 'Forbidden' });
+    if (!adminDb) return res.status(503).json({ error: 'Firebase not available' });
+    try {
+        const { coinId, id } = req.params;
+        const { text } = req.body;
+        if (!text || !text.trim()) return res.status(400).json({ error: 'text required' });
+        const text_en = await translateToEn(text.trim());
+        const docRef = adminDb.collection('admin_context').doc(coinId);
+        const doc = await docRef.get();
+        if (!doc.exists) return res.status(404).json({ error: 'Not found' });
+        const items = (doc.data().items || []).map(i =>
+            i.id === id ? { ...i, text_ru: text.trim(), text_en, updatedAt: Date.now() } : i
+        );
+        await docRef.set({ items });
+        invalidateContextCache(coinId);
+        console.log(`✅ Admin context updated: ${coinId} / ${id}`);
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('❌ admin/context PUT error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DELETE /api/admin/context/:coinId/:id — удалить контекст
+app.delete('/api/admin/context/:coinId/:id', async (req, res) => {
+    if (!verifyAdmin(req)) return res.status(403).json({ error: 'Forbidden' });
+    if (!adminDb) return res.status(503).json({ error: 'Firebase not available' });
+    try {
+        const { coinId, id } = req.params;
+        const docRef = adminDb.collection('admin_context').doc(coinId);
+        const doc = await docRef.get();
+        if (!doc.exists) return res.status(404).json({ error: 'Not found' });
+        const items = (doc.data().items || []).filter(i => i.id !== id);
+        await docRef.set({ items });
+        invalidateContextCache(coinId);
+        console.log(`✅ Admin context deleted: ${coinId} / ${id}`);
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('❌ admin/context DELETE error:', e.message);
         res.status(500).json({ error: e.message });
     }
 });
