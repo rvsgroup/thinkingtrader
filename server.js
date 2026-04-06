@@ -267,7 +267,7 @@ app.get('/api/translate', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
-const AI_MODEL = 'anthropic/claude-sonnet-4-6';
+const AI_MODEL = 'openai/gpt-5.4';
 const AI_CACHE_TTL = 10 * 60 * 1000; // 10 минут
 
 app.post('/api/ai-scan', async (req, res) => {
