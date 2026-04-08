@@ -535,6 +535,20 @@
                 });
             }
         }, 0);
+
+        // ── Resize: remount container if mobile/desktop state changes ──
+        var _wasMobile = _isMobile();
+        window.addEventListener('resize', function() {
+            var nowMobile = _isMobile();
+            if (nowMobile === _wasMobile || !_containerEl) return;
+            _wasMobile = nowMobile;
+            var wrap = document.getElementById('ourChartWrap');
+            if (nowMobile) {
+                document.body.appendChild(_containerEl);
+            } else if (wrap) {
+                wrap.appendChild(_containerEl);
+            }
+        });
     }
 
     // Свайп вниз для закрытия
@@ -1640,7 +1654,7 @@
         }
 
         // ── ⑥ SCENARIOS — bars + details, wrapped in one section ──
-        actionHtml += '<div style="border:1px solid #2A2E39;border-radius:6px;overflow:hidden;margin-top:4px;">';
+        actionHtml += '<div id="aiScenariosSection" style="border:1px solid #2A2E39;border-radius:6px;overflow:hidden;margin-top:4px;">';
 
         // "If you want to enter" label for neutral/weak — full width header of section
         if (strength === 'neutral' || strength === 'weak') {
@@ -1709,6 +1723,42 @@
         var barS = document.getElementById('aiBarShort');
         if (barL) barL.addEventListener('click', function(e) { e.stopPropagation(); showDetails('long'); });
         if (barS) barS.addEventListener('click', function(e) { e.stopPropagation(); showDetails('short'); });
+
+        // ── Mobile: wrap scenarios in collapsible toggle ──
+        if (_isMobile()) {
+            var scenSec = document.getElementById('aiScenariosSection');
+            if (scenSec) {
+                var colWrap = document.createElement('div');
+                colWrap.style.cssText = 'overflow:hidden;max-height:0;transition:max-height 0.35s ease;';
+                scenSec.parentNode.insertBefore(colWrap, scenSec);
+                colWrap.appendChild(scenSec);
+
+                var colBtn = document.createElement('div');
+                colBtn.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:11px 14px;cursor:pointer;user-select:none;border:1px solid rgba(99,102,241,0.35);border-radius:10px;margin-top:4px;background:linear-gradient(135deg,rgba(99,102,241,0.1) 0%,rgba(99,102,241,0.04) 100%);transition:border-color 0.2s,background 0.2s;';
+                colBtn.innerHTML = '<span style="font-size:13px;color:#A5B4FC;font-weight:600;letter-spacing:0.3px;">' + (isEn ? 'Entry scenarios' : 'Сценарии входа') + '</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818CF8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.3s;flex-shrink:0;"><polyline points="6 9 12 15 18 9"/></svg>';
+                colWrap.parentNode.insertBefore(colBtn, colWrap);
+
+                var _exp = false;
+                colBtn.addEventListener('click', function() {
+                    _exp = !_exp;
+                    var ch = colBtn.querySelector('svg');
+                    if (_exp) {
+                        colWrap.style.overflow = 'hidden';
+                        colWrap.style.maxHeight = colWrap.scrollHeight + 'px';
+                        if (ch) ch.style.transform = 'rotate(180deg)';
+                    } else {
+                        colWrap.style.maxHeight = colWrap.scrollHeight + 'px';
+                        colWrap.offsetHeight;
+                        colWrap.style.overflow = 'hidden';
+                        colWrap.style.maxHeight = '0';
+                        if (ch) ch.style.transform = 'rotate(0deg)';
+                    }
+                });
+                colWrap.addEventListener('transitionend', function() {
+                    if (_exp) { colWrap.style.maxHeight = 'none'; colWrap.style.overflow = ''; }
+                });
+            }
+        }
 
         // ── ⑦ Horizon / Hold info — under scenarios ──
         if (data.horizon || data.holdTime || data.holdAdvice) {

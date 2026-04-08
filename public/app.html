@@ -38,26 +38,6 @@
             padding-top: env(safe-area-inset-top);
         }
 
-        /* ── Landscape lock on mobile — show "rotate device" overlay ── */
-        @media (max-width: 900px) and (orientation: landscape) {
-            #landscapeLock {
-                display: flex !important;
-            }
-        }
-        #landscapeLock {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            z-index: 99999;
-            background: #0D1117;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 16px;
-        }
-        #landscapeLock svg { opacity: 0.5; }
-        #landscapeLock span { color: #9598A1; font-size: 14px; font-family: -apple-system, system-ui, sans-serif; }
-
         @media (max-width: 900px) and (max-height: 500px) {
             body {
                 height: auto !important;
@@ -424,6 +404,107 @@
                 overflow-x: hidden !important;
                 flex: none !important;
                 align-self: flex-start !important;
+            }
+
+            /* Landscape: compact header */
+            .header { display: none !important; }
+
+            /* Landscape: toolbar - show with horizontal scroll */
+            #chartToolsRight {
+                display: flex !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: none !important;
+                flex-wrap: nowrap !important;
+                flex-shrink: 1 !important;
+                min-width: 0 !important;
+            }
+            #chartToolsRight::-webkit-scrollbar { display: none !important; }
+            #ourChartControls { padding: 2px 4px !important; flex-wrap: wrap !important; gap: 4px !important; }
+            .chart-header { padding: 2px 8px !important; flex-wrap: wrap !important; gap: 4px !important; }
+
+            /* Landscape: chart size */
+            .chart-container { height: 45vh !important; }
+            .chart-loading { height: 45vh !important; }
+
+            /* Landscape: show coin-bar with bell and ? buttons */
+            .chart-coin-bar {
+                display: flex !important;
+                flex-wrap: nowrap !important;
+                gap: 4px !important;
+                padding: 2px 8px !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+            }
+
+            /* Landscape: layout -> flex column: chart -> watchlist -> news */
+            .container {
+                display: flex !important;
+                flex-direction: column !important;
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                width: 100% !important;
+                padding: 0 !important;
+            }
+            .content {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
+                overflow: visible !important;
+                gap: 0 !important;
+                grid-template-columns: unset !important;
+                grid-template-rows: unset !important;
+            }
+            .left-column {
+                width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
+                overflow: visible !important;
+                flex: none !important;
+                gap: 0 !important;
+            }
+            .right-panel {
+                width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                min-height: 0 !important;
+                overflow: visible !important;
+                flex: none !important;
+                position: static !important;
+                display: block !important;
+                border-left: none !important;
+            }
+            .right-panel-expand { display: none !important; }
+            .right-panel-toggle { display: none !important; }
+            .wl-collapse-btn { display: none !important; }
+            .results-section {
+                overflow: visible !important;
+                height: auto !important;
+                max-height: none !important;
+                flex: none !important;
+            }
+
+            /* Landscape: compact watchlist */
+            .watchlist .wl-body {
+                max-height: 120px !important;
+                overflow-y: auto !important;
+            }
+            .watchlist-bar { padding: 4px 10px !important; }
+            .watchlist-item { padding: 5px 10px !important; min-height: 0 !important; }
+            .watchlist-item img { width: 24px !important; height: 24px !important; }
+
+            /* Landscape: compact news */
+            .news-widget {
+                margin: 0 !important;
+                border-radius: 0 !important;
+                border-left: none !important;
+                border-right: none !important;
             }
         }
 
@@ -3459,6 +3540,15 @@
         .right-panel-expand {
             display: none !important;
         }
+
+        /* Patterns panel on mobile: collapsed by default */
+        .sm-patterns-panel {
+            left: 8px !important;
+            max-width: 260px !important;
+            border-radius: 8px !important;
+            position: fixed !important;
+            z-index: 500 !important;
+        }
         
         .buys-section { 
             padding: 14px;
@@ -5713,10 +5803,10 @@
 
         /* Панель паттернов на маленьком графике */
         .sm-patterns-panel {
-            display: none; position: absolute; bottom: 52px; left: 8px;
+            display: none; position: fixed; top: 0; left: 8px;
             background: rgba(11,21,37,0.94); border: 1px solid rgba(99,102,241,0.2);
             border-radius: 8px; padding: 8px 10px;
-            z-index: 20; max-width: 260px; max-height: 35vh; overflow-y: auto;
+            z-index: 500; max-width: 260px; max-height: 35vh; overflow-y: auto;
             backdrop-filter: blur(10px); font-size: 11px;
         }
         .sm-patterns-panel.active { display: block; }
@@ -5958,14 +6048,6 @@
         </div>
     </div>
 <body>
-    <!-- Landscape lock overlay -->
-    <div id="landscapeLock">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#636B76" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
-        </svg>
-        <span>Поверните устройство вертикально</span>
-    </div>
-
     <!-- Background layers (same as landing page) -->
     <div class="bg-layer bg-gradients"></div>
     <div class="bg-layer bg-grid"></div>
@@ -9578,6 +9660,13 @@
             window.scrollTo(0, 0);
             document.documentElement.scrollTop = 0;
             document.body.scrollTop = 0;
+            // In landscape — always show chart page
+            if (window.innerHeight < window.innerWidth && _isMobileSlider()) {
+                goToPage(0);
+            }
+            // Scroll current slider page to top (so chart is visible in landscape)
+            var currentSliderPage = document.getElementById('slider-page-' + (currentPage + 1));
+            if (currentSliderPage) currentSliderPage.scrollTop = 0;
             onResize();
         }, 300));
         // Инициализация
@@ -12760,6 +12849,10 @@
                     }).join('');
                 }
                 smPanel.classList.add('active');
+                // На мобилке — collapsed по умолчанию
+                if (window.innerWidth <= 900) {
+                    smPanel.classList.add('collapsed');
+                }
             }
         }
 
@@ -12836,7 +12929,68 @@
         }
     };
 
+    // Portal: move alertPanel to body to escape chart-column stacking context
+    // (chart-column has backdrop-filter which creates a new stacking context,
+    //  causing elements inside it to be trapped below body-level elements like smPatternsPanel)
+    (function() {
+        var alertP = document.getElementById('alertPanel');
+        if (alertP && alertP.parentNode !== document.body) {
+            document.body.appendChild(alertP);
+        }
+    })();
+
     // Toggle панели паттернов
+    // Portal: move smPatternsPanel to body to escape chart-column stacking context
+    // (chart-column has backdrop-filter which creates a new stacking context,
+    //  causing the panel to always appear above modals like alert-panel)
+    (function() {
+        var panel = document.getElementById('smPatternsPanel');
+        if (panel && panel.parentNode !== document.body) {
+            document.body.appendChild(panel);
+        }
+
+        // Dynamic positioning: place panel just above the coin-bar inside chart-column
+        function positionSmPanel() {
+            var p = document.getElementById('smPatternsPanel');
+            if (!p || !p.classList.contains('active')) return;
+            var coinBar = document.querySelector('.chart-coin-bar');
+            var chartCol = document.querySelector('.chart-column');
+            var anchor = coinBar || chartCol;
+            if (!anchor) return;
+            var rect = anchor.getBoundingClientRect();
+            var panelH = p.offsetHeight || 200;
+            // Place panel so its bottom aligns with top of anchor, with 4px gap
+            var topPos = rect.top - panelH - 4;
+            // Don't go above top of chart-column
+            if (chartCol) {
+                var colRect = chartCol.getBoundingClientRect();
+                if (topPos < colRect.top + 4) topPos = colRect.top + 4;
+            }
+            p.style.top = topPos + 'px';
+            p.style.bottom = 'auto';
+            p.style.left = (anchor.getBoundingClientRect().left + 8) + 'px';
+        }
+
+        // Reposition whenever panel becomes active or window resizes
+        var _origActive = Object.getOwnPropertyDescriptor(DOMTokenList.prototype, 'add');
+        window._smPanelPosition = positionSmPanel;
+        window.addEventListener('resize', positionSmPanel);
+
+        // Observe classList changes on smPatternsPanel to reposition when shown
+        var _obs = new MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+                if (m.type === 'attributes' && m.attributeName === 'class') {
+                    var p = document.getElementById('smPatternsPanel');
+                    if (p && p.classList.contains('active')) {
+                        requestAnimationFrame(positionSmPanel);
+                    }
+                }
+            });
+        });
+        var _pnl = document.getElementById('smPatternsPanel');
+        if (_pnl) _obs.observe(_pnl, { attributes: true });
+    })();
+
     var _smPH = document.getElementById('smPatternsHeader');
     if (_smPH) _smPH.addEventListener('click', function() {
         var p = document.getElementById('smPatternsPanel');
