@@ -441,6 +441,7 @@
                     '<div class="ai-tt-info-btn">i</div>' +
                     '<div class="ai-tt-info-popup">This is not financial advice. AI Scanner provides analytical information based on technical analysis. All trading decisions are made at your own risk. Past performance does not guarantee future results.</div>' +
                 '</div>' +
+                '<button class="ai-tt-close-btn" id="aiMobileCloseBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9598A1" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
             '</div>' +
             '<div class="ai-tt-trend"></div>' +
             '<div class="ai-tt-scale"></div>' +
@@ -484,15 +485,21 @@
         _containerEl.appendChild(_tooltipEl);
         _containerEl.appendChild(_chatPanelEl);
 
-        // На мобилке — вешаем на body как fixed overlay, иначе внутрь графика
+        // На мобилке — вешаем на body как fixed fullscreen overlay
         if (_isMobile()) {
             document.body.appendChild(_containerEl);
-            // Backdrop клик — закрывает панель
-            _containerEl.addEventListener('click', function(e) {
-                if (e.target === _containerEl) toggleTooltip();
-            });
-            // Swipe вниз на handle/тултипе — закрывает панель
-            _addSwipeDown(_tooltipEl);
+            // Close button — закрывает панель
+            setTimeout(function() {
+                var closeBtn = document.getElementById('aiMobileCloseBtn');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        toggleTooltip();
+                        var aiBtnApp = document.getElementById('aiBtnApp');
+                        if (aiBtnApp) aiBtnApp.classList.remove('ai-active');
+                    });
+                }
+            }, 0);
         } else {
             wrap.appendChild(_containerEl);
         }
@@ -612,9 +619,11 @@
             var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
             if (_chatOpen) {
                 panel.classList.add('visible', 'chat-side');
-                // Подстраиваем высоту чата под высоту блока анализа
-                var tooltipH = _tooltipEl ? _tooltipEl.offsetHeight : 0;
-                if (tooltipH > 0) panel.style.height = tooltipH + 'px';
+                // Подстраиваем высоту чата — отложенно, чтобы не дёргать layout
+                requestAnimationFrame(function() {
+                    var tooltipH = _tooltipEl ? _tooltipEl.offsetHeight : 0;
+                    if (tooltipH > 0) panel.style.height = tooltipH + 'px';
+                });
                 // Проверяем есть ли сообщения
                 var msgs = panel.querySelector('#aiChatMessages');
                 if (!msgs || msgs.children.length === 0) {
@@ -626,7 +635,7 @@
             } else {
                 panel.classList.remove('visible', 'chat-side', 'chat-empty');
                 panel.style.height = '';
-                if (btn) btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg> AI Chat';
+                if (btn) btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg> AI Chat';
             }
         }
     }
@@ -1480,6 +1489,9 @@
     function renderResult(data, ctx) {
         ensureUI();
         _tooltipEl.querySelector('.ai-tt-tf').textContent = '· ' + (ctx ? ctx.timeframe : '1D');
+        // Показываем кнопку AI Chat (могла быть скрыта для неподдерживаемых таймфреймов)
+        var _chatOpenBtn = document.getElementById('aiChatOpenBtn');
+        if (_chatOpenBtn) _chatOpenBtn.style.display = '';
 
         var longPct = data.longPct || 50;
         var shortPct = data.shortPct || 50;
@@ -1805,7 +1817,43 @@
             await window._ensureLevelsAndWinRate(coinId, periodDays);
 
             var ctx = window.collectAiContext();
-            if (!ctx) { _aiScanInFlight = false; return; }
+            if (!ctx) {
+                // Таймфрейм не поддерживается — показываем сообщение
+                var pd = (typeof currentPeriod !== 'undefined') ? currentPeriod : 1;
+                if (pd > 1) {
+                    var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+                    showBtn();
+                    ensureUI();
+                    _tooltipEl.classList.remove('signal-long', 'signal-short', 'signal-neutral', 'signal-loading');
+                    var trendEl = _tooltipEl.querySelector('.ai-tt-trend'); if (trendEl) trendEl.innerHTML = '';
+                    var scaleEl = _tooltipEl.querySelector('.ai-tt-scale'); if (scaleEl) scaleEl.innerHTML = '';
+                    var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict'); if (verdictEl) { verdictEl.style.cssText = ''; verdictEl.textContent = ''; }
+                    var textEl = _tooltipEl.querySelector('.ai-tt-text');
+                    textEl.style.cssText = '';
+                    textEl.innerHTML = '<div style="padding:20px 14px;text-align:center;">' +
+                        '<div style="margin-bottom:10px;">' +
+                            '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#636B76" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+                        '</div>' +
+                        '<div style="font-size:13px;color:#D1D4DC;font-weight:500;margin-bottom:6px;">' +
+                            (isEn ? 'AI analysis is not available for this timeframe' : 'AI анализ недоступен для этого таймфрейма') +
+                        '</div>' +
+                        '<div style="font-size:11px;color:#636B76;line-height:1.5;">' +
+                            (isEn ? 'Switch to <strong style="color:#9598A1;">1H</strong>, <strong style="color:#9598A1;">4H</strong> or <strong style="color:#9598A1;">1D</strong> for AI analysis' : 'Переключитесь на <strong style="color:#9598A1;">1H</strong>, <strong style="color:#9598A1;">4H</strong> или <strong style="color:#9598A1;">1D</strong> для AI анализа') +
+                        '</div>' +
+                    '</div>';
+                    var ae = _tooltipEl.querySelector('.ai-tt-action'); if (ae) ae.innerHTML = '';
+                    _tooltipEl.querySelector('.ai-tt-price').textContent = '';
+                    // Скрываем кнопку AI Chat
+                    var chatBtn = document.getElementById('aiChatOpenBtn');
+                    if (chatBtn) chatBtn.style.display = 'none';
+                    _tooltipVisible = true;
+                    _containerEl && _containerEl.classList.add('visible');
+                    _btnEl && _btnEl.classList.add('active');
+                }
+                _aiScanInFlight = false;
+                _stopScanAnim();
+                return;
+            }
 
             var coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
             var anchor = await window.loadAnchorLevels(coinId);

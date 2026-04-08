@@ -38,6 +38,26 @@
             padding-top: env(safe-area-inset-top);
         }
 
+        /* ── Landscape lock on mobile — show "rotate device" overlay ── */
+        @media (max-width: 900px) and (orientation: landscape) {
+            #landscapeLock {
+                display: flex !important;
+            }
+        }
+        #landscapeLock {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 99999;
+            background: #0D1117;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+        #landscapeLock svg { opacity: 0.5; }
+        #landscapeLock span { color: #9598A1; font-size: 14px; font-family: -apple-system, system-ui, sans-serif; }
+
         @media (max-width: 900px) and (max-height: 500px) {
             body {
                 height: auto !important;
@@ -1314,10 +1334,12 @@
         .chart-coin-bar {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
             flex-wrap: wrap;
             position: relative;
             z-index: 1;
+            padding: 4px 8px;
+            border-top: 1px solid rgba(255,255,255,0.04);
         }
 
         /* ── RSI блок ── */
@@ -1894,29 +1916,29 @@
         .coin-select-trigger {
             display: flex;
             align-items: center;
-            gap: 7px;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 9px;
-            padding: 0 10px 0 7px;
-            height: 36px;
-            color: white;
-            font-size: 13px;
-            font-weight: 500;
+            gap: 5px;
+            background: transparent;
+            border: none;
+            border-radius: 3px;
+            padding: 0 8px;
+            height: 28px;
+            color: rgba(255,255,255,0.7);
+            font-size: 11px;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: color 0.12s, background 0.12s;
             white-space: nowrap;
             user-select: none;
         }
 
         .coin-select-trigger:hover {
-            border-color: rgba(99,102,241,0.4);
-            background: rgba(99,102,241,0.08);
+            color: rgba(255,255,255,0.9);
+            background: rgba(255,255,255,0.05);
         }
 
         .coin-select-trigger img {
-            width: 20px;
-            height: 20px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
             object-fit: cover;
         }
@@ -2116,43 +2138,41 @@
         }
 
         .current-price {
-            color: white;
+            color: rgba(255,255,255,0.7);
             font-weight: 600;
             font-family: 'JetBrains Mono', monospace;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.08);
-            padding: 0 12px;
-            height: 36px;
-            border-radius: 9px;
-            font-size: 14px;
+            background: transparent;
+            border: none;
+            padding: 0 8px;
+            height: 28px;
+            border-radius: 3px;
+            font-size: 12px;
             white-space: nowrap;
             display: flex;
             align-items: center;
         }
 
         .price-change-badge {
-            padding: 0 10px;
-            height: 36px;
-            border-radius: 9px;
-            font-size: 12px;
-            font-weight: 700;
+            padding: 0 6px;
+            height: 28px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
             white-space: nowrap;
             display: none;
             align-items: center;
             font-family: 'JetBrains Mono', monospace;
-            border: 1px solid transparent;
+            border: none;
         }
 
         .price-change-badge.positive {
             background: rgba(16,185,129,0.08);
-            border-color: rgba(16,185,129,0.2);
             color: #10B981;
             display: flex;
         }
 
         .price-change-badge.negative {
             background: rgba(239,68,68,0.08);
-            border-color: rgba(239,68,68,0.2);
             color: #EF4444;
             display: flex;
         }
@@ -2160,20 +2180,20 @@
 
         /* ══ HELP BUTTON ══ */
         .alert-help-btn {
-            width: 36px; height: 36px;
-            border-radius: 9px;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.04);
-            color: #475569;
+            width: 28px; height: 28px;
+            border-radius: 3px;
+            border: none;
+            background: transparent;
+            color: rgba(255,255,255,0.22);
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
             display: flex; align-items: center; justify-content: center;
-            transition: all 0.2s;
+            transition: color 0.12s, background 0.12s;
             flex-shrink: 0;
             font-family: inherit;
         }
-        .alert-help-btn:hover { border-color: rgba(255,255,255,0.15); color: #94A3B8; }
+        .alert-help-btn:hover { color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.05); }
 
         .alert-help-panel {
             display: none;
@@ -3432,6 +3452,12 @@
         }
         .right-panel-toggle {
             display: none;
+        }
+        .wl-collapse-btn {
+            display: none !important;
+        }
+        .right-panel-expand {
+            display: none !important;
         }
         
         .buys-section { 
@@ -5660,7 +5686,7 @@
 
         /* Patterns panel */
         .fs-patterns-panel {
-            display: none; position: absolute; bottom: 12px; left: 12px;
+            display: none; position: absolute; bottom: 52px; left: 12px;
             background: rgba(11,21,37,0.95); border: 1px solid rgba(99,102,241,0.2);
             border-radius: 10px; padding: 10px 14px;
             z-index: 20; max-width: 300px; max-height: 40vh; overflow-y: auto;
@@ -5687,7 +5713,7 @@
 
         /* Панель паттернов на маленьком графике */
         .sm-patterns-panel {
-            display: none; position: absolute; bottom: 8px; left: 8px;
+            display: none; position: absolute; bottom: 52px; left: 8px;
             background: rgba(11,21,37,0.94); border: 1px solid rgba(99,102,241,0.2);
             border-radius: 8px; padding: 8px 10px;
             z-index: 20; max-width: 260px; max-height: 35vh; overflow-y: auto;
@@ -5932,6 +5958,14 @@
         </div>
     </div>
 <body>
+    <!-- Landscape lock overlay -->
+    <div id="landscapeLock">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#636B76" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+        </svg>
+        <span>Поверните устройство вертикально</span>
+    </div>
+
     <!-- Background layers (same as landing page) -->
     <div class="bg-layer bg-gradients"></div>
     <div class="bg-layer bg-grid"></div>
@@ -6155,7 +6189,7 @@
                                     <label class="pf-item"><input type="checkbox" id="filterLevelsApp" checked><span data-i18n="pfLevels">Поддержка / Сопротивление</span></label>
                                 </div>
                             </div>
-                            <button id="expandChartBtn" title="Развернуть"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+                            <button id="expandChartBtn" title="Развернуть" style="display:none !important;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
                         </div>
                     </div>
                 </div>

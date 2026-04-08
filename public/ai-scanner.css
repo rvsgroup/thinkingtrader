@@ -127,6 +127,7 @@
     background: #1E222D;
     border: 1px solid #2A2E39;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+    contain: layout style;
 }
 
 #aiTooltip.visible {
@@ -230,6 +231,19 @@
     border-bottom: 1px solid #2A2E39;
 }
 
+/* Close button — hidden on desktop, shown on mobile */
+.ai-tt-close-btn {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    margin-left: 6px;
+    border-radius: 50%;
+    transition: background 0.15s;
+}
+.ai-tt-close-btn:hover { background: rgba(255,255,255,0.08); }
+
 .ai-tt-logo {
     width: 15px;
     height: 15px;
@@ -272,9 +286,11 @@
     margin: 0;
     transition: border-color 0.4s ease;
     max-height: 240px;
-    overflow-y: auto;
+    overflow-y: overlay;
+    overflow-x: hidden;
     flex-shrink: 1;
     min-height: 0;
+    scrollbar-gutter: stable;
 }
 
 /* Scrollbar — thin, signal-colored */
@@ -530,7 +546,7 @@
         display: none !important;
     }
 
-    /* ── Контейнер — fixed overlay поверх всего ── */
+    /* ── Контейнер — fullscreen overlay ── */
     #aiContainer {
         position: fixed !important;
         top: 0 !important;
@@ -538,17 +554,14 @@
         right: 0 !important;
         bottom: 0 !important;
         width: 100% !important;
-        background: rgba(7, 11, 20, 0.72) !important;
-        backdrop-filter: blur(3px) !important;
-        -webkit-backdrop-filter: blur(3px) !important;
+        background: #1E222D !important;
         z-index: 5000 !important;
         display: flex !important;
         flex-direction: column !important;
-        justify-content: flex-end !important;
+        justify-content: flex-start !important;
         align-items: stretch !important;
         gap: 0 !important;
         padding: 0 !important;
-        /* Начальное состояние — скрыт */
         opacity: 0;
         pointer-events: none;
         transform: none !important;
@@ -560,55 +573,74 @@
         pointer-events: auto !important;
     }
 
-    /* ── Тултип — нижняя панель ── */
+    /* ── Тултип — fullscreen, scrollable ── */
     #aiTooltip {
         width: 100% !important;
-        max-height: 72vh !important;
+        max-height: none !important;
+        flex: 1 !important;
         overflow-y: auto !important;
         overflow-x: hidden !important;
         -webkit-overflow-scrolling: touch !important;
-        border-radius: 18px 18px 0 0 !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        border-bottom: none !important;
+        border-radius: 0 !important;
+        border: none !important;
         background: #1E222D !important;
-        transform: translateY(40px);
-        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        transform: none !important;
+        box-shadow: none !important;
+        contain: initial !important;
     }
 
     #aiContainer.visible #aiTooltip {
-        transform: translateY(0) !important;
+        transform: none !important;
     }
 
-    /* Handle (ручка для свайпа) */
+    /* No swipe handle — we use X button instead */
     #aiTooltip::before {
-        content: '';
-        display: block;
-        width: 44px;
-        height: 4px;
-        border-radius: 2px;
-        background: rgba(255,255,255,0.22);
-        margin: 12px auto 2px;
+        display: none !important;
     }
 
-    .ai-tt-text { font-size: 13px !important; line-height: 1.6 !important; }
+    /* Show close button on mobile */
+    .ai-tt-close-btn {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .ai-tt-header {
+        padding: 12px 14px 10px !important;
+        position: sticky;
+        top: 0;
+        background: #1E222D;
+        z-index: 2;
+        border-bottom: 1px solid #2A2E39;
+    }
+
+    .ai-tt-text {
+        font-size: 13px !important;
+        line-height: 1.6 !important;
+        max-height: none !important;
+        overflow-y: visible !important;
+    }
+
+    /* Hide AI Chat button on mobile — chat always visible at bottom */
+    .ai-chat-open-btn {
+        display: none !important;
+    }
 
     /* ── Чат-панель — прилипает к низу ── */
     #aiChatPanel {
         display: block !important;
         width: 100% !important;
         border-radius: 0 !important;
-        border-radius: 0 !important;
         background: #1E222D !important;
         border: none !important;
         border-top: 1px solid rgba(41, 98, 255, 0.25) !important;
         padding: 8px 0 calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
         flex-shrink: 0;
-        transform: translateY(40px);
-        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.04s;
+        transform: none !important;
     }
 
     #aiContainer.visible #aiChatPanel {
-        transform: translateY(0) !important;
+        transform: none !important;
     }
 
     /* ── Правый блок инструментов — горизонтальный скролл ── */
@@ -643,6 +675,7 @@
     width: calc(100% - 20px);
     margin: 4px 10px 6px;
     padding: 5px 0;
+    min-height: 30px;
     background: rgba(41,98,255,0.06);
     border: 1px solid rgba(41,98,255,0.2);
     border-radius: 6px;
