@@ -436,17 +436,18 @@
                 '<div class="ai-tt-logo"><svg width="10" height="10" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="white" stroke-width="1.8"/><path d="M11 11l3.5 3.5" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg></div>' +
                 '<span class="ai-tt-label">AI SCANNER</span>' +
                 '<span class="ai-tt-tf"></span>' +
-                '<span class="ai-tt-time" style="color:#475569;font-size:10px;margin-left:auto;margin-right:6px;"></span>' +
+                '<span class="ai-tt-price" style="color:#758696;font-size:10px;margin-left:auto;margin-right:6px;"></span>' +
                 '<div class="ai-tt-info-wrap">' +
                     '<div class="ai-tt-info-btn">i</div>' +
                     '<div class="ai-tt-info-popup">This is not financial advice. AI Scanner provides analytical information based on technical analysis. All trading decisions are made at your own risk. Past performance does not guarantee future results.</div>' +
                 '</div>' +
             '</div>' +
+            '<div class="ai-tt-trend"></div>' +
+            '<div class="ai-tt-scale"></div>' +
             '<div class="ai-tt-text"></div>' +
             '<div class="ai-tt-verdict"></div>' +
             '<div class="ai-tt-action"></div>' +
-            '<div class="ai-tt-footer"><span>THINKING TRADER</span><span class="ai-tt-time" style="color:#475569;font-size:10px;margin-left:auto;margin-right:6px;"></span><span class="ai-tt-price"></span></div>' +
-            '<button class="ai-chat-open-btn" id="aiChatOpenBtn"><svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg> AI Chat</button>';
+            '<button class="ai-chat-open-btn" id="aiChatOpenBtn"><svg width="14" height="14" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg> AI Chat</button>';
 
         // Чат-панель — сразу под тултипом в том же контейнере
         _chatPanelEl = document.createElement('div');
@@ -1452,9 +1453,9 @@
         var ve = _tooltipEl.querySelector('.ai-tt-verdict');
         if (ve) { ve.textContent = ''; ve.style.cssText = ''; }
         var ae = _tooltipEl.querySelector('.ai-tt-action'); ae.innerHTML = ''; ae.style.cssText = '';
+        var tre = _tooltipEl.querySelector('.ai-tt-trend'); if (tre) tre.innerHTML = '';
+        var sce = _tooltipEl.querySelector('.ai-tt-scale'); if (sce) sce.innerHTML = '';
         _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
-        var _now = new Date(); var _timeStr = _now.toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit'}) + ' ' + _now.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
-        var _timeEl = _tooltipEl.querySelector('.ai-tt-time'); if (_timeEl) _timeEl.textContent = _timeStr;
     }
 
     function calcProfit(entry, target) {
@@ -1495,26 +1496,53 @@
         var signalColor = strength === 'neutral' ? '#FBBF24' : (dominant === 'long' ? '#26A69A' : '#EF5350');
         var signalBg = strength === 'neutral' ? 'rgba(251,191,36,0.06)' : (dominant === 'long' ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)');
 
-        // ── Trend Row ──
+        // ── Helper: extract number from entry/stop/target ──
+        function extractNum(val) {
+            if (!val) return null;
+            var s = String(val).replace(/[$\s]/g, '').replace(/,/g, '');
+            var m = s.match(/[\d]+\.?[\d]*/);
+            return m ? parseFloat(m[0]) : null;
+        }
+
+        // ── ① Trend Row + Signal label ──
         var trendIcon = strength === 'neutral' ? '⏸' : (dominant === 'long' ? '▲' : '▼');
         var trendLabel = data.trendLabel || (strength === 'neutral' ? (isEn ? 'Consolidation' : 'Консолидация') : (dominant === 'long' ? (isEn ? 'Bullish' : 'Бычий') : (isEn ? 'Bearish' : 'Медвежий')));
         var trendDetail = data.trendDetail || '';
 
-        // Build trend row HTML
-        var trendHtml = '<div class="ai-tt-trend" style="display:flex;align-items:center;gap:8px;margin:0 10px 8px;padding:8px 10px;background:' + signalBg + ';border-radius:8px;border-left:3px solid ' + signalColor + ';">';
-        trendHtml += '<span style="font-size:14px;">' + trendIcon + '</span>';
-        trendHtml += '<span style="font-size:12px;font-weight:600;color:' + signalColor + ';">' + trendLabel + '</span>';
-        if (trendDetail) trendHtml += '<span style="font-size:11px;color:#9598A1;margin-left:auto;">' + trendDetail + '</span>';
+        // Signal text for second line inside trend block
+        var signalText = '';
+        if (strength === 'neutral' || strength === 'weak') {
+            signalText = isEn ? 'Do not enter — wait for confirmation' : 'Не входить — ждать подтверждения';
+        } else if (dominant === 'long') {
+            signalText = isEn ? 'Enter long' : 'Входить в лонг';
+        } else {
+            signalText = isEn ? 'Enter short' : 'Входить в шорт';
+        }
+
+        var trendHtml = '<div style="margin:0 10px 8px;padding:10px 12px;background:' + signalBg + ';border-radius:8px;border-left:3px solid ' + signalColor + ';">';
+        // Row 1: icon + label left, detail right
+        trendHtml += '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px;">';
+        trendHtml += '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">';
+        trendHtml += '<span style="font-size:14px;color:' + signalColor + ';">' + trendIcon + '</span>';
+        trendHtml += '<span style="font-size:13px;font-weight:600;color:' + signalColor + ';">' + trendLabel + '</span>';
+        trendHtml += '</div>';
+        if (trendDetail) trendHtml += '<span style="font-size:11px;color:#9598A1;text-align:right;flex-shrink:1;min-width:0;">' + trendDetail + '</span>';
+        trendHtml += '</div>';
+        // Row 2: signal text
+        trendHtml += '<div style="font-size:11px;color:' + signalColor + ';opacity:0.75;padding-left:22px;">' + signalText + '</div>';
         trendHtml += '</div>';
 
-        // ── Price Scale ──
+        var trendEl = _tooltipEl.querySelector('.ai-tt-trend');
+        if (trendEl) trendEl.innerHTML = trendHtml;
+
+        // ── ② Price Scale ──
         var support = ctx && ctx.levels ? ctx.levels.support : null;
         var resistance = ctx && ctx.levels ? ctx.levels.resistance : null;
         var price = ctx ? ctx.currentPrice : 0;
         var scaleHtml = '';
         if (support && resistance && resistance > support) {
             var pct = Math.max(2, Math.min(98, Math.round((price - support) / (resistance - support) * 100)));
-            scaleHtml = '<div class="ai-tt-scale" style="margin:0 10px 10px;position:relative;">';
+            scaleHtml = '<div style="margin:0 10px 10px;position:relative;">';
             scaleHtml += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#636B76;margin-bottom:4px;">';
             scaleHtml += '<span>' + (isEn ? 'Support' : 'Поддержка') + ' $' + Math.round(support).toLocaleString('en-US') + '</span>';
             scaleHtml += '<span>' + (isEn ? 'Resistance' : 'Сопротивление') + ' $' + Math.round(resistance).toLocaleString('en-US') + '</span>';
@@ -1524,15 +1552,17 @@
             scaleHtml += '<div style="position:absolute;width:12px;height:12px;background:' + signalColor + ';border:2px solid #D1D4DC;border-radius:50%;top:-3px;left:' + pct + '%;transform:translateX(-50%);"></div>';
             scaleHtml += '</div></div>';
         }
+        var scaleEl = _tooltipEl.querySelector('.ai-tt-scale');
+        if (scaleEl) scaleEl.innerHTML = scaleHtml;
 
-        // ── Situation text (insert trend + scale before text) ──
+        // ── ③ Situation text ──
         var textEl = _tooltipEl.querySelector('.ai-tt-text');
         textEl.style.fontStyle = 'normal';
         textEl.style.color = '#9598A1';
         textEl.style.borderLeftColor = '';
-        textEl.innerHTML = trendHtml + scaleHtml + '<div style="padding:0 10px 4px;font-size:12px;line-height:1.55;color:#9598A1;">' + (data.situation || data.text || '') + '</div>';
+        textEl.innerHTML = '<div style="padding:0 10px 4px;font-size:12px;line-height:1.55;color:#9598A1;">' + (data.situation || data.text || '') + '</div>';
 
-        // ── Verdict ──
+        // ── ④ Verdict ──
         var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict');
         if (data.verdict) {
             verdictEl.style.cssText = 'padding:8px 10px;margin:0 10px 8px;font-size:11.5px;font-weight:600;color:' + signalColor + ';line-height:1.45;background:' + signalBg + ';border-radius:6px;';
@@ -1553,124 +1583,151 @@
             _btnEl.classList.add(dominant === 'short' ? 'signal-short' : 'signal-long');
         }
 
-        // ── Action area ──
+        // ── ⑤⑥ Action area: Activation → Scenarios (bars + details) ──
         var ae = _tooltipEl.querySelector('.ai-tt-action');
         ae.style.cssText = 'padding:0;background:transparent;border:none;margin:0 10px 8px;';
+        var actionHtml = '';
 
-        // Helper: extract number from entry/stop/target
-        function extractNum(val) {
-            if (!val) return null;
-            var s = String(val).replace(/[$\s]/g, '').replace(/,/g, '');
-            var m = s.match(/[\d]+\.?[\d]*/);
-            return m ? parseFloat(m[0]) : null;
-        }
-
-        // ═══ MODE: NEUTRAL — no bars, show activation conditions ═══
+        // ── ⑤ ACTIVATION — always shown when available, BEFORE scenarios ──
         if (strength === 'neutral') {
-            var actHtml = '<div style="padding:10px;background:rgba(251,191,36,0.04);border:1px solid #2A2E39;border-radius:8px;">';
-            actHtml += '<div style="font-size:11px;font-weight:600;color:#FBBF24;margin-bottom:8px;display:flex;align-items:center;gap:6px;">';
-            actHtml += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
-            actHtml += (isEn ? 'Signal activation conditions' : 'Условия активации сигнала') + '</div>';
-
+            // Neutral: full activation block with both conditions
             var activation = data.activation || {};
             var longTarget = extractNum(longData.target);
             var longStop = extractNum(longData.stop);
             var shortTarget = extractNum(shortData.target);
             var shortStop = extractNum(shortData.stop);
 
+            actionHtml += '<div style="padding:10px;background:rgba(251,191,36,0.04);border:1px solid rgba(251,191,36,0.25);border-radius:8px;margin-bottom:10px;">';
+            actionHtml += '<div style="font-size:11px;font-weight:600;color:#FBBF24;margin-bottom:8px;display:flex;align-items:center;gap:6px;">';
+            actionHtml += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+            actionHtml += (isEn ? 'Signal activation conditions' : 'Условия активации сигнала') + '</div>';
+
             // Long condition
-            actHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #1E222D;">';
-            actHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(38,166,154,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#26A69A;flex-shrink:0;margin-top:1px;">L</div>';
-            actHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Long</strong> — ' + (activation.long || (isEn ? 'Confirm above resistance' : 'Подтверждение выше сопротивления')) + '</div>';
-            if (longTarget || longStop) actHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (longTarget ? longTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (longStop ? longStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
-            actHtml += '</div></div>';
+            actionHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #1E222D;">';
+            actionHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(38,166,154,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#26A69A;flex-shrink:0;margin-top:1px;">L</div>';
+            actionHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Long</strong> — ' + (activation.long || (isEn ? 'Confirm above resistance' : 'Подтверждение выше сопротивления')) + '</div>';
+            if (longTarget || longStop) actionHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (longTarget ? longTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (longStop ? longStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
+            actionHtml += '</div></div>';
 
             // Short condition
-            actHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;">';
-            actHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(239,83,80,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#EF5350;flex-shrink:0;margin-top:1px;">S</div>';
-            actHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Short</strong> — ' + (activation.short || (isEn ? 'Confirm below support' : 'Подтверждение ниже поддержки')) + '</div>';
-            if (shortTarget || shortStop) actHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (shortTarget ? shortTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (shortStop ? shortStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
-            actHtml += '</div></div>';
+            actionHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;">';
+            actionHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(239,83,80,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#EF5350;flex-shrink:0;margin-top:1px;">S</div>';
+            actionHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Short</strong> — ' + (activation.short || (isEn ? 'Confirm below support' : 'Подтверждение ниже поддержки')) + '</div>';
+            if (shortTarget || shortStop) actionHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (shortTarget ? shortTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (shortStop ? shortStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
+            actionHtml += '</div></div>';
+            actionHtml += '</div>';
 
-            actHtml += '</div>';
-            ae.innerHTML = actHtml;
-
-        // ═══ MODE: WEAK or STRONG — show bars + details ═══
-        } else {
-            var html = '<div style="display:flex;gap:2px;margin-bottom:8px;height:28px;border-radius:4px;overflow:hidden;">';
-            html += '<div id="aiBarLong" style="flex:' + longPct + ';background:rgba(38,166,154,' + (dominant === 'long' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#26A69A;min-width:44px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'long' ? '#26A69A' : 'transparent') + ';">↑ Long ' + longPct + '%</div>';
-            html += '<div id="aiBarShort" style="flex:' + shortPct + ';background:rgba(239,83,80,' + (dominant === 'short' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#EF5350;min-width:44px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'short' ? '#EF5350' : 'transparent') + ';">↓ Short ' + shortPct + '%</div>';
-            html += '</div>';
-
-            // Weak signal badge
-            if (strength === 'weak') {
-                html += '<div style="text-align:center;margin-bottom:6px;"><span style="font-size:10px;color:#FBBF24;background:rgba(251,191,36,0.1);padding:2px 8px;border-radius:4px;">' + (isEn ? 'Weak signal — caution' : 'Слабый сигнал — осторожно') + '</span></div>';
+        } else if (strength === 'weak' && data.activation) {
+            // Weak: compact activation hint
+            var actText = dominant === 'long' ? (data.activation.long || '') : (data.activation.short || '');
+            if (actText) {
+                actionHtml += '<div style="padding:8px 10px;background:rgba(251,191,36,0.04);border:1px solid rgba(251,191,36,0.25);border-radius:6px;font-size:11px;color:#9598A1;line-height:1.4;margin-bottom:10px;">';
+                actionHtml += '<span style="color:#FBBF24;font-weight:600;">' + (isEn ? 'Activation: ' : 'Активация: ') + '</span>' + actText;
+                actionHtml += '</div>';
             }
-
-            html += '<div id="aiDetails"></div>';
-
-            // Activation hint for weak signals
-            if (strength === 'weak' && data.activation) {
-                var actText = dominant === 'long' ? (data.activation.long || '') : (data.activation.short || '');
-                if (actText) {
-                    html += '<div style="margin-top:6px;padding:6px 8px;background:rgba(251,191,36,0.04);border:1px solid #2A2E39;border-radius:6px;font-size:10px;color:#9598A1;line-height:1.4;">';
-                    html += '<span style="color:#FBBF24;font-weight:600;">' + (isEn ? 'Activation: ' : 'Активация: ') + '</span>' + actText;
-                    html += '</div>';
-                }
-            }
-
-            ae.innerHTML = html;
-
-            function showDetails(side) {
-                var d = side === 'long' ? longData : shortData;
-                var mainC = side === 'long' ? '#26A69A' : '#EF5350';
-                var bg = '#131722';
-                var bd = '#2A2E39';
-                var label = side === 'long' ? 'Long' : 'Short';
-                var box = document.getElementById('aiDetails');
-                if (!box) return;
-
-                var entryNum = extractNum(d.entry);
-                var targetNum = extractNum(d.target);
-                var stopNum = extractNum(d.stop);
-                var profit = (entryNum && targetNum && entryNum > 0)
-                    ? Math.round(Math.abs((targetNum - entryNum) / entryNum) * 1000) / 10
-                    : null;
-
-                var h = '';
-                if (d.entry || d.target || d.stop) {
-                    h = '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-radius:4px;overflow:hidden;">';
-                    h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-bottom:1px solid ' + bd + ';">';
-                    h += '<span style="font-size:11.5px;font-weight:700;color:' + mainC + ';">' + label + '</span>';
-                    if (profit !== null) h += '<span style="font-size:10.5px;font-weight:700;color:' + mainC + ';">profit +' + profit + '%</span>';
-                    h += '</div>';
-                    h += '<div style="padding:5px 10px 7px;">';
-                    if (entryNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Entry' : 'Вход') + '</span><span style="color:#9598A1;font-size:11px;font-weight:500;">$' + entryNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                    if (targetNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Target' : 'Цель') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + targetNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                    if (stopNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Stop' : 'Стоп') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + stopNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                    h += '</div></div>';
-                }
-                box.innerHTML = h;
-
-                var bl = document.getElementById('aiBarLong');
-                var bs = document.getElementById('aiBarShort');
-                if (bl) { bl.style.background = side === 'long' ? 'rgba(38,166,154,0.18)' : 'rgba(38,166,154,0.06)'; bl.style.borderBottom = side === 'long' ? '2px solid #26A69A' : '2px solid transparent'; }
-                if (bs) { bs.style.background = side === 'short' ? 'rgba(239,83,80,0.18)' : 'rgba(239,83,80,0.06)'; bs.style.borderBottom = side === 'short' ? '2px solid #EF5350' : '2px solid transparent'; }
-            }
-
-            showDetails(dominant);
-
-            var barL = document.getElementById('aiBarLong');
-            var barS = document.getElementById('aiBarShort');
-            if (barL) barL.addEventListener('click', function(e) { e.stopPropagation(); showDetails('long'); });
-            if (barS) barS.addEventListener('click', function(e) { e.stopPropagation(); showDetails('short'); });
         }
 
-        // ── Footer price + time ──
+        // ── ⑥ SCENARIOS — bars + details, wrapped in one section ──
+        actionHtml += '<div style="border:1px solid #2A2E39;border-radius:6px;overflow:hidden;margin-top:4px;">';
+
+        // "If you want to enter" label for neutral/weak — full width header of section
+        if (strength === 'neutral' || strength === 'weak') {
+            actionHtml += '<div style="text-align:center;padding:5px 10px;background:rgba(255,255,255,0.02);border-bottom:1px solid #2A2E39;">';
+            actionHtml += '<span style="font-size:10px;color:#636B76;">' + (isEn ? 'If you want to enter — here are scenarios' : 'Если хочешь войти — вот сценарии') + '</span>';
+            actionHtml += '</div>';
+        }
+
+        // Bars — thinner (22px)
+        actionHtml += '<div style="display:flex;gap:1px;height:22px;background:#2A2E39;">';
+        actionHtml += '<div id="aiBarLong" style="flex:' + longPct + ';background:rgba(38,166,154,' + (dominant === 'long' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#26A69A;min-width:40px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'long' ? '#26A69A' : 'transparent') + ';">↑ Long ' + longPct + '%</div>';
+        actionHtml += '<div id="aiBarShort" style="flex:' + shortPct + ';background:rgba(239,83,80,' + (dominant === 'short' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#EF5350;min-width:40px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'short' ? '#EF5350' : 'transparent') + ';">↓ Short ' + shortPct + '%</div>';
+        actionHtml += '</div>';
+
+        // Weak signal badge — full width
+        if (strength === 'weak') {
+            actionHtml += '<div style="text-align:center;padding:4px 10px;background:rgba(251,191,36,0.04);border-bottom:1px solid #2A2E39;"><span style="font-size:10px;color:#FBBF24;">' + (isEn ? 'Weak signal — caution' : 'Слабый сигнал — осторожно') + '</span></div>';
+        }
+
+        actionHtml += '<div id="aiDetails"></div>';
+        actionHtml += '</div>'; // close scenarios section
+
+        ae.innerHTML = actionHtml;
+
+        // ── Details table (entry/stop/target) — clickable bars ──
+        function showDetails(side) {
+            var d = side === 'long' ? longData : shortData;
+            var mainC = side === 'long' ? '#26A69A' : '#EF5350';
+            var bg = '#131722';
+            var bd = '#2A2E39';
+            var label = side === 'long' ? 'Long' : 'Short';
+            var box = document.getElementById('aiDetails');
+            if (!box) return;
+
+            var entryNum = extractNum(d.entry);
+            var targetNum = extractNum(d.target);
+            var stopNum = extractNum(d.stop);
+            var profit = (entryNum && targetNum && entryNum > 0)
+                ? Math.round(Math.abs((targetNum - entryNum) / entryNum) * 1000) / 10
+                : null;
+
+            var h = '';
+            if (d.entry || d.target || d.stop) {
+                h = '<div style="background:' + bg + ';border-top:1px solid ' + bd + ';">';
+                h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid ' + bd + ';">';
+                h += '<span style="font-size:11px;font-weight:700;color:' + mainC + ';">' + label + '</span>';
+                if (profit !== null) h += '<span style="font-size:10px;font-weight:700;color:' + mainC + ';">profit +' + profit + '%</span>';
+                h += '</div>';
+                h += '<div style="padding:5px 10px 7px;">';
+                if (entryNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Entry' : 'Вход') + '</span><span style="color:#9598A1;font-size:11px;font-weight:500;">$' + entryNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                if (targetNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Target' : 'Цель') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + targetNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                if (stopNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Stop' : 'Стоп') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + stopNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                h += '</div></div>';
+            }
+            box.innerHTML = h;
+
+            var bl = document.getElementById('aiBarLong');
+            var bs = document.getElementById('aiBarShort');
+            if (bl) { bl.style.background = side === 'long' ? 'rgba(38,166,154,0.18)' : 'rgba(38,166,154,0.06)'; bl.style.borderBottom = side === 'long' ? '2px solid #26A69A' : '2px solid transparent'; }
+            if (bs) { bs.style.background = side === 'short' ? 'rgba(239,83,80,0.18)' : 'rgba(239,83,80,0.06)'; bs.style.borderBottom = side === 'short' ? '2px solid #EF5350' : '2px solid transparent'; }
+        }
+
+        showDetails(dominant);
+
+        var barL = document.getElementById('aiBarLong');
+        var barS = document.getElementById('aiBarShort');
+        if (barL) barL.addEventListener('click', function(e) { e.stopPropagation(); showDetails('long'); });
+        if (barS) barS.addEventListener('click', function(e) { e.stopPropagation(); showDetails('short'); });
+
+        // ── ⑦ Horizon / Hold info — under scenarios ──
+        if (data.horizon || data.holdTime || data.holdAdvice) {
+            var horizonLabels = {
+                scalp: isEn ? 'Scalp trade' : 'Скальпинг',
+                intraday: isEn ? 'Intraday trade' : 'Интрадей',
+                swing: isEn ? 'Swing trade' : 'Свинг-трейд'
+            };
+            var hLabel = horizonLabels[data.horizon] || data.horizon || '';
+
+            var holdHtml = '<div style="margin:8px 0 0;padding:8px 10px;background:rgba(255,255,255,0.02);border:1px solid #2A2E39;border-radius:6px;">';
+
+            // Header row: horizon label + hold time
+            holdHtml += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
+            holdHtml += '<span style="font-size:11px;font-weight:600;color:#D1D4DC;">' + hLabel + '</span>';
+            if (data.holdTime) {
+                holdHtml += '<span style="font-size:10px;color:#9598A1;margin-left:auto;">' + (isEn ? 'Hold: ' : 'Удержание: ') + data.holdTime + '</span>';
+            }
+            holdHtml += '</div>';
+
+            // Hold advice
+            if (data.holdAdvice) {
+                holdHtml += '<div style="font-size:10.5px;line-height:1.4;color:#9598A1;">' + data.holdAdvice + '</div>';
+            }
+
+            holdHtml += '</div>';
+            ae.insertAdjacentHTML('beforeend', holdHtml);
+        }
+
+        // ── Header price ──
         _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
-        var _tsToUse = window._lastAnalysisTs ? new Date(window._lastAnalysisTs) : new Date();
-        var _timeStr = _tsToUse.toLocaleDateString('ru-RU', {day:'2-digit',month:'2-digit'}) + ' ' + _tsToUse.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'});
-        var _timeEl = _tooltipEl.querySelector('.ai-tt-time'); if (_timeEl) _timeEl.textContent = _timeStr;
     }
 
     // ── Фоновый расчёт уровней и winRate независимо от Scan ────
@@ -1786,10 +1843,11 @@
                 }
             }
 
-            // Кэш — 3 минуты (пропускаем если forceRefresh или смена монеты/таймфрейма)
+            // Кэш — используем таймфрейм-зависимый TTL
             var key = getCacheKey();
             var cached = window._aiCache[key];
-            if (!forceRefresh && cached && Date.now() - cached.ts < 180000) {
+            var cacheTtl = _getCacheLifetime();
+            if (!forceRefresh && cached && Date.now() - cached.ts < cacheTtl) {
                 showBtn();
                 window._lastAnalysisTs = cached.ts;
                 renderResult(cached.result, cached.ctx);
@@ -1823,7 +1881,7 @@
             console.log('[AI Scanner] Prompt:', JSON.stringify(ctx, null, 2));
 
             var result = await window.callAiScanner(ctx);
-            var _resultTs = Date.now();
+            var _resultTs = (result && result.cachedAt) ? result.cachedAt : Date.now();
             window._aiCache[key] = { result: result, ctx: ctx, ts: _resultTs };
             window._lastAnalysisTs = _resultTs;
             console.log('[AI Scanner] Result:', JSON.stringify(result, null, 2));
@@ -1890,11 +1948,17 @@
         }
     };
 
-    // ── Таймер истечения кэша — оверлей через 10 мин ───────────
+    // ── Таймер истечения кэша — зависит от таймфрейма ─────────
     var _expiryTimer = null;
     var _tickTimer = null;
     var _analysisTs = null; // время последнего анализа
-    var AI_CACHE_LIFETIME = 10 * 60 * 1000; // 10 минут
+
+    function _getCacheLifetime() {
+        var pd = (typeof currentPeriod !== 'undefined') ? currentPeriod : 1;
+        if (pd <= 0.042) return 10 * 60 * 1000;   // 1H → 10 минут
+        if (pd <= 0.17)  return 30 * 60 * 1000;   // 4H → 30 минут
+        return 60 * 60 * 1000;                      // 1D → 1 час
+    }
 
     function _timeAgo(ts) {
         var diff = Math.floor((Date.now() - ts) / 1000);
@@ -1959,9 +2023,9 @@
                 if (inp) inp.disabled = false;
                 if (btn) btn.disabled = false;
             }
-            // Добавляем маленькую кнопку "Обновить" в футер
-            var footer = _tooltipEl.querySelector('.ai-tt-footer');
-            if (footer && !footer.querySelector('#aiRefreshBtn')) {
+            // Добавляем маленькую кнопку "Обновить" в хедер
+            var header = _tooltipEl.querySelector('.ai-tt-header');
+            if (header && !header.querySelector('#aiRefreshBtn')) {
                 var refreshBtn = document.createElement('button');
                 refreshBtn.id = 'aiRefreshBtn';
                 refreshBtn.style.cssText = 'background:transparent;border:1px solid rgba(41,98,255,0.4);border-radius:4px;color:#2962FF;font-size:10px;padding:2px 8px;cursor:pointer;margin-left:6px;';
@@ -1970,7 +2034,7 @@
                     refreshBtn.remove();
                     if (typeof runAiScan === 'function') runAiScan(true);
                 };
-                footer.appendChild(refreshBtn);
+                header.appendChild(refreshBtn);
             }
         };
 
@@ -2007,11 +2071,19 @@
         clearInterval(_tickTimer);
         // Убираем старый оверлей если был
         if (_tooltipEl) { var o = _tooltipEl.querySelector('#aiStaleOverlay'); if (o) o.remove(); }
+        // Считаем оставшееся время с учётом того, когда анализ был создан
+        var lifetime = _getCacheLifetime();
+        var elapsed = _analysisTs ? (Date.now() - _analysisTs) : 0;
+        var remaining = Math.max(0, lifetime - elapsed);
+        if (remaining <= 0) {
+            _showStaleOverlay();
+            return;
+        }
         _expiryTimer = setTimeout(function() {
             if (!_tooltipEl || !_btnEl) return;
             if (_btnEl.style.display === 'none') return;
             _showStaleOverlay();
-        }, AI_CACHE_LIFETIME);
+        }, remaining);
     }
 
     // Перехватываем момент сохранения в кэш — запускаем таймер
@@ -2020,8 +2092,11 @@
         await _origRunAiScan.apply(this, arguments);
         var key = getCacheKey();
         if (window._aiCache[key]) {
-            _analysisTs = window._aiCache[key].ts || Date.now();
+            var result = window._aiCache[key].result;
+            var cachedAt = (result && result.cachedAt) ? result.cachedAt : window._aiCache[key].ts;
+            _analysisTs = cachedAt || Date.now();
             startExpiryTimer();
+            _startCooldownTimer(cachedAt); // ← передаём время создания анализа
             if (_btnEl) _btnEl.classList.remove('expired');
             // Убираем старый оверлей и кнопку обновления при успешном обновлении
             if (_tooltipEl) {
@@ -2037,5 +2112,64 @@
             }
         }
     };
+
+    // ── Cooldown timer — обратный отсчёт рядом с кнопкой AI ──────
+    var _cooldownInterval = null;
+    var _cooldownEnd = 0;
+
+    function _ensureCooldownEl() {
+        var el = document.getElementById('aiCooldownTimer');
+        if (el) return el;
+        // Вставляем после aiScanCounter
+        var counter = document.getElementById('aiScanCounter');
+        if (!counter) return null;
+        el = document.createElement('span');
+        el.id = 'aiCooldownTimer';
+        el.style.cssText = 'font-size:10px;font-weight:500;color:#636B76;padding:0 4px;line-height:28px;white-space:nowrap;display:none;cursor:default;';
+        counter.parentNode.insertBefore(el, counter.nextSibling);
+        return el;
+    }
+
+    function _formatCountdown(ms) {
+        if (ms <= 0) return '';
+        var totalSec = Math.ceil(ms / 1000);
+        var min = Math.floor(totalSec / 60);
+        var sec = totalSec % 60;
+        return '\u21BA ' + min + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function _startCooldownTimer(cachedAt) {
+        clearInterval(_cooldownInterval);
+        var lifetime = _getCacheLifetime();
+        var startTs = cachedAt || Date.now();
+        _cooldownEnd = startTs + lifetime;
+
+        // Если уже истёк — не показываем
+        if (_cooldownEnd <= Date.now()) return;
+
+        var el = _ensureCooldownEl();
+        if (!el) return;
+
+        var isEn = (typeof currentLang !== 'undefined') && currentLang === 'en';
+        el.title = isEn ? 'Analysis update available after this timer' : 'Обновление анализа будет доступно после этого таймера';
+        el.style.display = 'inline';
+
+        function tick() {
+            var remaining = _cooldownEnd - Date.now();
+            if (remaining <= 0) {
+                clearInterval(_cooldownInterval);
+                el.style.display = 'none';
+                el.textContent = '';
+                return;
+            }
+            el.textContent = _formatCountdown(remaining);
+        }
+
+        tick();
+        _cooldownInterval = setInterval(tick, 1000);
+    }
+
+    // Экспорт для внешнего вызова
+    window._startCooldownTimer = _startCooldownTimer;
 
 })();

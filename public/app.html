@@ -72,9 +72,6 @@
         #ourChartControls {
             background: transparent;
         }
-        #lwPriceChart canvas {
-            z-index: 0 !important;
-        }
 
         /* — Разделитель — */
         .tb-sep {
@@ -3165,6 +3162,8 @@
         }
         .chart-column.fullscreen .chart-coin-bar { display: none; }
         #lwPriceChart { width: 100%; height: 100%; }
+        #lwPriceChart canvas { z-index: 0 !important; }
+        #aiContainer { bottom: 40px !important; }
 
         .chart-loading {
             position: absolute;

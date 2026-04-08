@@ -268,7 +268,11 @@ app.get('/api/translate', async (req, res) => {
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
 const AI_MODEL = 'openai/gpt-5.4';
-const AI_CACHE_TTL = 10 * 60 * 1000; // 10 минут
+function getAiCacheTtl(timeframe) {
+    if (timeframe === '1H') return 10 * 60 * 1000;   // 10 минут
+    if (timeframe === '4H') return 30 * 60 * 1000;   // 30 минут
+    return 60 * 60 * 1000;                             // 1D → 1 час
+}
 
 app.post('/api/ai-scan', async (req, res) => {
     try {
@@ -365,8 +369,18 @@ Rules:
 - "signalStrength" — "strong" if |longPct - shortPct| >= 20, "weak" if 10-19, "neutral" if < 10. This determines how the UI displays the result.
 - "activation" — ONLY when signalStrength is "neutral" or "weak": describe what must happen for a clear signal. Example: {"long": "Price must close above $67,500 (3+ candles)", "short": "Price must close below $65,800 (3+ candles)"}. When signalStrength is "strong", set activation to null.
 
+5. TRADE HORIZON — determined by timeframe, MANDATORY:
+The timeframe defines the trading horizon. This MUST affect your target/stop/hold recommendations:
+- 1H = SCALP: target 1-2% from entry, stop 0.5-1%. Hold time: 1-4 hours. If price doesn't move toward target within 1-2 hours — exit at breakeven.
+- 4H = INTRADAY: target 2-4% from entry, stop 1-2%. Hold time: 4-24 hours. If price doesn't move within 6-8 hours — exit at breakeven.
+- 1D = SWING: target 3-8% from entry, stop 2-3%. Hold time: 2-7 days. If price doesn't move within 3 days — exit at breakeven or small loss.
+Return these fields:
+- "horizon" — "scalp" for 1H, "intraday" for 4H, "swing" for 1D
+- "holdTime" — specific expected hold duration. Examples: "1-2 hours", "8-12 hours", "3-5 days"
+- "holdAdvice" — one sentence: what to do if price doesn't move. Example: "If price hasn't reached $68,000 within 2 hours — close at breakeven, don't wait for stop"
+
 JSON format:
-{"situation": "what is happening", "verdict": "what it means", "trendLabel": "Bearish impulse", "trendDetail": "-26.6% from ATH", "signalStrength": "strong", "activation": null, "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
+{"situation": "what is happening", "verdict": "what it means", "trendLabel": "Bearish impulse", "trendDetail": "-26.6% from ATH", "signalStrength": "strong", "activation": null, "horizon": "swing", "holdTime": "3-5 days", "holdAdvice": "If no move above $70K in 3 days — exit at breakeven", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
 
             : `Ты криптотрейдер-аналитик. Пользователь шлёт расширенные рыночные данные. Дай КОНКРЕТНЫЙ анализ.
 
@@ -422,8 +436,18 @@ JSON format:
 - "signalStrength" — "strong" если |longPct - shortPct| >= 20, "weak" если 10-19, "neutral" если < 10. Определяет как UI показывает результат.
 - "activation" — ТОЛЬКО когда signalStrength = "neutral" или "weak": опиши что должно случиться для чёткого сигнала. Пример: {"long": "Цена должна закрепиться выше $67,500 (3+ свечи)", "short": "Цена должна закрепиться ниже $65,800 (3+ свечи)"}. Когда signalStrength = "strong", ставь activation = null.
 
+5. ГОРИЗОНТ СДЕЛКИ — определяется таймфреймом, ОБЯЗАТЕЛЬНО:
+Таймфрейм определяет горизонт торговли. Это ДОЛЖНО влиять на target/stop/hold:
+- 1H = СКАЛЬПИНГ: цель 1-2% от entry, стоп 0.5-1%. Удержание: 1-4 часа. Если за 1-2 часа цена не двинулась к цели — выходи в ноль.
+- 4H = ИНТРАДЕЙ: цель 2-4% от entry, стоп 1-2%. Удержание: 4-24 часа. Если за 6-8 часов нет движения — выходи в ноль.
+- 1D = СВИНГ: цель 3-8% от entry, стоп 2-3%. Удержание: 2-7 дней. Если за 3 дня нет движения — выходи в ноль или небольшой минус.
+Верни эти поля:
+- "horizon" — "scalp" для 1H, "intraday" для 4H, "swing" для 1D
+- "holdTime" — конкретное ожидаемое время удержания. Примеры: "1-2 часа", "8-12 часов", "3-5 дней"
+- "holdAdvice" — одно предложение: что делать если цена не движется. Пример: "Если цена не дошла до $68,000 за 2 часа — закрой в ноль, не жди стоп"
+
 JSON формат:
-{"situation": "что происходит", "verdict": "что это значит", "trendLabel": "Медвежий импульс", "trendDetail": "–26.6% от ATH", "signalStrength": "strong", "activation": null, "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
+{"situation": "что происходит", "verdict": "что это значит", "trendLabel": "Медвежий импульс", "trendDetail": "–26.6% от ATH", "signalStrength": "strong", "activation": null, "horizon": "swing", "holdTime": "3-5 дней", "holdAdvice": "Если за 3 дня нет движения выше $70K — выходи в ноль", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
 
         // ── Admin context передаётся с фронта (загружен из Firebase клиентом) ──
         let adminContextBlock = '';
@@ -489,6 +513,9 @@ JSON формат:
                 trendDetail: parsed.trendDetail || '',
                 signalStrength: strength,
                 activation: parsed.activation || null,
+                horizon: parsed.horizon || null,
+                holdTime: parsed.holdTime || null,
+                holdAdvice: parsed.holdAdvice || null,
                 longPct: lp,
                 shortPct: sp,
                 long: parsed.long || { entry: null, target: null, stop: null },
@@ -505,6 +532,9 @@ JSON формат:
                 trendDetail: parsed.trendDetail || '',
                 signalStrength: parsed.signalStrength || (diff >= 20 ? 'strong' : diff >= 10 ? 'weak' : 'neutral'),
                 activation: parsed.activation || null,
+                horizon: parsed.horizon || null,
+                holdTime: parsed.holdTime || null,
+                holdAdvice: parsed.holdAdvice || null,
                 longPct: lp,
                 shortPct: sp,
                 long: parsed.long || { entry: null, target: null, stop: null },
@@ -518,6 +548,9 @@ JSON формат:
                 trendDetail: '',
                 signalStrength: 'neutral',
                 activation: null,
+                horizon: null,
+                holdTime: null,
+                holdAdvice: null,
                 longPct: 50,
                 shortPct: 50,
                 long: { entry: null, target: null, stop: null },
@@ -526,8 +559,10 @@ JSON формат:
         }
 
         // Сохраняем в кэш
-        cacheSet(cacheKey, result, AI_CACHE_TTL);
-        console.log(`💾 AI Scanner cached: ${cacheKey} (TTL ${AI_CACHE_TTL / 1000}s)`);
+        const aiCacheTtl = getAiCacheTtl(ctx.timeframe);
+        result.cachedAt = Date.now();
+        cacheSet(cacheKey, result, aiCacheTtl);
+        console.log(`💾 AI Scanner cached: ${cacheKey} (TTL ${aiCacheTtl / 1000}s)`);
 
         // ── Увеличиваем счётчик сканов для Free-пользователей ──
         if (uid && uid !== ADMIN_UID && !proUser) {
@@ -2045,7 +2080,7 @@ app.listen(PORT, () => {
 
     // Серверная проверка пользовательских алертов каждые 30 сек
     if (adminDb) {
-        setInterval(checkUserAlerts, 30 * 1000);
+        setInterval(checkUserAlerts, 10 * 1000);
         checkUserAlerts();
         console.log('🔔 Серверные алерты активны · каждые 30 сек');
     }

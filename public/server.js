@@ -267,11 +267,37 @@ app.get('/api/translate', async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
-const AI_MODEL = 'openai/gpt-5.4';
-const AI_CACHE_TTL = 10 * 60 * 1000; // 10 минут
+const AI_MODEL = 'anthropic/claude-sonnet-4-6';
+function getAiCacheTtl(timeframe) {
+    if (timeframe === '1H') return 10 * 60 * 1000;   // 10 минут
+    if (timeframe === '4H') return 30 * 60 * 1000;   // 30 минут
+    return 60 * 60 * 1000;                             // 1D → 1 час
+}
 
 app.post('/api/ai-scan', async (req, res) => {
     try {
+        // ── Авторизация ──
+        const token = getToken(req);
+        if (!token) return res.status(401).json({ error: 'Unauthorized' });
+        let uid;
+        try {
+            const parts = token.split('.');
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+            uid = payload.sub || payload.user_id;
+            if (!uid) throw new Error('no uid');
+        } catch(e) { return res.status(401).json({ error: 'Invalid token' }); }
+
+        // ── Проверка лимитов (пропускаем для админа и PRO) ──
+        const isAdminReq = uid === ADMIN_UID;
+        const proUser = isAdminReq ? true : await _isPro(uid);
+
+        if (!isAdminReq && !proUser) {
+            const limits = _getFreeLimits(uid);
+            if (limits.scanCount >= FREE_SCAN_LIMIT) {
+                return res.status(429).json({ error: 'limit', type: 'scan_limit', used: limits.scanCount, max: FREE_SCAN_LIMIT });
+            }
+        }
+
         const ctx = req.body;
         if (!ctx || !ctx.coin || !ctx.currentPrice) {
             return res.status(400).json({ error: 'Missing context data' });
@@ -343,8 +369,18 @@ Rules:
 - "signalStrength" — "strong" if |longPct - shortPct| >= 20, "weak" if 10-19, "neutral" if < 10. This determines how the UI displays the result.
 - "activation" — ONLY when signalStrength is "neutral" or "weak": describe what must happen for a clear signal. Example: {"long": "Price must close above $67,500 (3+ candles)", "short": "Price must close below $65,800 (3+ candles)"}. When signalStrength is "strong", set activation to null.
 
+5. TRADE HORIZON — determined by timeframe, MANDATORY:
+The timeframe defines the trading horizon. This MUST affect your target/stop/hold recommendations:
+- 1H = SCALP: target 1-2% from entry, stop 0.5-1%. Hold time: 1-4 hours. If price doesn't move toward target within 1-2 hours — exit at breakeven.
+- 4H = INTRADAY: target 2-4% from entry, stop 1-2%. Hold time: 4-24 hours. If price doesn't move within 6-8 hours — exit at breakeven.
+- 1D = SWING: target 3-8% from entry, stop 2-3%. Hold time: 2-7 days. If price doesn't move within 3 days — exit at breakeven or small loss.
+Return these fields:
+- "horizon" — "scalp" for 1H, "intraday" for 4H, "swing" for 1D
+- "holdTime" — specific expected hold duration. Examples: "1-2 hours", "8-12 hours", "3-5 days"
+- "holdAdvice" — one sentence: what to do if price doesn't move. Example: "If price hasn't reached $68,000 within 2 hours — close at breakeven, don't wait for stop"
+
 JSON format:
-{"situation": "what is happening", "verdict": "what it means", "trendLabel": "Bearish impulse", "trendDetail": "-26.6% from ATH", "signalStrength": "strong", "activation": null, "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
+{"situation": "what is happening", "verdict": "what it means", "trendLabel": "Bearish impulse", "trendDetail": "-26.6% from ATH", "signalStrength": "strong", "activation": null, "horizon": "swing", "holdTime": "3-5 days", "holdAdvice": "If no move above $70K in 3 days — exit at breakeven", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`
 
             : `Ты криптотрейдер-аналитик. Пользователь шлёт расширенные рыночные данные. Дай КОНКРЕТНЫЙ анализ.
 
@@ -400,8 +436,18 @@ JSON format:
 - "signalStrength" — "strong" если |longPct - shortPct| >= 20, "weak" если 10-19, "neutral" если < 10. Определяет как UI показывает результат.
 - "activation" — ТОЛЬКО когда signalStrength = "neutral" или "weak": опиши что должно случиться для чёткого сигнала. Пример: {"long": "Цена должна закрепиться выше $67,500 (3+ свечи)", "short": "Цена должна закрепиться ниже $65,800 (3+ свечи)"}. Когда signalStrength = "strong", ставь activation = null.
 
+5. ГОРИЗОНТ СДЕЛКИ — определяется таймфреймом, ОБЯЗАТЕЛЬНО:
+Таймфрейм определяет горизонт торговли. Это ДОЛЖНО влиять на target/stop/hold:
+- 1H = СКАЛЬПИНГ: цель 1-2% от entry, стоп 0.5-1%. Удержание: 1-4 часа. Если за 1-2 часа цена не двинулась к цели — выходи в ноль.
+- 4H = ИНТРАДЕЙ: цель 2-4% от entry, стоп 1-2%. Удержание: 4-24 часа. Если за 6-8 часов нет движения — выходи в ноль.
+- 1D = СВИНГ: цель 3-8% от entry, стоп 2-3%. Удержание: 2-7 дней. Если за 3 дня нет движения — выходи в ноль или небольшой минус.
+Верни эти поля:
+- "horizon" — "scalp" для 1H, "intraday" для 4H, "swing" для 1D
+- "holdTime" — конкретное ожидаемое время удержания. Примеры: "1-2 часа", "8-12 часов", "3-5 дней"
+- "holdAdvice" — одно предложение: что делать если цена не движется. Пример: "Если цена не дошла до $68,000 за 2 часа — закрой в ноль, не жди стоп"
+
 JSON формат:
-{"situation": "что происходит", "verdict": "что это значит", "trendLabel": "Медвежий импульс", "trendDetail": "–26.6% от ATH", "signalStrength": "strong", "activation": null, "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
+{"situation": "что происходит", "verdict": "что это значит", "trendLabel": "Медвежий импульс", "trendDetail": "–26.6% от ATH", "signalStrength": "strong", "activation": null, "horizon": "swing", "holdTime": "3-5 дней", "holdAdvice": "Если за 3 дня нет движения выше $70K — выходи в ноль", "longPct": 35, "shortPct": 65, "long": {"entry": "69000", "target": "74000", "stop": "64000"}, "short": {"entry": "64000", "target": "60000", "stop": "68000"}}`;
 
         // ── Admin context передаётся с фронта (загружен из Firebase клиентом) ──
         let adminContextBlock = '';
@@ -411,15 +457,6 @@ JSON формат:
                 : '\n\nКОНТЕКСТ АНАЛИТИКА (профессиональный трейдер, ВЫСОКИЙ ПРИОРИТЕТ):\n' + ctx.adminContext + '\n\nВАЖНО: Сопоставь currentPrice с уровнями пробоя и определи текущий статус.';
             console.log('📌 Admin context received: ' + ctx.adminContext.slice(0, 80));
             delete ctx.adminContext;
-        }
-
-        // ── BTC anchor admin context для альткоинов ──
-        if (ctx.btcAdminContext) {
-            adminContextBlock += lang === 'en'
-                ? '\n\nBTC ANCHOR CONTEXT (BTC is the anchor asset — its state affects ALL altcoins, HIGH PRIORITY):\n' + ctx.btcAdminContext
-                : '\n\nЯКОРНЫЙ КОНТЕКСТ BTC (BTC — якорный актив, его состояние влияет на ВСЕ альткоины, ВЫСОКИЙ ПРИОРИТЕТ):\n' + ctx.btcAdminContext;
-            console.log('📌 BTC anchor context received: ' + ctx.btcAdminContext.slice(0, 80));
-            delete ctx.btcAdminContext;
         }
 
         // Собираем пользовательское сообщение — передаём данные как JSON
@@ -476,6 +513,9 @@ JSON формат:
                 trendDetail: parsed.trendDetail || '',
                 signalStrength: strength,
                 activation: parsed.activation || null,
+                horizon: parsed.horizon || null,
+                holdTime: parsed.holdTime || null,
+                holdAdvice: parsed.holdAdvice || null,
                 longPct: lp,
                 shortPct: sp,
                 long: parsed.long || { entry: null, target: null, stop: null },
@@ -492,6 +532,9 @@ JSON формат:
                 trendDetail: parsed.trendDetail || '',
                 signalStrength: parsed.signalStrength || (diff >= 20 ? 'strong' : diff >= 10 ? 'weak' : 'neutral'),
                 activation: parsed.activation || null,
+                horizon: parsed.horizon || null,
+                holdTime: parsed.holdTime || null,
+                holdAdvice: parsed.holdAdvice || null,
                 longPct: lp,
                 shortPct: sp,
                 long: parsed.long || { entry: null, target: null, stop: null },
@@ -505,6 +548,9 @@ JSON формат:
                 trendDetail: '',
                 signalStrength: 'neutral',
                 activation: null,
+                horizon: null,
+                holdTime: null,
+                holdAdvice: null,
                 longPct: 50,
                 shortPct: 50,
                 long: { entry: null, target: null, stop: null },
@@ -513,8 +559,18 @@ JSON формат:
         }
 
         // Сохраняем в кэш
-        cacheSet(cacheKey, result, AI_CACHE_TTL);
-        console.log(`💾 AI Scanner cached: ${cacheKey} (TTL ${AI_CACHE_TTL / 1000}s)`);
+        const aiCacheTtl = getAiCacheTtl(ctx.timeframe);
+        result.cachedAt = Date.now();
+        cacheSet(cacheKey, result, aiCacheTtl);
+        console.log(`💾 AI Scanner cached: ${cacheKey} (TTL ${aiCacheTtl / 1000}s)`);
+
+        // ── Увеличиваем счётчик сканов для Free-пользователей ──
+        if (uid && uid !== ADMIN_UID && !proUser) {
+            const limits = _getFreeLimits(uid);
+            limits.scanCount++;
+            console.log(`📊 Free scan used: ${uid} → ${limits.scanCount}/${FREE_SCAN_LIMIT}`);
+        }
+
         res.json(result);
 
     } catch (e) {
@@ -527,6 +583,71 @@ JSON формат:
 // ADMIN CONTEXT — контекст аналитика для AI-сканера
 // ══════════════════════════════════════════════════════════════
 const ADMIN_UID = process.env.ADMIN_UID;
+
+// ══════════════════════════════════════════════════════════════
+// ПОДПИСКА PRO — лимиты и NOWPayments
+// ══════════════════════════════════════════════════════════════
+const NOWPAY_API_KEY  = process.env.NOWPAY_API_KEY;
+const NOWPAY_IPN_SECRET = process.env.NOWPAY_IPN_SECRET;
+
+// Дневные лимиты Free-пользователей (хранятся в памяти, сбрасываются при рестарте)
+// Структура: uid → { scanCount, scanDate, chatSessions: { sessionKey → count } }
+const _freeLimits = new Map();
+
+const FREE_SCAN_LIMIT = 3;
+const FREE_CHAT_LIMIT = 3;
+const PRO_CHAT_LIMIT  = 7;
+
+function _todayUtc() {
+    return new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+}
+
+function _getFreeLimits(uid) {
+    const today = _todayUtc();
+    let entry = _freeLimits.get(uid);
+    if (!entry || entry.scanDate !== today) {
+        entry = { scanCount: 0, scanDate: today, chatSessions: {} };
+        _freeLimits.set(uid, entry);
+    }
+    return entry;
+}
+
+// Проверка подписки PRO через Firestore Admin SDK
+async function _isPro(uid) {
+    if (!adminDb) return false;
+    try {
+        const doc = await adminDb.collection('subscriptions').doc(uid).get();
+        if (!doc.exists) return false;
+        const data = doc.data();
+        return data.proUntil && data.proUntil > Date.now();
+    } catch(e) {
+        // Если Firestore недоступен — не ломаем, просто возвращаем false
+        console.warn('_isPro Firestore error (treating as Free):', e.message.slice(0, 60));
+        return false;
+    }
+}
+
+// Middleware: верифицировать токен и вернуть uid
+async function requireAuth(req, res, next) {
+    const token = getToken(req);
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        // Всегда декодируем JWT напрямую (быстро, без сетевых запросов)
+        const parts = token.split('.');
+        if (parts.length !== 3) return res.status(401).json({ error: 'Invalid token' });
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+        const uid = payload.sub || payload.user_id;
+        if (!uid) return res.status(401).json({ error: 'Invalid token' });
+        // Проверяем expiry
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+            return res.status(401).json({ error: 'Token expired' });
+        }
+        req.uid = uid;
+        next();
+    } catch(e) {
+        res.status(401).json({ error: 'Invalid token' });
+    }
+}
 
 function verifyAdmin(req) {
     const auth = req.headers.authorization;
@@ -704,6 +825,35 @@ app.delete('/api/admin/context/:coinId/:id', async (req, res) => {
 // ── AI Chat — диалог на основе анализа ──────────────────────
 app.post('/api/ai-chat', async (req, res) => {
     try {
+        // ── Авторизация ──
+        const token = getToken(req);
+        if (!token) return res.status(401).json({ error: 'Unauthorized' });
+        let uid;
+        try {
+            const parts = token.split('.');
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+            uid = payload.sub || payload.user_id;
+            if (!uid) throw new Error('no uid');
+        } catch(e) { return res.status(401).json({ error: 'Invalid token' }); }
+
+        // ── Проверка лимитов чата ──
+        const isAdminReq = uid === ADMIN_UID;
+        const proUser = isAdminReq ? true : await _isPro(uid);
+        const chatLimit = proUser ? PRO_CHAT_LIMIT : FREE_CHAT_LIMIT;
+
+        if (!isAdminReq && !proUser) {
+            const { sessionKey } = req.body;
+            if (sessionKey) {
+                const limits = _getFreeLimits(uid);
+                const chatCount = limits.chatSessions[sessionKey] || 0;
+                if (chatCount >= FREE_CHAT_LIMIT) {
+                    return res.status(429).json({ error: 'limit', type: 'chat_limit', used: chatCount, max: FREE_CHAT_LIMIT });
+                }
+                // Увеличиваем счётчик
+                limits.chatSessions[sessionKey] = chatCount + 1;
+            }
+        }
+
         const { messages, lang } = req.body;
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
             return res.status(400).json({ error: 'Missing messages' });
@@ -1761,6 +1911,154 @@ app.delete('/api/user/alerts/:coin', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ══════════════════════════════════════════════════════════════
+// ПЛАТЁЖНАЯ СИСТЕМА — NOWPayments
+// ══════════════════════════════════════════════════════════════
+
+// POST /api/pay/create — создать invoice через NOWPayments
+app.post('/api/pay/create', requireAuth, async (req, res) => {
+    try {
+        const uid = req.uid;
+        if (!NOWPAY_API_KEY) return res.status(503).json({ error: 'Payment system not configured' });
+
+        const body = {
+            price_amount: 15,
+            price_currency: 'usd',
+            order_id: uid,
+            order_description: 'Thinking Trader PRO — 30 days',
+            ipn_callback_url: 'https://www.thinkingtrader.com/api/pay/webhook',
+            success_url: 'https://www.thinkingtrader.com/app',
+            cancel_url: 'https://www.thinkingtrader.com/app',
+            is_fixed_rate: false,
+            is_fee_paid_by_user: false,
+        };
+
+        const nowRes = await fetch('https://api.nowpayments.io/v1/invoice', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': NOWPAY_API_KEY,
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15000),
+        });
+
+        if (!nowRes.ok) {
+            const errBody = await nowRes.text();
+            console.error('❌ NOWPayments invoice error:', nowRes.status, errBody);
+            return res.status(502).json({ error: 'Payment provider error' });
+        }
+
+        const data = await nowRes.json();
+        console.log(`💳 Invoice created for uid=${uid}: id=${data.id}`);
+        res.json({ invoice_url: data.invoice_url, invoice_id: data.id });
+
+    } catch(e) {
+        console.error('❌ /api/pay/create error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/pay/webhook — колбэк от NOWPayments
+// Используем raw body для верификации подписи
+app.post('/api/pay/webhook', express.json({ type: '*/*' }), async (req, res) => {
+    try {
+        if (!NOWPAY_IPN_SECRET) {
+            console.warn('⚠️ NOWPAY_IPN_SECRET не задан — webhook принят без верификации');
+        } else {
+            // Верифицируем HMAC-SHA512 подпись
+            const sig = req.headers['x-nowpayments-sig'];
+            if (!sig) return res.status(400).json({ error: 'Missing signature' });
+
+            const crypto = require('crypto');
+            // Сортируем ключи тела для HMAC
+            const sortedBody = JSON.stringify(sortObjectKeys(req.body));
+            const expected = crypto.createHmac('sha512', NOWPAY_IPN_SECRET)
+                .update(sortedBody)
+                .digest('hex');
+
+            if (sig !== expected) {
+                console.warn('⚠️ NOWPayments webhook: signature mismatch');
+                return res.status(401).json({ error: 'Invalid signature' });
+            }
+        }
+
+        const { payment_status, order_id, payment_id, pay_amount, pay_currency } = req.body;
+        console.log(`💳 Webhook received: status=${payment_status}, order_id=${order_id}, payment_id=${payment_id}`);
+
+        if (payment_status === 'finished' || payment_status === 'confirmed') {
+            const uid = order_id;
+            if (!uid) return res.status(400).json({ error: 'Missing order_id' });
+
+            if (adminDb) {
+                const proUntil = Date.now() + 30 * 24 * 60 * 60 * 1000; // +30 дней
+                await adminDb.collection('subscriptions').doc(uid).set({
+                    proUntil,
+                    paymentId: String(payment_id || ''),
+                    paidAt: Date.now(),
+                    payAmount: pay_amount || null,
+                    payCurrency: pay_currency || null,
+                });
+                console.log(`✅ PRO activated: uid=${uid}, proUntil=${new Date(proUntil).toISOString()}`);
+            } else {
+                console.warn('⚠️ adminDb not available — cannot save subscription');
+            }
+        }
+
+        res.status(200).json({ ok: true });
+    } catch(e) {
+        console.error('❌ /api/pay/webhook error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+function sortObjectKeys(obj) {
+    if (typeof obj !== 'object' || obj === null) return obj;
+    if (Array.isArray(obj)) return obj.map(sortObjectKeys);
+    return Object.keys(obj).sort().reduce((acc, k) => {
+        acc[k] = sortObjectKeys(obj[k]);
+        return acc;
+    }, {});
+}
+
+// GET /api/pay/status — статус подписки пользователя
+app.get('/api/pay/status', requireAuth, async (req, res) => {
+    try {
+        const uid = req.uid;
+        let isPro = false;
+        let proUntil = null;
+
+        if (adminDb) {
+            try {
+                const doc = await adminDb.collection('subscriptions').doc(uid).get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    proUntil = data.proUntil || null;
+                    isPro = proUntil && proUntil > Date.now();
+                }
+            } catch(e) {
+                console.warn('pay/status Firestore error (continuing):', e.message.slice(0, 60));
+                // Firestore недоступен — отдаём Free статус, не ломаем ответ
+            }
+        }
+
+        const limits = _getFreeLimits(uid);
+        const isAdm = uid === ADMIN_UID;
+
+        res.json({
+            isPro: isAdm || !!isPro,
+            isAdmin: isAdm,
+            proUntil: isPro ? proUntil : null,
+            scansUsed: limits.scanCount,
+            scansLimit: FREE_SCAN_LIMIT,
+            chatLimit: (isAdm || isPro) ? PRO_CHAT_LIMIT : FREE_CHAT_LIMIT,
+        });
+    } catch(e) {
+        console.error('❌ /api/pay/status error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ── Запуск ─────────────────────────────────────────────────────
 
 
@@ -1782,7 +2080,7 @@ app.listen(PORT, () => {
 
     // Серверная проверка пользовательских алертов каждые 30 сек
     if (adminDb) {
-        setInterval(checkUserAlerts, 30 * 1000);
+        setInterval(checkUserAlerts, 10 * 1000);
         checkUserAlerts();
         console.log('🔔 Серверные алерты активны · каждые 30 сек');
     }

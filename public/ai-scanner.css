@@ -101,7 +101,7 @@
     top: 6px;
     right: 128px;
     z-index: 1000;
-    width: 380px;
+    width: 450px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -122,7 +122,8 @@
     width: 100%;
     border-radius: 6px;
     overflow: hidden;
-
+    display: flex;
+    flex-direction: column;
     background: #1E222D;
     border: 1px solid #2A2E39;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
@@ -253,8 +254,16 @@
 }
 
 /* ── Текст анализа ───────────────────────────────────────────── */
+/* trend и scale — фиксированы, не скроллятся */
+.ai-tt-trend {
+    flex-shrink: 0;
+}
+.ai-tt-scale {
+    flex-shrink: 0;
+}
+
 .ai-tt-text {
-    padding: 9px 0 4px;
+    padding: 0;
     font-size: 12px;
     color: #B2B5BE;
     line-height: 1.55;
@@ -262,9 +271,30 @@
     border-left: none;
     margin: 0;
     transition: border-color 0.4s ease;
-    max-height: 280px;
+    max-height: 240px;
     overflow-y: auto;
+    flex-shrink: 1;
+    min-height: 0;
 }
+
+/* Scrollbar — thin, signal-colored */
+.ai-tt-text::-webkit-scrollbar { width: 3px; }
+.ai-tt-text::-webkit-scrollbar-track { background: transparent; }
+.ai-tt-text::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+.ai-tt-text { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+
+/* Signal-dependent scrollbar colors */
+.signal-short .ai-tt-text::-webkit-scrollbar-thumb { background: rgba(239,83,80,0.4); }
+.signal-short .ai-tt-text { scrollbar-color: rgba(239,83,80,0.4) transparent; }
+
+.signal-long .ai-tt-text::-webkit-scrollbar-thumb { background: rgba(38,166,154,0.4); }
+.signal-long .ai-tt-text { scrollbar-color: rgba(38,166,154,0.4) transparent; }
+
+.signal-neutral .ai-tt-text::-webkit-scrollbar-thumb { background: rgba(251,191,36,0.4); }
+.signal-neutral .ai-tt-text { scrollbar-color: rgba(251,191,36,0.4) transparent; }
+
+.signal-loading .ai-tt-text::-webkit-scrollbar-thumb { background: rgba(41,98,255,0.4); }
+.signal-loading .ai-tt-text { scrollbar-color: rgba(41,98,255,0.4) transparent; }
 
 .signal-loading .ai-tt-text { border-left-color: rgba(41, 98, 255, 0.45); }
 
@@ -273,34 +303,12 @@
     margin: 0 10px 8px;
 }
 
-/* ── Footer ─────────────────────────────────────────────────── */
-.ai-tt-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 5px 10px 6px;
-    border-top: 1px solid #2A2E39;
-}
+/* ── Footer — removed, coin pair moved to header ────────────── */
 
-.ai-tt-footer span:first-child {
-    font-size: 8px;
-    color: #4A4E59;
-    letter-spacing: 0.5px;
-    font-weight: 600;
-}
-
-.ai-tt-price {
-    font-size: 9px;
-    color: #758696;
-    transition: color 0.4s ease;
-}
-
-.signal-loading .ai-tt-price { color: rgba(41, 98, 255, 0.45); }
-
-/* ── Info (i) button + disclaimer popup ─────────────────────── */
+/* ── Spinner ─────────────────────────────────────────────────── */
 .ai-tt-info-wrap {
     position: relative;
-    margin-left: auto;
+    margin-left: 0;
 }
 
 .ai-tt-info-btn {
@@ -631,15 +639,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
     width: calc(100% - 20px);
-    margin: 0 10px 10px;
-    padding: 8px 0;
-    background: rgba(41,98,255,0.08);
-    border: 1px solid rgba(41,98,255,0.25);
-    border-radius: 8px;
+    margin: 4px 10px 6px;
+    padding: 5px 0;
+    background: rgba(41,98,255,0.06);
+    border: 1px solid rgba(41,98,255,0.2);
+    border-radius: 6px;
     color: #B2B5BE;
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 500;
     cursor: pointer;
     text-align: center;
@@ -654,8 +662,8 @@
     flex-direction: column;
     position: absolute;
     top: 0;
-    left: calc(-380px - 6px);
-    width: 380px;
+    left: calc(-450px - 6px);
+    width: 450px;
     border-radius: 6px;
     border: 1px solid transparent;
     background:
