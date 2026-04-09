@@ -782,7 +782,7 @@ async function translateToEn(text) {
 function invalidateContextCache(coinId) {
     ['1D', '4H', '1H'].forEach(tf => {
         ['ru', 'en'].forEach(lang => {
-            const key = `ai:v2:${coinId}/USDT:${tf}:${lang}`;
+            const key = `ai:v3:${symbol}:${tf}:${lang}`;
             cache.delete(key);
             console.log(`🗑️ Cache invalidated: ${key}`);
         });
