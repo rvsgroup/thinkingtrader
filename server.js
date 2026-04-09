@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const path    = require('path');
+const ClusterAnalyzer = require('./cluster-analyzer');
 
 // ── Firebase Admin (для серверной проверки алертов) ────────────
 let adminDb   = null;
@@ -313,6 +314,55 @@ app.post('/api/ai-scan', async (req, res) => {
 
         const lang = ctx.lang === 'en' ? 'en' : 'ru';
 
+        // ── Кластерный анализ объёмов возле уровней ──
+        let clusterDebug = null;
+        try {
+            if (ctx.levels && ctx.levels.support && ctx.levels.resistance) {
+                const binanceSymbol = ctx.coin.replace('/', '');
+
+                const clusterResult = await ClusterAnalyzer.analyze({
+                    symbol: binanceSymbol,
+                    timeframe: ctx.timeframe,
+                    support: ctx.levels.support,
+                    resistance: ctx.levels.resistance,
+                    currentPrice: ctx.currentPrice,
+                    fetchCandles: async (sym, interval, limit) => {
+                        const clusterCacheKey = `cluster-candles:${sym}:${interval}:${limit}`;
+                        const cachedCandles = cacheGet(clusterCacheKey);
+                        if (cachedCandles) {
+                            console.log(`  ♻️ Cluster candles from cache: ${clusterCacheKey}`);
+                            return cachedCandles;
+                        }
+                        const data = await proxyFetch(
+                            `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`
+                        );
+                        const candleTtl = interval === '4h' ? 15*60*1000
+                                        : interval === '1h' ? 5*60*1000
+                                        : 3*60*1000;
+                        cacheSet(clusterCacheKey, data, candleTtl);
+                        console.log(`  📥 Cluster candles loaded: ${sym} ${interval} x${data.length} (TTL ${candleTtl/1000}s)`);
+                        return data;
+                    },
+                });
+
+                if (clusterResult && clusterResult.scenario !== 'no_level_nearby') {
+                    ctx.clusterAnalysis = clusterResult;
+                    clusterDebug = clusterResult;
+                    console.log(`📊 Cluster analysis:`);
+                    console.log(`   Level: ${clusterResult.nearLevel} @ $${clusterResult.levelPrice}`);
+                    console.log(`   Scenario: ${clusterResult.scenario}`);
+                    console.log(`   Candles in zone: ${clusterResult.candlesInZone} / ${clusterResult.totalCandlesLoaded} loaded`);
+                    console.log(`   Volume: bottom ${clusterResult.bottomVolumeAvg}% | mid ${clusterResult.middleVolumeAvg}% | top ${clusterResult.topVolumeAvg}%`);
+                    console.log(`   Concentration: ${clusterResult.concentration}`);
+                    console.log(`   Volume trend: ${clusterResult.volumeTrend}`);
+                    console.log(`   Interpretation: ${clusterResult.interpretation}`);
+                    console.log(`   Consecutive at level: ${clusterResult.consecutiveNearLevel}`);
+                }
+            }
+        } catch (e) {
+            console.warn('⚠️ Cluster analysis error (non-fatal):', e.message);
+        }
+
         // Собираем системный промпт (v3 — enriched data)
         const systemPrompt = lang === 'en'
             ? `You are a crypto trader analyst. User sends enriched market data. Give a SPECIFIC analysis.
@@ -338,12 +388,22 @@ Data includes:
 - patterns — candlestick patterns from last 20 candles with winRate and result
 - anchorData (for 4H/1H only) — 1D levels, keyPoints, priceProfile, heavyZones. 1D data shows the BIG picture; local TF shows the current move
 - btcAnchor (for altcoins only) — BTC 1D data: price, levels, keyPoints, volatility, top heavyZones. BTC is the ANCHOR ASSET for the entire crypto market. If BTC is falling or breaking support — altcoins will likely follow DOWN regardless of their own technicals. If BTC is rising or breaking resistance — altcoins get a tailwind. ALWAYS factor BTC state into your altcoin analysis. If BTC signals conflict with the altcoin's own signals — BTC takes priority.
+- clusterAnalysis (if present) — VOLUME CLUSTER ANALYSIS near the nearest level. Distribution of volume INSIDE candles of the lower timeframe near support/resistance. VERY IMPORTANT for breakout/rejection prediction:
+  * "nearLevel" — which level is analyzed (resistance or support)
+  * "concentration" — where volume is concentrated: "bottom" (lower 30% of candles), "top" (upper 30%), "mixed" (no clear bias)
+  * "interpretation" — ready verdict:
+    AT RESISTANCE: concentration="bottom" → buyers pushing → breakout likely. concentration="top" → sellers holding → rejection likely.
+    AT SUPPORT: concentration="bottom" → buyers holding → bounce likely. concentration="top" → sellers pushing → breakdown likely.
+  * "volumeTrend" — "buyers_increasing" = buying pressure growing. "buyers_decreasing" = weakening.
+  * "consecutiveNearLevel" — how many recent candles stuck at the level. More = stronger test.
+  * "scenario" — testing_from_below, testing_from_above, breakout_not_confirmed, breakout_confirmed
+  USE clusterAnalysis to ADJUST longPct/shortPct by ±5-10%. If it confirms pricePosition — strengthen. If contradicts — weaken. Describe cluster findings in "situation" using HUMAN LANGUAGE (e.g. "volume clusters show buyers pushing at resistance"), NEVER use field names.
 
 Answer format — 3 parts:
 
 1. "situation" — What is ACTUALLY happening (2-3 sentences).
-   Describe: cycle phase (growth/peak/decline/bottom) from priceProfile, specific prices (where price came from, where it is now), what heavyZones tell us (price in accumulation zone or not), volatility compression/expansion. MUST mention pricePosition and what it means.
-   Good: "BTC completed a cycle: from $28K to ATH $126K, then crashed 47% to $67K. Price is trapped inside the heaviest volume zone $65.4K-$70.5K (13.8% of all volume), volatility compressing — average candle shrinking from 4% to 3.2%."
+   Describe: cycle phase (growth/peak/decline/bottom), specific prices (where price came from, where it is now), what volume zones tell us (price in accumulation zone or not), volatility compression/expansion, and where price is relative to the channel (near support, near resistance, middle, breakout etc). If cluster analysis data is present — describe what buyers/sellers are doing near the level.
+   Good: "BTC completed a cycle: from $28K to ATH $126K, then crashed 47% to $67K. Price is trapped inside the heaviest volume zone $65.4K-$70.5K (13.8% of all volume), volatility compressing — average candle shrinking from 4% to 3.2%. Volume clusters show buyers actively supporting price below resistance."
    Bad: "Price in range, weak trend."
 
 2. "verdict" — What it means (1 sentence).
@@ -353,6 +413,7 @@ Answer format — 3 parts:
 3. Probabilities and levels — Long %, Short %, entry/target/stop for both.
 
 Rules:
+- CRITICAL — HUMAN LANGUAGE ONLY: NEVER use internal field names, variable names, or technical identifiers in "situation", "verdict", "trendLabel", "trendDetail", "holdAdvice" or ANY user-facing text. Forbidden examples: "pricePosition = inside_near_resistance", "clusterAnalysis", "heavyZones", "priceProfile", "anchorData", "suggestedLevels", "inside_channel_middle", "failed_breakout_up", "buyers_pushing_breakout_likely". Instead write in natural trader language: "price is near resistance", "volume clusters show buyers pushing", "major volume zone at $65K-$70K". The user must NEVER see code or JSON field names.
 - ANALYSIS HIERARCHY — follow this order strictly:
   LEVEL 1 (KING): pricePosition determines the direction. The percentages above are HARD MINIMUMS. If pricePosition = "inside_channel_middle" — you MUST set longPct=50, shortPct=50, signalStrength="neutral". No patterns, volumes, or trends can override this. The trader should NOT enter.
   LEVEL 2: Global context (keyPoints, 900-day history) can STRENGTHEN or WEAKEN a signal from Level 1, but NEVER flip it. Example: "inside_near_support" gives longPct=60%, but global downtrend weakens it to 55%. It can NEVER turn it into shortPct>50%.
@@ -414,12 +475,22 @@ JSON format:
 - patterns — свечные паттерны за последние 20 свечей с winRate и результатом
 - anchorData (только для 4H/1H) — 1D уровни, keyPoints, priceProfile, heavyZones. 1D данные показывают ГЛОБАЛЬНУЮ картину; локальный TF показывает текущее движение
 - btcAnchor (только для альткоинов) — 1D данные BTC: цена, уровни, keyPoints, волатильность, топ объёмных зон. BTC — ЯКОРНЫЙ АКТИВ для всего крипторынка. Если BTC падает или пробивает поддержку — альткоины скорее всего пойдут ВНИЗ вне зависимости от своих собственных технических данных. Если BTC растёт или пробивает сопротивление — альткоины получают попутный ветер. ВСЕГДА учитывай состояние BTC при анализе альткоинов. Если сигналы BTC противоречат сигналам альткоина — BTC имеет приоритет.
+- clusterAnalysis (если есть) — КЛАСТЕРНЫЙ АНАЛИЗ ОБЪЁМОВ возле ближайшего уровня. Распределение объёма ВНУТРИ свечей младшего таймфрейма возле поддержки/сопротивления. ОЧЕНЬ ВАЖНО для прогноза пробоя/отскока:
+  * "nearLevel" — какой уровень анализируется (resistance или support)
+  * "concentration" — где сконцентрирован объём: "bottom" (нижние 30% свечей), "top" (верхние 30%), "mixed" (нет перевеса)
+  * "interpretation" — готовый вердикт:
+    У СОПРОТИВЛЕНИЯ: concentration="bottom" → покупатели давят → пробой вероятен. concentration="top" → продавцы держат → отскок вероятен.
+    У ПОДДЕРЖКИ: concentration="bottom" → покупатели удерживают → отскок вверх. concentration="top" → продавцы давят → пробой вниз.
+  * "volumeTrend" — "buyers_increasing" = давление покупателей нарастает. "buyers_decreasing" = ослабевает.
+  * "consecutiveNearLevel" — сколько последних свечей подряд у уровня. Больше = сильнее тест.
+  * "scenario" — testing_from_below, testing_from_above, breakout_not_confirmed, breakout_confirmed
+  ИСПОЛЬЗУЙ clusterAnalysis для КОРРЕКТИРОВКИ longPct/shortPct на ±5-10%. Если подтверждает сигнал — усиль. Если противоречит — ослабь. Описывай выводы кластеров в "situation" ЧЕЛОВЕЧЕСКИМ ЯЗЫКОМ (напр. "объёмы у сопротивления показывают давление покупателей"), НИКОГДА не используй названия полей.
 
 Формат ответа — 3 части:
 
 1. "situation" — Что РЕАЛЬНО происходит (2-3 предложения).
-   Опиши: фазу цикла (рост/пик/падение/дно) на основе priceProfile, конкретные цены (откуда пришла цена, где сейчас), что говорят объёмные зоны heavyZones (цена в зоне накопления или нет), волатильность сжимается или расширяется. ОБЯЗАТЕЛЬНО упомяни pricePosition и что он означает.
-   Пример хорошо: "BTC завершил цикл: с $28K до ATH $126K, затем обвал на 47% до $67K. Цена зажата внутри самой тяжёлой объёмной зоны $65.4K-$70.5K (13.8% всего объёма), волатильность сжимается — средняя свеча уменьшается с 4% до 3.2%."
+   Опиши: фазу цикла (рост/пик/падение/дно), конкретные цены (откуда пришла цена, где сейчас), что говорят объёмные зоны (цена в зоне накопления или нет), волатильность сжимается или расширяется, и где цена относительно коридора (у поддержки, у сопротивления, в середине, пробой и т.д.). Если есть данные кластерного анализа — опиши что делают покупатели/продавцы возле уровня.
+   Пример хорошо: "BTC завершил цикл: с $28K до ATH $126K, затем обвал на 47% до $67K. Цена зажата внутри самой тяжёлой объёмной зоны $65.4K-$70.5K (13.8% всего объёма), волатильность сжимается. Объёмы у сопротивления показывают давление покупателей — пробой вероятен."
    Пример плохо: "Цена в диапазоне, тренд слабый."
 
 2. "verdict" — Что это значит (1 предложение).
@@ -429,6 +500,7 @@ JSON format:
 3. Вероятности и уровни — Long %, Short %, вход/цель/стоп для обоих.
 
 Правила:
+- КРИТИЧНО — ТОЛЬКО ЧЕЛОВЕЧЕСКИЙ ЯЗЫК: НИКОГДА не используй в "situation", "verdict", "trendLabel", "trendDetail", "holdAdvice" или ЛЮБОМ тексте для пользователя названия полей, переменных или технических идентификаторов. Запрещённые примеры: "pricePosition = inside_near_resistance", "clusterAnalysis", "heavyZones", "priceProfile", "anchorData", "suggestedLevels", "inside_channel_middle", "failed_breakout_up", "buyers_pushing_breakout_likely". Вместо этого пиши на нормальном языке трейдера: "цена у сопротивления", "кластеры объёмов показывают давление покупателей", "крупная зона объёмов на $65K-$70K". Пользователь НИКОГДА не должен видеть код или имена полей JSON.
 - ИЕРАРХИЯ АНАЛИЗА — следуй этому порядку строго:
   УРОВЕНЬ 1 (ГЛАВНЫЙ): pricePosition определяет направление. Проценты выше — это ЖЁСТКИЕ МИНИМУМЫ. Если pricePosition = "inside_channel_middle" — ты ОБЯЗАН поставить longPct=50, shortPct=50, signalStrength="neutral". Никакие паттерны, объёмы или тренды не могут это изменить. Трейдер НЕ должен входить.
   УРОВЕНЬ 2: Глобальный контекст (keyPoints, история 900 дней) может УСИЛИТЬ или ОСЛАБИТЬ сигнал уровня 1, но НИКОГДА не перевернуть его. Пример: "inside_near_support" даёт longPct=60%, но глобальный нисходящий тренд ослабляет до 55%. Но НИКОГДА не превращает в shortPct>50%.
@@ -579,6 +651,7 @@ JSON формат:
         // Сохраняем в кэш
         const aiCacheTtl = getAiCacheTtl(ctx.timeframe);
         result.cachedAt = Date.now();
+        if (clusterDebug) result._cluster = clusterDebug; // для отладки в консоли браузера
         cacheSet(cacheKey, result, aiCacheTtl);
         console.log(`💾 AI Scanner cached: ${cacheKey} (TTL ${aiCacheTtl / 1000}s)`);
 
