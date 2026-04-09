@@ -583,8 +583,8 @@ const PatternScanner = (function() {
         // Не определяем боковик для таймфреймов 1М и выше
         if (days >= 30) return null;
 
-        // Количество свечей для анализа: 40 для 1D, 70 для остальных
-        const barsCount = (days > 0.17 && days <= 1) ? 40 : 70;
+        // Количество свечей для анализа: 60 для 1D, 70 для остальных
+        const barsCount = (days > 0.17 && days <= 1) ? 60 : 70;
         if (candles.length < barsCount) return null;
 
         const window70 = candles.slice(-barsCount);

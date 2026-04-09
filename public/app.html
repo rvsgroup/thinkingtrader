@@ -3543,11 +3543,15 @@
 
         /* Patterns panel on mobile: collapsed by default */
         .sm-patterns-panel {
-            left: 8px !important;
-            max-width: 260px !important;
+            left: auto !important;
+            top: auto !important;
+            max-width: 100% !important;
             border-radius: 8px !important;
-            position: fixed !important;
-            z-index: 500 !important;
+            position: relative !important;
+            z-index: 1 !important;
+            width: 100% !important;
+            max-height: none !important;
+            margin: 4px 0 !important;
         }
         
         .buys-section { 
@@ -12940,17 +12944,27 @@
     })();
 
     // Toggle панели паттернов
-    // Portal: move smPatternsPanel to body to escape chart-column stacking context
-    // (chart-column has backdrop-filter which creates a new stacking context,
-    //  causing the panel to always appear above modals like alert-panel)
+    // Desktop: portal to body, position fixed above coin-bar
+    // Mobile: insert after coin-bar in page flow (no fixed positioning)
     (function() {
         var panel = document.getElementById('smPatternsPanel');
-        if (panel && panel.parentNode !== document.body) {
-            document.body.appendChild(panel);
+        if (!panel) return;
+        var isMob = window.innerWidth <= 900;
+
+        if (isMob) {
+            var coinBar = document.querySelector('.chart-coin-bar');
+            if (coinBar && coinBar.parentNode) {
+                coinBar.parentNode.insertBefore(panel, coinBar.nextSibling);
+            }
+        } else {
+            if (panel.parentNode !== document.body) {
+                document.body.appendChild(panel);
+            }
         }
 
-        // Dynamic positioning: place panel just above the coin-bar inside chart-column
+        // Dynamic positioning: only on desktop
         function positionSmPanel() {
+            if (window.innerWidth <= 900) return;
             var p = document.getElementById('smPatternsPanel');
             if (!p || !p.classList.contains('active')) return;
             var coinBar = document.querySelector('.chart-coin-bar');
@@ -12959,9 +12973,8 @@
             if (!anchor) return;
             var rect = anchor.getBoundingClientRect();
             var panelH = p.offsetHeight || 200;
-            // Place panel so its bottom aligns with top of anchor, with 4px gap
-            var topPos = rect.top - panelH - 4;
-            // Don't go above top of chart-column
+            // Raise 40px above coin-bar to sit on volume area, above date scale
+            var topPos = rect.top - panelH - 40;
             if (chartCol) {
                 var colRect = chartCol.getBoundingClientRect();
                 if (topPos < colRect.top + 4) topPos = colRect.top + 4;

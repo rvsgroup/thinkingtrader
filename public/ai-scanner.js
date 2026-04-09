@@ -249,6 +249,47 @@
             }
         }
 
+        // ── pricePosition — позиция цены относительно коридора ──
+        var pricePosition = null;
+        if (levels && levels.support > 0 && levels.resistance > levels.support) {
+            var _sup = levels.support;
+            var _res = levels.resistance;
+            var _range = _res - _sup;
+            var _pct = (price - _sup) / _range * 100;
+
+            // Последние 10 свечей: были ли закрытия за пределами коридора
+            var _last10 = candles.slice(-10);
+            var _closesAboveRes = 0;
+            var _closesBelowSup = 0;
+            for (var _k = 0; _k < _last10.length; _k++) {
+                if (_last10[_k].close > _res) _closesAboveRes++;
+                if (_last10[_k].close < _sup) _closesBelowSup++;
+            }
+
+            if (price > _res) {
+                // Цена СЕЙЧАС выше сопротивления
+                pricePosition = _closesAboveRes >= 3 ? 'above_resistance_confirmed' : 'above_resistance_not_confirmed';
+            } else if (price < _sup) {
+                // Цена СЕЙЧАС ниже поддержки
+                pricePosition = _closesBelowSup >= 3 ? 'below_support_confirmed' : 'below_support_not_confirmed';
+            } else {
+                // Цена ВНУТРИ коридора
+                if (_closesAboveRes >= 1) {
+                    // Были закрытия выше сопротивления, но цена вернулась → ложный пробой вверх
+                    pricePosition = 'failed_breakout_up';
+                } else if (_closesBelowSup >= 1) {
+                    // Были закрытия ниже поддержки, но цена вернулась → ложный пробой вниз
+                    pricePosition = 'failed_breakout_down';
+                } else if (_pct >= 75) {
+                    pricePosition = 'inside_near_resistance';
+                } else if (_pct <= 25) {
+                    pricePosition = 'inside_near_support';
+                } else {
+                    pricePosition = 'inside_channel_middle';
+                }
+            }
+        }
+
         // ── Ценовой профиль (30 отрезков из текущего таймфрейма) ──
         var priceProfile = _calcPriceProfile(candles, Math.min(30, Math.floor(candles.length / 5)));
 
@@ -336,6 +377,7 @@
             lang: isEn ? 'en' : 'ru',
             totalCandles: candles.length,
             levels: levels,
+            pricePosition: pricePosition,
             priceProfile: priceProfile,
             heavyZones: heavyZones,
             volatility: volatility,
