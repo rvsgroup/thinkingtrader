@@ -1520,7 +1520,8 @@
         var ae = _tooltipEl.querySelector('.ai-tt-action'); ae.innerHTML = ''; ae.style.cssText = '';
         var tre = _tooltipEl.querySelector('.ai-tt-trend'); if (tre) tre.innerHTML = '';
         var sce = _tooltipEl.querySelector('.ai-tt-scale'); if (sce) sce.innerHTML = '';
-        _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
+        var _liveP = (typeof currentCoinPrice !== 'undefined' && currentCoinPrice > 0) ? currentCoinPrice : (ctx ? ctx.currentPrice : 0);
+        _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + _liveP.toLocaleString('en-US')) : '';
     }
 
     function calcProfit(entry, target) {
@@ -1606,7 +1607,7 @@
         // ── ② Price Scale ──
         var support = ctx && ctx.levels ? ctx.levels.support : null;
         var resistance = ctx && ctx.levels ? ctx.levels.resistance : null;
-        var price = ctx ? ctx.currentPrice : 0;
+        var price = (typeof currentCoinPrice !== 'undefined' && currentCoinPrice > 0) ? currentCoinPrice : (ctx ? ctx.currentPrice : 0);
         var scaleHtml = '';
         if (support && resistance && resistance > support) {
             var pct = Math.max(2, Math.min(98, Math.round((price - support) / (resistance - support) * 100)));
@@ -1831,7 +1832,8 @@
         }
 
         // ── Header price ──
-        _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + ctx.currentPrice.toLocaleString('en-US')) : '';
+        var _liveP2 = (typeof currentCoinPrice !== 'undefined' && currentCoinPrice > 0) ? currentCoinPrice : (ctx ? ctx.currentPrice : 0);
+        _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + _liveP2.toLocaleString('en-US')) : '';
     }
 
     // ── Фоновый расчёт уровней и winRate независимо от Scan ────

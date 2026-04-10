@@ -2765,12 +2765,12 @@
         .watchlist-bar {
             display: flex;
             align-items: center;
-            padding: 8px 14px;
+            padding: 6px 12px;
             cursor: pointer;
             user-select: none;
             transition: background 0.15s;
-            min-height: 34px;
-            gap: 8px;
+            min-height: 30px;
+            gap: 6px;
         }
         .watchlist-bar:hover { background: rgba(255,255,255,0.02); }
         .watchlist-title {
@@ -2901,25 +2901,25 @@
 
         .watchlist-item {
             display: grid;
-            grid-template-columns: 16px 36px 1fr 64px auto 16px;
+            grid-template-columns: 14px 26px 1fr 54px auto 14px;
             align-items: center;
-            gap: 8px;
-            padding: 10px 14px;
+            gap: 6px;
+            padding: 6px 12px;
             cursor: pointer;
             transition: background 0.2s;
             border-bottom: 1px solid rgba(255,255,255,0.04);
         }
         .watchlist-item:last-child { border-bottom: none; }
         .watchlist-item:hover { background: rgba(255,255,255,0.03); }
-        .wl-icon { width: 36px; height: 36px; border-radius: 50%; }
+        .wl-icon { width: 26px; height: 26px; border-radius: 50%; }
         .wl-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .wl-symbol {
             font-family: 'DM Sans', sans-serif;
-            font-size: 14px; font-weight: 700; color: #E2E8F0; line-height: 1.2;
+            font-size: 12px; font-weight: 700; color: #E2E8F0; line-height: 1.2;
         }
         .wl-fullname {
             font-family: 'DM Sans', sans-serif;
-            font-size: 11px; color: #475569;
+            font-size: 10px; color: #475569;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .wl-spark {
@@ -2931,11 +2931,11 @@
         }
         .wl-price {
             font-family: 'DM Sans', sans-serif;
-            font-size: 14px; font-weight: 700; color: #E2E8F0; line-height: 1.2;
+            font-size: 12px; font-weight: 700; color: #E2E8F0; line-height: 1.2;
         }
         .wl-change {
             font-family: 'DM Sans', sans-serif;
-            font-size: 11px; font-weight: 600;
+            font-size: 10px; font-weight: 600;
         }
         .wl-change.up { color: #10B981; }
         .wl-change.down { color: #EF4444; }
@@ -2951,7 +2951,7 @@
         }
         .watchlist-item:hover .wl-del { opacity: 1; }
         .wl-del:hover { color: #EF4444; background: rgba(239,68,68,0.1); }
-        .wl-fav { font-size:15px;color:#334155;cursor:pointer;flex-shrink:0;transition:color 0.2s;line-height:1;text-align:center; }
+        .wl-fav { font-size:12px;color:#334155;cursor:pointer;flex-shrink:0;transition:color 0.2s;line-height:1;text-align:center; }
         .wl-fav:hover { color:#FBBF24; }
         .wl-fav.active { color:#FBBF24; }
 
@@ -10698,7 +10698,7 @@
 
         function wlSparkSVG(points, isUp) {
             if (!points || points.length < 2) return '';
-            const w = 64, h = 28;
+            const w = 48, h = 20;
             const min = Math.min(...points), max = Math.max(...points);
             const range = max - min || 1;
             const coords = points.map((p, i) => {

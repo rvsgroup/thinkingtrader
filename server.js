@@ -305,7 +305,7 @@ app.post('/api/ai-scan', async (req, res) => {
         }
 
         // ── Серверный кэш: ключ = монета + таймфрейм + язык ──
-        const cacheKey = `ai:v2:${ctx.coin}:${ctx.timeframe}:${ctx.lang || 'ru'}`;
+        const cacheKey = `ai:v4:${ctx.coin}:${ctx.timeframe}:${ctx.lang || 'ru'}`;
         const cached = cacheGet(cacheKey);
         if (cached) {
             console.log(`✅ AI Scanner cache hit: ${cacheKey}`);
