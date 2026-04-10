@@ -29,10 +29,22 @@ const ZONE_MIDDLE = 0.40;
 // ZONE_TOP = 1 - ZONE_BOTTOM - ZONE_MIDDLE = 0.30
 
 /**
- * Насколько близко цена должна быть к уровню, чтобы считать свечу "в зоне уровня"
- * 1.5% от цены уровня
+ * Радиус зоны уровня зависит от таймфрейма анализа:
+ * 1D (кластеры по 4H): ±1.5% — широкая зона, дневные движения крупные
+ * 4H (кластеры по 1H): ±1.0% — средняя зона
+ * 1H (кластеры по 15m): ±0.5% — узкая зона, только свечи вплотную к уровню
  */
-const LEVEL_ZONE_PCT = 1.5;
+const LEVEL_ZONE_PCT_MAP = {
+    '1D': 1.5,
+    '4H': 1.0,
+    '1H': 0.5,
+};
+
+/**
+ * Минимум свечей в зоне для надёжного анализа.
+ * Если меньше — расширяем зону на 0.5% и пробуем снова.
+ */
+const MIN_CANDLES_IN_ZONE = 3;
 
 /**
  * Основная функция анализа кластеров
@@ -118,20 +130,32 @@ async function analyze(params) {
         volume: +(k[5] || 0),
     }));
 
-    // ── Фильтруем свечи в зоне уровня ──
-    const zoneRadius = levelPrice * LEVEL_ZONE_PCT / 100;
-    const zoneTop = levelPrice + zoneRadius;
-    const zoneBottom = levelPrice - zoneRadius;
+    // ── Фильтруем свечи в зоне уровня (адаптивный радиус) ──
+    const baseZonePct = LEVEL_ZONE_PCT_MAP[timeframe] || 1.5;
+    let zonePct = baseZonePct;
+    let zoneRadius, zoneTop, zoneBottom, candlesInZone;
 
-    const candlesInZone = candles.filter(c => {
-        // Свеча хотя бы частично попадает в зону уровня
-        return c.high >= zoneBottom && c.low <= zoneTop;
-    });
+    // Пробуем с базовым радиусом, если мало свечей — расширяем
+    for (let attempt = 0; attempt < 3; attempt++) {
+        zoneRadius = levelPrice * zonePct / 100;
+        zoneTop = levelPrice + zoneRadius;
+        zoneBottom = levelPrice - zoneRadius;
+
+        candlesInZone = candles.filter(c => {
+            return c.high >= zoneBottom && c.low <= zoneTop;
+        });
+
+        if (candlesInZone.length >= MIN_CANDLES_IN_ZONE) break;
+
+        // Мало свечей — расширяем зону на 0.5%
+        zonePct += 0.5;
+    }
 
     if (candlesInZone.length < 2) {
         return {
             nearLevel,
             levelPrice: _round(levelPrice),
+            zoneRadiusPct: zonePct,
             scenario: 'insufficient_data',
             candlesInZone: candlesInZone.length,
             concentration: null,
@@ -297,6 +321,7 @@ async function analyze(params) {
         scenario,
         candlesInZone: details.length,
         totalCandlesLoaded: candles.length,
+        zoneRadiusPct: zonePct,
         clusterTimeframe: tfConfig.interval,
         bottomVolumeAvg,
         topVolumeAvg,

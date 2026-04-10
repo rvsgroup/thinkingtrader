@@ -350,6 +350,7 @@ app.post('/api/ai-scan', async (req, res) => {
                     clusterDebug = clusterResult;
                     console.log(`📊 Cluster analysis:`);
                     console.log(`   Level: ${clusterResult.nearLevel} @ $${clusterResult.levelPrice}`);
+                    console.log(`   Zone radius: ±${clusterResult.zoneRadiusPct}%`);
                     console.log(`   Scenario: ${clusterResult.scenario}`);
                     console.log(`   Candles in zone: ${clusterResult.candlesInZone} / ${clusterResult.totalCandlesLoaded} loaded`);
                     console.log(`   Volume: bottom ${clusterResult.bottomVolumeAvg}% | mid ${clusterResult.middleVolumeAvg}% | top ${clusterResult.topVolumeAvg}%`);
@@ -782,7 +783,7 @@ async function translateToEn(text) {
 function invalidateContextCache(coinId) {
     ['1D', '4H', '1H'].forEach(tf => {
         ['ru', 'en'].forEach(lang => {
-            const key = `ai:v3:${symbol}:${tf}:${lang}`;
+            const key = `ai:v2:${coinId}/USDT:${tf}:${lang}`;
             cache.delete(key);
             console.log(`🗑️ Cache invalidated: ${key}`);
         });
