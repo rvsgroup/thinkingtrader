@@ -9,7 +9,7 @@ const PatternScanner = (function() {
     // FILTER STATE
     // ═══════════════════════════════════════════
     const ALL_PATTERN_TYPES = [
-        'doji', 'hammer', 'shooting_star', 'harami', 'engulfing', 'marubozu', 'tweezer'
+        'doji', 'hammer', 'shooting_star', 'harami', 'engulfing', 'marubozu', 'tweezer', 'morning_star', 'evening_star'
     ];
 
     let enabledTypes = new Set(ALL_PATTERN_TYPES);
@@ -50,6 +50,116 @@ const PatternScanner = (function() {
             const prev = candles[i - 1];
             const curr = candles[i];
 
+            // ══ 8. MORNING STAR (бычий разворот, 3 свечи) ══
+            // Проверяем ДО односвечных паттернов, чтобы continue от doji/marubozu не заблокировал
+            if (enabledTypes.has('morning_star') && i >= 3) {
+                const ms1 = candles[i - 2]; // первая — красная
+                const ms2 = candles[i - 1]; // средняя — пауза
+                const ms3 = candles[i];     // третья — зелёная
+
+                const msBody1 = Math.abs(ms1.close - ms1.open);
+                const msBody2 = Math.abs(ms2.close - ms2.open);
+                const msBody3 = Math.abs(ms3.close - ms3.open);
+
+                const ms1Bearish = ms1.close < ms1.open;
+                const ms3Bullish = ms3.close > ms3.open;
+
+                if (ms1Bearish && ms3Bullish && msBody1 > 0 && msBody1 / ms1.open >= 0.01 && msBody3 >= msBody1 * 0.9 && msBody3 <= msBody1 * 2.2 && msBody2 < msBody1 / 3) {
+                    // Шаг 2: проверяем направление движения перед паттерном
+                    // Считаем шаги вверх/вниз по close за 5 свечей перед красной
+                    const ms1Idx = i - 2;
+                    let stepsUp = 0, stepsDown = 0;
+                    for (let k = 1; k < 5; k++) {
+                        const curr2 = ms1Idx - k;
+                        const prev2 = ms1Idx - k - 1;
+                        if (prev2 < 0) break;
+                        if (candles[curr2].close > candles[prev2].close) stepsUp++;
+                        else if (candles[curr2].close < candles[prev2].close) stepsDown++;
+                    }
+                    const cameFromAbove = stepsDown > stepsUp;
+
+                    if (cameFromAbove) {
+                        const strength = ms3.close >= ms1.open ? 'strong' : 'medium';
+                        const level = Math.max(ms1.high, ms2.high, ms3.high);
+
+                        patterns.push({
+                            type: 'Утренняя звезда',
+                            typeEn: 'Morning Star',
+                            group: 'morning_star',
+                            index: i - 1,
+                            time: ms2.time,
+                            time1: ms1.time,
+                            time3: ms3.time,
+                            level: level,
+                            position: 'aboveBar',
+                            direction: 'bullish',
+                            color: '#10B981',
+                            strength: strength,
+                            description: strength === 'strong'
+                                ? 'Сильный бычий разворот — покупатели полностью перекрыли падение'
+                                : 'Бычий разворот — покупатели отыграли больше половины падения',
+                            descriptionEn: strength === 'strong'
+                                ? 'Strong bullish reversal — buyers fully recovered the drop'
+                                : 'Bullish reversal — buyers recovered more than half the drop'
+                        });
+                    }
+                }
+            }
+
+            // ══ 9. EVENING STAR (медвежий разворот, 3 свечи) ══
+            if (enabledTypes.has('evening_star') && i >= 3) {
+                const es1 = candles[i - 2]; // первая — зелёная
+                const es2 = candles[i - 1]; // средняя — пауза
+                const es3 = candles[i];     // третья — красная
+
+                const esBody1 = Math.abs(es1.close - es1.open);
+                const esBody2 = Math.abs(es2.close - es2.open);
+                const esBody3 = Math.abs(es3.close - es3.open);
+
+                const es1Bullish = es1.close > es1.open;
+                const es3Bearish = es3.close < es3.open;
+
+                if (es1Bullish && es3Bearish && esBody1 > 0 && esBody1 / es1.open >= 0.01 && esBody3 >= esBody1 * 0.9 && esBody3 <= esBody1 * 2.2 && esBody2 < esBody1 / 3) {
+                    // Шаг 2: проверяем направление движения перед паттерном
+                    // Считаем шаги вверх/вниз по close за 5 свечей перед зелёной
+                    const es1Idx = i - 2;
+                    let stepsUp = 0, stepsDown = 0;
+                    for (let k = 1; k < 5; k++) {
+                        const curr2 = es1Idx - k;
+                        const prev2 = es1Idx - k - 1;
+                        if (prev2 < 0) break;
+                        if (candles[curr2].close > candles[prev2].close) stepsUp++;
+                        else if (candles[curr2].close < candles[prev2].close) stepsDown++;
+                    }
+                    const cameFromBelow = stepsUp > stepsDown;
+
+                    if (cameFromBelow) {
+                        const strength = es3.close <= es1.open ? 'strong' : 'medium';
+                        const level = Math.max(es1.high, es2.high, es3.high);
+
+                        patterns.push({
+                            type: 'Вечерняя звезда',
+                            typeEn: 'Evening Star',
+                            group: 'evening_star',
+                            index: i - 1,
+                            time: es2.time,
+                            time1: es1.time,
+                            time3: es3.time,
+                            level: level,
+                            position: 'aboveBar',
+                            direction: 'bearish',
+                            color: '#EF4444',
+                            strength: strength,
+                            description: strength === 'strong'
+                                ? 'Сильный медвежий разворот — продавцы полностью перекрыли рост'
+                                : 'Медвежий разворот — продавцы отыграли больше половины роста',
+                            descriptionEn: strength === 'strong'
+                                ? 'Strong bearish reversal — sellers fully reversed the rally'
+                                : 'Bearish reversal — sellers reversed more than half the rally'
+                        });
+                    }
+                }
+            }
             const body = Math.abs(curr.close - curr.open);
             const range = curr.high - curr.low;
             if (range === 0) continue;
@@ -256,62 +366,62 @@ const PatternScanner = (function() {
 
 
             // ══ 7. ENGULFING ══
-            if (!enabledTypes.has('engulfing') || !hasBody(prev)) continue;
+            if (enabledTypes.has('engulfing') && hasBody(prev)) {
+                const prevIsBullish = prev.close > prev.open;
+                const prevIsBearish = prev.close < prev.open;
+                const currIsBullish = curr.close > curr.open;
+                const currIsBearish = curr.close < curr.open;
+                const bodyTol = prevBody * 0.05;
 
-            const prevIsBullish = prev.close > prev.open;
-            const prevIsBearish = prev.close < prev.open;
-            const currIsBullish = curr.close > curr.open;
-            const currIsBearish = curr.close < curr.open;
-            const bodyTol = prevBody * 0.05;
+                // BEARISH ENGULFING: prev green, curr red, и последние 2 свечи (до предыдущей) были бычьими
+                if (prevIsBullish && currIsBearish &&
+                    curr.open >= prev.close - bodyTol &&
+                    curr.close <= prev.open + bodyTol &&
+                    body >= prevBody * 1.2) {
 
-            // BEARISH ENGULFING: prev green, curr red, и последние 2 свечи (до предыдущей) были бычьими
-            if (prevIsBullish && currIsBearish &&
-                curr.open >= prev.close - bodyTol &&
-                curr.close <= prev.open + bodyTol &&
-                body >= prevBody * 1.2) {
-
-                // Проверяем, что перед предыдущей свечой были две бычьи подряд
-                let twoPrevBullish = true;
-                for (let j = i - 2; j < i; j++) {
-                    if (j >= 0 && candles[j].close <= candles[j].open) { // не бычья
-                        twoPrevBullish = false;
-                        break;
+                    // Проверяем, что перед предыдущей свечой были две бычьи подряд
+                    let twoPrevBullish = true;
+                    for (let j = i - 2; j < i; j++) {
+                        if (j >= 0 && candles[j].close <= candles[j].open) { // не бычья
+                            twoPrevBullish = false;
+                            break;
+                        }
+                    }
+                    if (twoPrevBullish) {
+                        patterns.push({
+                            type: 'Медвежье поглощение', typeEn: 'Bearish Engulfing', group: 'engulfing',
+                            index: i, time: curr.time,
+                            position: 'aboveBar', direction: 'bearish',
+                            color: '#EF4444',
+                            description: 'Медвежий разворот — продавцы полностью поглотили покупателей',
+                            descriptionEn: 'Bearish reversal — sellers fully engulfed the buyers'
+                        });
                     }
                 }
-                if (twoPrevBullish) {
-                    patterns.push({
-                        type: 'Медвежье поглощение', typeEn: 'Bearish Engulfing', group: 'engulfing',
-                        index: i, time: curr.time,
-                        position: 'aboveBar', direction: 'bearish',
-                        color: '#EF4444',
-                        description: 'Медвежий разворот — продавцы полностью поглотили покупателей',
-                        descriptionEn: 'Bearish reversal — sellers fully engulfed the buyers'
-                    });
-                }
-            }
 
-            // BULLISH ENGULFING: prev red, curr green, и последние 2 свечи (до предыдущей) были медвежьими
-            if (prevIsBearish && currIsBullish &&
-                curr.open <= prev.close + bodyTol &&
-                curr.close >= prev.open - bodyTol &&
-                body >= prevBody * 1.2) {
+                // BULLISH ENGULFING: prev red, curr green, и последние 2 свечи (до предыдущей) были медвежьими
+                if (prevIsBearish && currIsBullish &&
+                    curr.open <= prev.close + bodyTol &&
+                    curr.close >= prev.open - bodyTol &&
+                    body >= prevBody * 1.2) {
 
-                let twoPrevBearish = true;
-                for (let j = i - 2; j < i; j++) {
-                    if (j >= 0 && candles[j].close >= candles[j].open) { // не медвежья
-                        twoPrevBearish = false;
-                        break;
+                    let twoPrevBearish = true;
+                    for (let j = i - 2; j < i; j++) {
+                        if (j >= 0 && candles[j].close >= candles[j].open) { // не медвежья
+                            twoPrevBearish = false;
+                            break;
+                        }
                     }
-                }
-                if (twoPrevBearish) {
-                    patterns.push({
-                        type: 'Бычье поглощение', typeEn: 'Bullish Engulfing', group: 'engulfing',
-                        index: i, time: curr.time,
-                        position: 'belowBar', direction: 'bullish',
-                        color: '#10B981',
-                        description: 'Бычий разворот — покупатели полностью поглотили продавцов',
-                        descriptionEn: 'Bullish reversal — buyers fully engulfed the sellers'
-                    });
+                    if (twoPrevBearish) {
+                        patterns.push({
+                            type: 'Бычье поглощение', typeEn: 'Bullish Engulfing', group: 'engulfing',
+                            index: i, time: curr.time,
+                            position: 'belowBar', direction: 'bullish',
+                            color: '#10B981',
+                            description: 'Бычий разворот — покупатели полностью поглотили продавцов',
+                            descriptionEn: 'Bullish reversal — buyers fully engulfed the sellers'
+                        });
+                    }
                 }
             }
         }
@@ -733,6 +843,64 @@ const PatternScanner = (function() {
             }
         }
 
+        // Утренняя звезда — цена должна вырасти на размер тела 3-й (зелёной) свечи за 3-8 свечей
+        const mornStars = patterns.filter(p => p.type === 'Утренняя звезда');
+        if (mornStars.length > 0) {
+            let win = 0, total = 0;
+            mornStars.forEach(p => {
+                const midIdx = p.index; // средняя свеча
+                const thirdIdx = midIdx + 1; // третья — зелёная подтверждающая
+                if (thirdIdx >= candles.length) return;
+                const c3 = candles[thirdIdx];
+                const body3 = Math.abs(c3.close - c3.open);
+                if (body3 <= 0) return;
+                const target = c3.close + body3;
+                let maxClose = -Infinity;
+                let checked = 0;
+                for (let n = 3; n <= 8; n++) {
+                    if (thirdIdx + n < candles.length) {
+                        if (candles[thirdIdx + n].close > maxClose) maxClose = candles[thirdIdx + n].close;
+                        checked++;
+                    }
+                }
+                if (checked === 0) return;
+                total++;
+                if (maxClose >= target) win++;
+            });
+            if (total >= 2) {
+                results['Утренняя звезда'] = { win, total, pct: Math.round((win / total) * 100) };
+            }
+        }
+
+        // Вечерняя звезда — цена должна упасть на размер тела 3-й (красной) свечи за 3-8 свечей
+        const eveStars = patterns.filter(p => p.type === 'Вечерняя звезда');
+        if (eveStars.length > 0) {
+            let win = 0, total = 0;
+            eveStars.forEach(p => {
+                const midIdx = p.index; // средняя свеча
+                const thirdIdx = midIdx + 1; // третья — красная подтверждающая
+                if (thirdIdx >= candles.length) return;
+                const c3 = candles[thirdIdx];
+                const body3 = Math.abs(c3.close - c3.open);
+                if (body3 <= 0) return;
+                const target = c3.close - body3;
+                let minClose = Infinity;
+                let checked = 0;
+                for (let n = 3; n <= 8; n++) {
+                    if (thirdIdx + n < candles.length) {
+                        if (candles[thirdIdx + n].close < minClose) minClose = candles[thirdIdx + n].close;
+                        checked++;
+                    }
+                }
+                if (checked === 0) return;
+                total++;
+                if (minClose <= target) win++;
+            });
+            if (total >= 2) {
+                results['Вечерняя звезда'] = { win, total, pct: Math.round((win / total) * 100) };
+            }
+        }
+
         // Бычьи: Молот, Перевёрнутый молот — два условия (30% от глубины ИЛИ направление)
         ['Молот', 'Перевёрнутый молот'].forEach(type => {
             const pts = patterns.filter(p => p.type === type);
@@ -952,6 +1120,8 @@ const PatternScanner = (function() {
                 engulfing:    { ru: 'Поглощение',                  en: 'Engulfing' },
                 marubozu:     { ru: 'Марибозу',                    en: 'Marubozu' },
                 tweezer:      { ru: 'Пинцет',                      en: 'Tweezer' },
+                morning_star: { ru: 'Утренняя звезда',              en: 'Morning Star' },
+                evening_star: { ru: 'Вечерняя звезда',              en: 'Evening Star' },
             };
             const entry = names[group];
             if (!entry) return group;

@@ -269,7 +269,7 @@ app.get('/api/translate', async (req, res) => {
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
 const AI_MODEL = 'openai/gpt-5.4';
-const AI_PROMPT_VERSION = 5; // ← менять при изменении промпта или логики AI
+const AI_PROMPT_VERSION = 6; // ← менять при изменении промпта или логики AI
 function getAiCacheTtl(timeframe) {
     if (timeframe === '1H') return 10 * 60 * 1000;   // 10 минут
     if (timeframe === '4H') return 30 * 60 * 1000;   // 30 минут

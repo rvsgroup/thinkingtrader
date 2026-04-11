@@ -6267,6 +6267,8 @@
                                     <label class="pf-item"><input type="checkbox" data-pat="Поглощение" checked><span data-i18n="pfEngulfing">Поглощение</span></label>
                                     <label class="pf-item"><input type="checkbox" data-pat="Харами" checked><span data-i18n="pfHarami">Харами</span></label>
                                     <label class="pf-item"><input type="checkbox" data-pat="Пинцет" checked><span data-i18n="pfTweezer">Пинцет</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Утренняя звезда" checked><span data-i18n="pfMorningStar">Утренняя звезда</span></label>
+                                    <label class="pf-item"><input type="checkbox" data-pat="Вечерняя звезда" checked><span data-i18n="pfEveningStar">Вечерняя звезда</span></label>
                                     <div style="height:1px;background:rgba(255,255,255,0.06);margin:2px 0;"></div>
                                     <div style="padding:3px 10px 1px;font-size:9px;color:#475569;font-weight:700;text-transform:uppercase;" data-i18n="pfGroupChart">Графические</div>
                                     <label class="pf-item"><input type="checkbox" data-pat="Двойная вершина" checked><span data-i18n="pfDoubleTop">Двойная вершина</span></label>
@@ -7505,7 +7507,7 @@
                 pfGroupSingle: 'Одиночные', pfGroupDouble: 'Двойные', pfGroupChart: 'Графические', pfGroupLevels: 'Уровни',
                 pfDoji: 'Доджи', pfMarubozu: 'Марибозу', pfHammer: 'Молот', pfHangingMan: 'Повешенный',
                 pfShootingStar: 'Падающая звезда', pfInvHammer: 'Перевёрнутый молот',
-                pfEngulfing: 'Поглощение', pfHarami: 'Харами', pfTweezer: 'Пинцет',
+                pfEngulfing: 'Поглощение', pfHarami: 'Харами', pfTweezer: 'Пинцет', pfMorningStar: 'Утренняя звезда', pfEveningStar: 'Вечерняя звезда',
                 pfDoubleTop: 'Двойная вершина', pfDoubleBottom: 'Двойное дно',
                 pfLevels: 'Поддержка / Сопротивление',
                 patternSearch: 'Поиск...', patternCandles: 'свечей',
@@ -7833,7 +7835,7 @@
                 pfGroupSingle: 'Single', pfGroupDouble: 'Double', pfGroupChart: 'Chart patterns', pfGroupLevels: 'Levels',
                 pfDoji: 'Doji', pfMarubozu: 'Marubozu', pfHammer: 'Hammer', pfHangingMan: 'Hanging Man',
                 pfShootingStar: 'Shooting Star', pfInvHammer: 'Inverted Hammer',
-                pfEngulfing: 'Engulfing', pfHarami: 'Harami', pfTweezer: 'Tweezer',
+                pfEngulfing: 'Engulfing', pfHarami: 'Harami', pfTweezer: 'Tweezer', pfMorningStar: 'Morning Star', pfEveningStar: 'Evening Star',
                 pfDoubleTop: 'Double Top', pfDoubleBottom: 'Double Bottom',
                 pfLevels: 'Support / Resistance',
                 patternSearch: 'Search...', patternCandles: 'candles',
@@ -8969,14 +8971,20 @@
                 },
             });
 
-            // Адаптация при ресайзе
+            // Адаптация при ресайзе — сохраняем видимый диапазон
             const ro = new ResizeObserver(() => {
                 if (lwChart && lwChartContainer.offsetWidth > 0 && lwChartContainer.offsetHeight > 0) {
+                    let savedLR = null;
+                    try { savedLR = lwChart.timeScale().getVisibleLogicalRange(); } catch(e) {}
                     lwChart.applyOptions({
                         width:  lwChartContainer.offsetWidth,
                         height: lwChartContainer.offsetHeight,
                     });
-                    lwChart.timeScale().fitContent();
+                    if (savedLR && savedLR.from !== undefined) {
+                        try { lwChart.timeScale().setVisibleLogicalRange(savedLR); } catch(e) {}
+                    } else {
+                        lwChart.timeScale().fitContent();
+                    }
                 }
             });
             ro.observe(lwChartContainer);
@@ -9614,15 +9622,11 @@
             if (!panel) return;
 
             function togglePanel() {
+                panel.style.transition = 'none';
+                panel.offsetHeight;
                 panel.classList.toggle('collapsed');
-                setTimeout(() => {
-                    if (typeof lwChart !== 'undefined' && lwChart) {
-                        const container = document.getElementById('lwPriceChart');
-                        if (container && container.offsetWidth > 0) {
-                            lwChart.resize(container.offsetWidth, container.offsetHeight);
-                        }
-                    }
-                }, 400);
+                panel.offsetHeight;
+                panel.style.transition = '';
             }
 
             if (toggleBtn) toggleBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
@@ -12687,13 +12691,57 @@
             enabledNames.some(n => p.type.toLowerCase().includes(n) || n.includes(p.type.toLowerCase()))
         );
 
-        const candleMarkers = candlePatterns.map(p => ({
+        // --- Morning Star / Evening Star: подсветка трёх свечей паттерна ---
+        const starPatterns = candlePatterns.filter(p => p.group === 'morning_star' || p.group === 'evening_star');
+        const otherCandlePatterns = candlePatterns.filter(p => p.group !== 'morning_star' && p.group !== 'evening_star');
+
+        const candleMarkers = otherCandlePatterns.map(p => ({
             time:     p.time,
             position: p.position,
             color:    p.color,
             shape:    p.direction === 'bullish' ? 'arrowUp' : (p.direction === 'bearish' ? 'arrowDown' : 'circle'),
             text:     (currentLang === 'en' && p.typeEn) ? p.typeEn : p.type,
         }));
+
+        // Подкрашиваем свечи + маркер
+        const starMarkers = [];
+        const msHighlightColor = '#F59E0B';
+        const msHighlightTimes = new Set();
+
+        starPatterns.forEach(p => {
+            msHighlightTimes.add(p.time1);
+            msHighlightTimes.add(p.time);
+            msHighlightTimes.add(p.time3);
+
+            const label = (currentLang === 'en' && p.typeEn) ? p.typeEn : p.type;
+            const strengthLabel = p.strength === 'strong' ? ' ★' : '';
+            const isBullish = p.direction === 'bullish';
+            starMarkers.push({
+                time: p.time,
+                position: isBullish ? 'belowBar' : 'aboveBar',
+                color: msHighlightColor,
+                shape: isBullish ? 'arrowUp' : 'arrowDown',
+                text: label + strengthLabel,
+            });
+        });
+
+        // Пересоздаём данные свечей с подсветкой
+        if (msHighlightTimes.size > 0) {
+            const highlightedData = rawOhlcCache
+                .map(([t, o, h, l, c]) => {
+                    const time = Math.floor(t / 1000);
+                    const d = { time, open: o, high: h, low: l, close: c };
+                    if (msHighlightTimes.has(time)) {
+                        // Только контур и фитили — тело остаётся зелёным/красным
+                        d.borderColor = msHighlightColor;
+                        d.wickColor = msHighlightColor;
+                    }
+                    return d;
+                })
+                .sort((a, b) => a.time - b.time)
+                .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
+            lwSeries.setData(highlightedData);
+        }
 
         // --- Двойные паттерны ---
         const doublePatterns = PatternScanner.scanDouble(candles, currentPeriod);
@@ -12778,7 +12826,7 @@
         });
 
         // --- Объединяем все маркеры и дедуплицируем ---
-        const allRaw = [...candleMarkers, ...doubleMarkers];
+        const allRaw = [...candleMarkers, ...starMarkers, ...doubleMarkers];
         allRaw.sort((a, b) => a.time - b.time);
 
         const allMarkers = [];
@@ -12812,6 +12860,8 @@
                     stats[key].count++;
                 });
                 doublePatterns.forEach(p => {
+                    if (p.type === 'double_top' && !isDoubleEnabled('вершин')) return;
+                    if (p.type === 'double_bottom' && !isDoubleEnabled('дно')) return;
                     const isTop = p.type === 'double_top';
                     const key = p.type;
                     const label = currentLang === 'en' ? (isTop ? 'Double Top' : 'Double Bottom') : (isTop ? 'Двойная вершина' : 'Двойное дно');
@@ -12820,6 +12870,8 @@
                     stats[key].count++;
                 });
                 formingPatterns.forEach(p => {
+                    if (p.type === 'forming_double_top' && !isDoubleEnabled('вершин')) return;
+                    if (p.type === 'forming_double_bottom' && !isDoubleEnabled('дно')) return;
                     const isTop = p.type === 'forming_double_top';
                     const key = p.type;
                     const label = currentLang === 'en' ? (isTop ? 'Double Top (forming)' : 'Double Bottom (forming)') : (isTop ? 'Двойная вершина (форм.)' : 'Двойное дно (форм.)');
@@ -12865,7 +12917,7 @@
             const _coinId = (typeof selectedCoin !== 'undefined' && selectedCoin) ? selectedCoin.id : 'bitcoin';
             const _sym = typeof BINANCE_SYMBOLS !== 'undefined' ? BINANCE_SYMBOLS[_coinId] : null;
             if (_sym && !window._fsWinRateCache) {
-                fetch('/api/ohlc?symbol=' + _sym + '&interval=1d&limit=365')
+                fetch('/api/ohlc?symbol=' + _sym + '&interval=1d&limit=1000')
                     .then(r => r.json()).then(data => {
                         if (Array.isArray(data) && data.length > 50) {
                             const wc = data.map(k => ({ time:Math.floor(k[0]/1000), open:+k[1], high:+k[2], low:+k[3], close:+k[4] }));
