@@ -487,10 +487,11 @@
             '</div>' +
             '<div class="ai-tt-trend"></div>' +
             '<div class="ai-tt-scale"></div>' +
+            '<div class="ai-tt-cluster"></div>' +
             '<div class="ai-tt-text"></div>' +
             '<div class="ai-tt-verdict"></div>' +
             '<div class="ai-tt-action"></div>' +
-            '<button class="ai-chat-open-btn" id="aiChatOpenBtn"><svg width="14" height="14" viewBox="0 0 22 22" fill="none" stroke="#2962FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="#2962FF" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="#2962FF" stroke="none"/></svg> AI Chat</button>';
+            '<button class="ai-chat-open-btn" id="aiChatOpenBtn"><svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5C1 2.8 2.8 1 5 1H17C19.2 1 21 2.8 21 5V13C21 15.2 19.2 17 17 17H9L4 21V17H5C2.8 17 1 15.2 1 13V5Z"/><circle cx="7" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="11" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none"/></svg> AI Chat</button>';
 
         // Чат-панель — сразу под тултипом в том же контейнере
         _chatPanelEl = document.createElement('div');
@@ -1520,6 +1521,7 @@
         var ae = _tooltipEl.querySelector('.ai-tt-action'); ae.innerHTML = ''; ae.style.cssText = '';
         var tre = _tooltipEl.querySelector('.ai-tt-trend'); if (tre) tre.innerHTML = '';
         var sce = _tooltipEl.querySelector('.ai-tt-scale'); if (sce) sce.innerHTML = '';
+        var cle = _tooltipEl.querySelector('.ai-tt-cluster'); if (cle) cle.innerHTML = '';
         var _liveP = (typeof currentCoinPrice !== 'undefined' && currentCoinPrice > 0) ? currentCoinPrice : (ctx ? ctx.currentPrice : 0);
         _tooltipEl.querySelector('.ai-tt-price').textContent = ctx ? (ctx.coin + ' · $' + _liveP.toLocaleString('en-US')) : '';
     }
@@ -1574,31 +1576,50 @@
         }
 
         // ── ① Trend Row + Signal label ──
-        var trendIcon = strength === 'neutral' ? '⏸' : (dominant === 'long' ? '▲' : '▼');
-        var trendLabel = data.trendLabel || (strength === 'neutral' ? (isEn ? 'Consolidation' : 'Консолидация') : (dominant === 'long' ? (isEn ? 'Bullish' : 'Бычий') : (isEn ? 'Bearish' : 'Медвежий')));
+        var trendLabel = data.trendLabel || (strength === 'neutral' ? (isEn ? 'Consolidation' : 'Консолидация') : (dominant === 'long' ? (isEn ? 'Buyer Pressure' : 'Давление покупателей') : (isEn ? 'Seller Pressure' : 'Давление продавцов')));
         var trendDetail = data.trendDetail || '';
 
         // Signal text for second line inside trend block
         var signalText = '';
         if (strength === 'neutral' || strength === 'weak') {
-            signalText = isEn ? 'Do not enter — wait for confirmation' : 'Не входить — ждать подтверждения';
+            signalText = isEn ? 'Below resistance · wait for confirmation' : 'Под сопротивлением · ждать подтверждения';
         } else if (dominant === 'long') {
             signalText = isEn ? 'Enter long' : 'Входить в лонг';
         } else {
             signalText = isEn ? 'Enter short' : 'Входить в шорт';
         }
 
-        var trendHtml = '<div style="margin:0 10px 8px;padding:10px 12px;background:' + signalBg + ';border-radius:8px;border-left:3px solid ' + signalColor + ';">';
-        // Row 1: icon + label left, detail right
-        trendHtml += '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px;">';
-        trendHtml += '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">';
-        trendHtml += '<span style="font-size:14px;color:' + signalColor + ';">' + trendIcon + '</span>';
-        trendHtml += '<span style="font-size:13px;font-weight:600;color:' + signalColor + ';">' + trendLabel + '</span>';
+        // Arrow SVG for icon
+        var arrowSvg = dominant === 'long'
+            ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="' + signalColor + '" stroke-width="2.5" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
+            : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="' + signalColor + '" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
+        if (strength === 'neutral') {
+            arrowSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="' + signalColor + '" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+        }
+
+        // Bar chart icon (right side)
+        var barIconColor1 = signalColor;
+        var barIconColor2 = 'rgba(' + (dominant === 'long' ? '8,153,129' : '242,54,69') + ',0.3)';
+        var barIcon = '<div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">'
+            + '<div style="width:3px;height:10px;background:' + barIconColor1 + ';border-radius:1px;"></div>'
+            + '<div style="width:3px;height:16px;background:' + barIconColor1 + ';border-radius:1px;"></div>'
+            + '<div style="width:3px;height:12px;background:' + barIconColor1 + ';border-radius:1px;"></div>'
+            + '<div style="width:3px;height:20px;background:' + barIconColor1 + ';border-radius:1px;"></div>'
+            + '<div style="width:3px;height:8px;background:' + barIconColor2 + ';border-radius:1px;"></div>'
+            + '</div>';
+
+        var trendHtml = '<div style="margin:2px 10px 10px;border-radius:4px;background:linear-gradient(135deg,' + signalBg.replace('0.08', '0.12') + ' 0%,' + signalBg.replace('0.08', '0.04') + ' 100%);border:1px solid ' + signalColor.replace(')', ',0.2)').replace('rgb', 'rgba') + ';padding:12px 14px;position:relative;overflow:hidden;">';
+        trendHtml += '<div style="position:absolute;bottom:0;right:0;width:180px;height:100%;background:radial-gradient(ellipse at bottom right,' + signalBg + ',transparent 70%);pointer-events:none;"></div>';
+        trendHtml += '<div style="display:flex;align-items:center;gap:10px;position:relative;">';
+        // Icon box
+        trendHtml += '<div style="width:32px;height:32px;border-radius:4px;background:' + signalBg + ';border:1px solid ' + signalColor.replace(')', ',0.25)').replace('rgb', 'rgba') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + arrowSvg + '</div>';
+        // Label + detail
+        trendHtml += '<div style="flex:1;">';
+        trendHtml += '<div style="font-size:14px;font-weight:600;color:#EDF0F5;line-height:1.2;letter-spacing:-0.2px;">' + trendLabel + '</div>';
+        trendHtml += '<div style="font-size:10px;color:#7B8BA2;margin-top:3px;">' + signalText + '</div>';
         trendHtml += '</div>';
-        if (trendDetail) trendHtml += '<span style="font-size:11px;color:#9598A1;text-align:right;flex-shrink:1;min-width:0;">' + trendDetail + '</span>';
+        trendHtml += barIcon;
         trendHtml += '</div>';
-        // Row 2: signal text
-        trendHtml += '<div style="font-size:11px;color:' + signalColor + ';opacity:0.75;padding-left:22px;">' + signalText + '</div>';
         trendHtml += '</div>';
 
         var trendEl = _tooltipEl.querySelector('.ai-tt-trend');
@@ -1611,34 +1632,104 @@
         var scaleHtml = '';
         if (support && resistance && resistance > support) {
             var pct = Math.max(2, Math.min(98, Math.round((price - support) / (resistance - support) * 100)));
-            scaleHtml = '<div style="margin:0 10px 10px;position:relative;">';
-            scaleHtml += '<div style="display:flex;justify-content:space-between;font-size:10px;color:#636B76;margin-bottom:4px;">';
-            scaleHtml += '<span>' + (isEn ? 'Support' : 'Поддержка') + ' $' + Math.round(support).toLocaleString('en-US') + '</span>';
-            scaleHtml += '<span>' + (isEn ? 'Resistance' : 'Сопротивление') + ' $' + Math.round(resistance).toLocaleString('en-US') + '</span>';
+            var supFmt = '$' + Math.round(support).toLocaleString('en-US');
+            var resFmt = '$' + Math.round(resistance).toLocaleString('en-US');
+            var priceFmt = 'С $' + price.toLocaleString('en-US', {maximumFractionDigits: 2});
+            scaleHtml = '<div style="margin:0 10px 8px;padding:0 2px;">';
+            scaleHtml += '<div style="display:flex;justify-content:space-between;font-size:9px;color:#5C6B82;margin-bottom:5px;font-weight:500;">';
+            scaleHtml += '<span>' + supFmt + '</span><span>' + resFmt + '</span>';
             scaleHtml += '</div>';
-            scaleHtml += '<div style="height:6px;background:linear-gradient(to right,rgba(239,83,80,0.3) 0%,rgba(239,83,80,0.3) 30%,#2A2E39 30%,#2A2E39 70%,rgba(38,166,154,0.3) 70%,rgba(38,166,154,0.3) 100%);border-radius:3px;position:relative;">';
-            scaleHtml += '<span style="position:absolute;top:-18px;left:' + pct + '%;transform:translateX(-50%);font-size:10px;font-weight:600;color:' + signalColor + ';background:#1E222D;padding:0 4px;">$' + Math.round(price).toLocaleString('en-US') + '</span>';
-            scaleHtml += '<div style="position:absolute;width:12px;height:12px;background:' + signalColor + ';border:2px solid #D1D4DC;border-radius:50%;top:-3px;left:' + pct + '%;transform:translateX(-50%);"></div>';
-            scaleHtml += '</div></div>';
+            // Track
+            scaleHtml += '<div style="height:4px;background:#1E2538;border-radius:2px;position:relative;margin-bottom:16px;">';
+            scaleHtml += '<div style="position:absolute;left:0;top:0;height:100%;width:15%;background:#F23645;border-radius:2px 0 0 2px;opacity:0.55;"></div>';
+            scaleHtml += '<div style="position:absolute;right:0;top:0;height:100%;width:15%;background:#089981;border-radius:0 2px 2px 0;opacity:0.55;"></div>';
+            scaleHtml += '<div style="position:absolute;width:10px;height:10px;background:' + signalColor + ';border:2px solid #CBD5E1;border-radius:50%;top:-3px;left:' + pct + '%;transform:translateX(-50%);"></div>';
+            // Price label under the dot
+            var labelLeft = Math.max(8, Math.min(92, pct));
+            scaleHtml += '<div style="position:absolute;top:12px;left:' + labelLeft + '%;transform:translateX(-50%);font-size:9px;font-weight:600;color:' + signalColor + ';white-space:nowrap;">$' + Math.round(price).toLocaleString('en-US') + '</div>';
+            scaleHtml += '</div>';
+            scaleHtml += '</div>';
         }
         var scaleEl = _tooltipEl.querySelector('.ai-tt-scale');
         if (scaleEl) scaleEl.innerHTML = scaleHtml;
 
+        // ── ②b Cluster Analysis Widget ──
+        var clusterEl = _tooltipEl.querySelector('.ai-tt-cluster');
+        if (clusterEl) {
+            var cl = data._cluster;
+            if (cl && cl.concentration && cl.nearLevel) {
+                // Если есть реальная дельта — показываем чистый buy/sell%, иначе fallback на эвристику
+                var bPct, mPct, tPct;
+                if (cl.delta && cl.dataQuality === 'real_delta' && cl.delta.avgBuyPct != null) {
+                    bPct = cl.delta.avgBuyPct;
+                    tPct = cl.delta.avgSellPct;
+                    mPct = 0; // с реальной дельтой нет "нейтральной" зоны — всё либо buy, либо sell
+                } else {
+                    bPct = cl.bottomVolumeAvg || 0;
+                    mPct = cl.middleVolumeAvg || 0;
+                    tPct = cl.topVolumeAvg || 0;
+                }
+                var isBuyerDominant = cl.concentration === 'bottom';
+                var isSellerDominant = cl.concentration === 'top';
+                var accentColor = isBuyerDominant ? '#089981' : isSellerDominant ? '#F23645' : '#94A3B8';
+                var levelWord = isEn
+                    ? (cl.nearLevel === 'resistance' ? 'resistance' : 'support')
+                    : (cl.nearLevel === 'resistance' ? 'сопротивления' : 'поддержки');
+                var whoLabel = isEn
+                    ? (isBuyerDominant ? 'Buyers dominate' : isSellerDominant ? 'Sellers dominate' : 'Mixed')
+                    : (isBuyerDominant ? 'Покупатели давят' : isSellerDominant ? 'Продавцы давят' : 'Нет перевеса');
+
+                var clHtml = '<div style="margin:0 10px 8px;padding:0 2px;">';
+                // Header row
+                clHtml += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+                clHtml += '<div style="display:flex;align-items:center;gap:5px;">';
+                clHtml += '<div style="width:4px;height:4px;border-radius:50%;background:' + accentColor + ';"></div>';
+                clHtml += '<span style="font-size:9px;color:#5C6B82;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">' + (isEn ? 'Clusters at ' : 'Кластеры у ') + levelWord + '</span>';
+                clHtml += '</div>';
+                clHtml += '<span style="font-size:9px;font-weight:700;color:' + accentColor + ';">' + whoLabel + '</span>';
+                clHtml += '</div>';
+                // Three cards — no outer wrapper background
+                clHtml += '<div style="display:flex;gap:4px;height:38px;">';
+                // Bottom (buyers)
+                clHtml += '<div style="flex:' + bPct + ';background:rgba(8,153,129,0.08);border:1px solid rgba(8,153,129,0.18);border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">';
+                clHtml += '<span style="font-size:16px;font-weight:700;color:#089981;line-height:1;">' + bPct + '<span style="font-size:9px;font-weight:600;">%</span></span>';
+                clHtml += '<span style="font-size:6px;color:rgba(8,153,129,0.6);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;">' + (isEn ? 'Buyers' : 'Покупатели') + '</span>';
+                clHtml += '</div>';
+                // Mid (neutral) — скрываем при реальной дельте (mPct=0)
+                if (mPct > 0) {
+                    clHtml += '<div style="flex:' + mPct + ';background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">';
+                    clHtml += '<span style="font-size:16px;font-weight:700;color:#5C6B82;line-height:1;">' + mPct + '<span style="font-size:9px;font-weight:600;">%</span></span>';
+                    clHtml += '<span style="font-size:6px;color:#4A5570;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;">' + (isEn ? 'Neutral' : 'Нейтрально') + '</span>';
+                    clHtml += '</div>';
+                }
+                // Top (sellers)
+                clHtml += '<div style="flex:' + tPct + ';background:rgba(242,54,69,0.07);border:1px solid rgba(242,54,69,0.15);border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;">';
+                clHtml += '<span style="font-size:16px;font-weight:700;color:#F23645;line-height:1;">' + tPct + '<span style="font-size:9px;font-weight:600;">%</span></span>';
+                clHtml += '<span style="font-size:6px;color:rgba(242,54,69,0.5);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;">' + (isEn ? 'Sellers' : 'Продавцы') + '</span>';
+                clHtml += '</div>';
+                clHtml += '</div>';
+                clHtml += '</div>';
+                clusterEl.innerHTML = clHtml;
+            } else {
+                clusterEl.innerHTML = '';
+            }
+        }
+
         // ── ③ Situation text ──
         var textEl = _tooltipEl.querySelector('.ai-tt-text');
         textEl.style.fontStyle = 'normal';
-        textEl.style.color = '#9598A1';
+        textEl.style.color = '#A8B3C5';
         textEl.style.borderLeftColor = '';
-        textEl.innerHTML = '<div style="padding:0 10px 4px;font-size:12px;line-height:1.55;color:#9598A1;">' + (data.situation || data.text || '') + '</div>';
+        textEl.innerHTML = '<div style="padding:0 10px 6px;font-size:11px;line-height:1.65;color:#A8B3C5;">' + (data.situation || data.text || '') + '</div>';
 
         // ── ④ Verdict ──
         var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict');
         if (data.verdict) {
-            verdictEl.style.cssText = 'padding:8px 10px;margin:0 10px 8px;font-size:11.5px;font-weight:600;color:' + signalColor + ';line-height:1.45;background:' + signalBg + ';border-radius:6px;';
-            verdictEl.textContent = data.verdict;
+            verdictEl.style.cssText = 'margin:4px 10px 8px;position:relative;border-left:2px solid ' + signalColor + ';padding:7px 12px;background:' + signalBg + ';';
+            verdictEl.innerHTML = '<div style="font-size:11.5px;line-height:1.5;color:' + signalColor + ';font-weight:600;">' + data.verdict + '</div>';
         } else {
             verdictEl.style.cssText = '';
-            verdictEl.textContent = '';
+            verdictEl.innerHTML = '';
         }
 
         // ── Border animation class ──
@@ -1654,7 +1745,7 @@
 
         // ── ⑤⑥ Action area: Activation → Scenarios (bars + details) ──
         var ae = _tooltipEl.querySelector('.ai-tt-action');
-        ae.style.cssText = 'padding:0;background:transparent;border:none;margin:0 10px 8px;';
+        ae.style.cssText = 'padding:0;background:transparent;border:none;margin:0 10px 4px;';
         var actionHtml = '';
 
         // ── ⑤ ACTIVATION — always shown when available, BEFORE scenarios ──
@@ -1673,48 +1764,49 @@
 
             // Long condition
             actionHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #1E222D;">';
-            actionHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(38,166,154,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#26A69A;flex-shrink:0;margin-top:1px;">L</div>';
+            actionHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(8,153,129,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#089981;flex-shrink:0;margin-top:1px;">L</div>';
             actionHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Long</strong> — ' + (activation.long || (isEn ? 'Confirm above resistance' : 'Подтверждение выше сопротивления')) + '</div>';
             if (longTarget || longStop) actionHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (longTarget ? longTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (longStop ? longStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
             actionHtml += '</div></div>';
 
             // Short condition
             actionHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;">';
-            actionHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(239,83,80,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#EF5350;flex-shrink:0;margin-top:1px;">S</div>';
+            actionHtml += '<div style="width:20px;height:20px;border-radius:4px;background:rgba(242,54,69,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#F23645;flex-shrink:0;margin-top:1px;">S</div>';
             actionHtml += '<div><div style="font-size:11px;line-height:1.4;color:#9598A1;"><strong style="color:#D1D4DC;font-weight:600;">Short</strong> — ' + (activation.short || (isEn ? 'Confirm below support' : 'Подтверждение ниже поддержки')) + '</div>';
             if (shortTarget || shortStop) actionHtml += '<div style="font-size:11px;color:#636B76;margin-top:2px;">' + (isEn ? 'Target' : 'Цель') + ' $' + (shortTarget ? shortTarget.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + ' · ' + (isEn ? 'Stop' : 'Стоп') + ' $' + (shortStop ? shortStop.toLocaleString('en-US', {maximumFractionDigits:0}) : '—') + '</div>';
             actionHtml += '</div></div>';
             actionHtml += '</div>';
 
         } else if (strength === 'weak' && data.activation) {
-            // Weak: compact activation hint
+            // Weak: compact activation badge — new style
             var actText = dominant === 'long' ? (data.activation.long || '') : (data.activation.short || '');
             if (actText) {
-                actionHtml += '<div style="padding:8px 10px;background:rgba(251,191,36,0.04);border:1px solid rgba(251,191,36,0.25);border-radius:6px;font-size:11px;color:#9598A1;line-height:1.4;margin-bottom:10px;">';
-                actionHtml += '<span style="color:#FBBF24;font-weight:600;">' + (isEn ? 'Activation: ' : 'Активация: ') + '</span>' + actText;
+                actionHtml += '<div style="margin-bottom:6px;background:rgba(224,168,13,0.04);border:1px solid rgba(224,168,13,0.1);border-radius:3px;padding:6px 10px;display:flex;align-items:center;gap:6px;">';
+                actionHtml += '<div style="width:14px;height:14px;border-radius:2px;background:rgba(224,168,13,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><span style="font-size:9px;color:#E0A80D;font-weight:800;">!</span></div>';
+                actionHtml += '<div style="font-size:10px;color:#A8B3C5;line-height:1.4;"><span style="color:#E0A80D;font-weight:600;">' + (isEn ? 'Activation: ' : 'Активация: ') + '</span>' + actText + '</div>';
                 actionHtml += '</div>';
             }
         }
 
-        // ── ⑥ SCENARIOS — bars + details, wrapped in one section ──
-        actionHtml += '<div id="aiScenariosSection" style="border:1px solid #2A2E39;border-radius:6px;overflow:hidden;margin-top:4px;">';
+        // ── ⑥ SCENARIOS — bars + details ──
+        actionHtml += '<div id="aiScenariosSection">';
 
-        // "If you want to enter" label for neutral/weak — full width header of section
+        // "If you want to enter" label for neutral/weak
         if (strength === 'neutral' || strength === 'weak') {
-            actionHtml += '<div style="text-align:center;padding:5px 10px;background:rgba(255,255,255,0.02);border-bottom:1px solid #2A2E39;">';
-            actionHtml += '<span style="font-size:10px;color:#636B76;">' + (isEn ? 'If you want to enter — here are scenarios' : 'Если хочешь войти — вот сценарии') + '</span>';
+            actionHtml += '<div style="text-align:center;padding:4px 10px 5px;">';
+            actionHtml += '<span style="font-size:9px;color:#5C6B82;">' + (isEn ? 'If you want to enter — here are scenarios' : 'Если хочешь войти — вот сценарии') + '</span>';
             actionHtml += '</div>';
         }
 
-        // Bars — thinner (22px)
-        actionHtml += '<div style="display:flex;gap:1px;height:22px;background:#2A2E39;">';
-        actionHtml += '<div id="aiBarLong" style="flex:' + longPct + ';background:rgba(38,166,154,' + (dominant === 'long' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#26A69A;min-width:40px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'long' ? '#26A69A' : 'transparent') + ';">↑ Long ' + longPct + '%</div>';
-        actionHtml += '<div id="aiBarShort" style="flex:' + shortPct + ';background:rgba(239,83,80,' + (dominant === 'short' ? '0.18' : '0.06') + ');display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#EF5350;min-width:40px;cursor:pointer;transition:all 0.15s;border-bottom:2px solid ' + (dominant === 'short' ? '#EF5350' : 'transparent') + ';">↓ Short ' + shortPct + '%</div>';
+        // Bars — new proportional style with gap
+        actionHtml += '<div style="display:flex;height:28px;gap:1px;margin-bottom:0;">';
+        actionHtml += '<div id="aiBarLong" style="flex:' + longPct + ';background:linear-gradient(180deg,rgba(8,153,129,' + (dominant === 'long' ? '0.18' : '0.06') + '),rgba(8,153,129,' + (dominant === 'long' ? '0.08' : '0.03') + '));border:1px solid rgba(8,153,129,' + (dominant === 'long' ? '0.12' : '0.04') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:' + (dominant === 'long' ? '700' : '600') + ';color:#089981;min-width:40px;cursor:pointer;transition:all 0.15s;">↑ Long ' + longPct + '%</div>';
+        actionHtml += '<div id="aiBarShort" style="flex:' + shortPct + ';background:rgba(242,54,69,' + (dominant === 'short' ? '0.04' : '0.02') + ');border:1px solid rgba(242,54,69,' + (dominant === 'short' ? '0.06' : '0.03') + ');display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#F23645;min-width:40px;cursor:pointer;transition:all 0.15s;opacity:' + (dominant === 'short' ? '1' : '0.4') + ';">↓ Short ' + shortPct + '%</div>';
         actionHtml += '</div>';
 
-        // Weak signal badge — full width
+        // Weak signal badge
         if (strength === 'weak') {
-            actionHtml += '<div style="text-align:center;padding:4px 10px;background:rgba(251,191,36,0.04);border-bottom:1px solid #2A2E39;"><span style="font-size:10px;color:#FBBF24;">' + (isEn ? 'Weak signal — caution' : 'Слабый сигнал — осторожно') + '</span></div>';
+            actionHtml += '<div style="text-align:center;margin-top:3px;"><span style="font-size:9px;color:#E0A80D;font-weight:600;">' + (isEn ? 'Weak signal — caution' : 'Слабый сигнал — осторожно') + '</span></div>';
         }
 
         actionHtml += '<div id="aiDetails"></div>';
@@ -1722,12 +1814,10 @@
 
         ae.innerHTML = actionHtml;
 
-        // ── Details table (entry/stop/target) — clickable bars ──
+        // ── Details table (entry/stop/target) — new card design ──
         function showDetails(side) {
             var d = side === 'long' ? longData : shortData;
-            var mainC = side === 'long' ? '#26A69A' : '#EF5350';
-            var bg = '#131722';
-            var bd = '#2A2E39';
+            var mainC = side === 'long' ? '#089981' : '#F23645';
             var label = side === 'long' ? 'Long' : 'Short';
             var box = document.getElementById('aiDetails');
             if (!box) return;
@@ -1738,26 +1828,40 @@
             var profit = (entryNum && targetNum && entryNum > 0)
                 ? Math.round(Math.abs((targetNum - entryNum) / entryNum) * 1000) / 10
                 : null;
+            var rr = (entryNum && targetNum && stopNum && Math.abs(entryNum - stopNum) > 0)
+                ? Math.round(Math.abs(targetNum - entryNum) / Math.abs(entryNum - stopNum) * 100) / 100
+                : null;
 
             var h = '';
             if (d.entry || d.target || d.stop) {
-                h = '<div style="background:' + bg + ';border-top:1px solid ' + bd + ';">';
-                h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid ' + bd + ';">';
-                h += '<span style="font-size:11px;font-weight:700;color:' + mainC + ';">' + label + '</span>';
-                if (profit !== null) h += '<span style="font-size:10px;font-weight:700;color:' + mainC + ';">profit +' + profit + '%</span>';
-                h += '</div>';
-                h += '<div style="padding:5px 10px 7px;">';
-                if (entryNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Entry' : 'Вход') + '</span><span style="color:#9598A1;font-size:11px;font-weight:500;">$' + entryNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                if (targetNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Target' : 'Цель') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + targetNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
-                if (stopNum) h += '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#636B76;font-size:11px;">' + (isEn ? 'Stop' : 'Стоп') + '</span><span style="color:#D1D4DC;font-size:11px;font-weight:500;">$' + stopNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                h = '<div style="margin-top:6px;background:#182030;border:1px solid #242A3A;border-radius:3px;overflow:hidden;">';
+                // Header
+                h += '<div style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #242A3A;">';
+                h += '<span style="font-size:12px;font-weight:700;color:' + mainC + ';">' + label + '</span>';
+                h += '<div style="display:flex;align-items:center;gap:6px;">';
+                if (rr !== null) h += '<span style="font-size:9px;color:#5C6B82;">R:R 1:' + rr + '</span>';
+                if (profit !== null) h += '<span style="font-size:10px;font-weight:700;color:' + mainC + ';background:rgba(8,153,129,0.08);padding:2px 8px;border-radius:2px;border:1px solid rgba(8,153,129,0.12);">+' + profit + '%</span>';
+                h += '</div></div>';
+                // Rows
+                h += '<div style="padding:4px 12px 8px;">';
+                if (entryNum) h += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:4px 0;"><span style="color:#5C6B82;">' + (isEn ? 'Entry' : 'Вход') + '</span><span style="color:#D0D6E0;font-weight:500;">$' + entryNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                if (targetNum) h += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:4px 0;"><span style="color:#5C6B82;">' + (isEn ? 'Target' : 'Цель') + '</span><span style="color:#089981;font-weight:600;">$' + targetNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
+                if (stopNum) h += '<div style="display:flex;justify-content:space-between;font-size:11px;padding:4px 0;"><span style="color:#5C6B82;">' + (isEn ? 'Stop' : 'Стоп') + '</span><span style="color:#F23645;font-weight:600;">$' + stopNum.toLocaleString('en-US', {maximumFractionDigits:2}) + '</span></div>';
                 h += '</div></div>';
             }
             box.innerHTML = h;
 
             var bl = document.getElementById('aiBarLong');
             var bs = document.getElementById('aiBarShort');
-            if (bl) { bl.style.background = side === 'long' ? 'rgba(38,166,154,0.18)' : 'rgba(38,166,154,0.06)'; bl.style.borderBottom = side === 'long' ? '2px solid #26A69A' : '2px solid transparent'; }
-            if (bs) { bs.style.background = side === 'short' ? 'rgba(239,83,80,0.18)' : 'rgba(239,83,80,0.06)'; bs.style.borderBottom = side === 'short' ? '2px solid #EF5350' : '2px solid transparent'; }
+            if (bl) {
+                bl.style.background = side === 'long' ? 'linear-gradient(180deg,rgba(8,153,129,0.18),rgba(8,153,129,0.08))' : 'rgba(8,153,129,0.03)';
+                bl.style.opacity = side === 'long' ? '1' : '0.5';
+                bl.style.fontWeight = side === 'long' ? '700' : '600';
+            }
+            if (bs) {
+                bs.style.background = side === 'short' ? 'rgba(242,54,69,0.08)' : 'rgba(242,54,69,0.02)';
+                bs.style.opacity = side === 'short' ? '1' : '0.4';
+            }
         }
 
         showDetails(dominant);
@@ -1812,19 +1916,19 @@
             };
             var hLabel = horizonLabels[data.horizon] || data.horizon || '';
 
-            var holdHtml = '<div style="margin:8px 0 0;padding:8px 10px;background:rgba(255,255,255,0.02);border:1px solid #2A2E39;border-radius:6px;">';
+            var holdHtml = '<div style="margin:4px 0 0;border:1px solid rgba(255,255,255,0.06);border-radius:3px;padding:8px 12px;">';
 
             // Header row: horizon label + hold time
-            holdHtml += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
-            holdHtml += '<span style="font-size:11px;font-weight:600;color:#D1D4DC;">' + hLabel + '</span>';
+            holdHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">';
+            holdHtml += '<span style="font-size:10px;font-weight:600;color:#D0D6E0;">' + hLabel + '</span>';
             if (data.holdTime) {
-                holdHtml += '<span style="font-size:10px;color:#9598A1;margin-left:auto;">' + (isEn ? 'Hold: ' : 'Удержание: ') + data.holdTime + '</span>';
+                holdHtml += '<span style="font-size:9px;color:#5C6B82;background:rgba(255,255,255,0.03);padding:2px 6px;border-radius:2px;border:1px solid rgba(255,255,255,0.04);">' + (isEn ? 'Hold: ' : 'Удержание: ') + data.holdTime + '</span>';
             }
             holdHtml += '</div>';
 
             // Hold advice
             if (data.holdAdvice) {
-                holdHtml += '<div style="font-size:10.5px;line-height:1.4;color:#9598A1;">' + data.holdAdvice + '</div>';
+                holdHtml += '<div style="font-size:10px;line-height:1.45;color:#7B8BA2;">' + data.holdAdvice + '</div>';
             }
 
             holdHtml += '</div>';
@@ -1921,6 +2025,7 @@
                     _tooltipEl.classList.remove('signal-long', 'signal-short', 'signal-neutral', 'signal-loading');
                     var trendEl = _tooltipEl.querySelector('.ai-tt-trend'); if (trendEl) trendEl.innerHTML = '';
                     var scaleEl = _tooltipEl.querySelector('.ai-tt-scale'); if (scaleEl) scaleEl.innerHTML = '';
+                    var clusterEl2 = _tooltipEl.querySelector('.ai-tt-cluster'); if (clusterEl2) clusterEl2.innerHTML = '';
                     var verdictEl = _tooltipEl.querySelector('.ai-tt-verdict'); if (verdictEl) { verdictEl.style.cssText = ''; verdictEl.textContent = ''; }
                     var textEl = _tooltipEl.querySelector('.ai-tt-text');
                     textEl.style.cssText = '';

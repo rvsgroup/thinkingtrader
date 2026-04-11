@@ -390,8 +390,6 @@ const PatternScanner = (function() {
         const { tops, bottoms } = findLocalExtremes(candles, radius);
         const patterns = [];
 
-        console.log(`[Scanner] interval=${interval} radius=${radius} minGap=${params.minGap} maxGap=${params.maxGap} tolerance=${tolerance} tops=${tops.length} bottoms=${bottoms.length}`);
-
         // Double Top — цепочка: вторая вершина паттерна становится первой для следующего
         // Ищем ближайшую подходящую пару в пределах maxGap, пропуская промежуточные мелкие
         for (let a = 0; a < tops.length - 1; a++) {

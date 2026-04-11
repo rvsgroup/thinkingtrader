@@ -269,6 +269,7 @@ app.get('/api/translate', async (req, res) => {
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 console.log('OPENROUTER_KEY:', OPENROUTER_KEY ? 'loaded ✅' : 'MISSING ❌');
 const AI_MODEL = 'openai/gpt-5.4';
+const AI_PROMPT_VERSION = 5; // ← менять при изменении промпта или логики AI
 function getAiCacheTtl(timeframe) {
     if (timeframe === '1H') return 10 * 60 * 1000;   // 10 минут
     if (timeframe === '4H') return 30 * 60 * 1000;   // 30 минут
@@ -305,7 +306,7 @@ app.post('/api/ai-scan', async (req, res) => {
         }
 
         // ── Серверный кэш: ключ = монета + таймфрейм + язык ──
-        const cacheKey = `ai:v4:${ctx.coin}:${ctx.timeframe}:${ctx.lang || 'ru'}`;
+        const cacheKey = `ai:v${AI_PROMPT_VERSION}:${ctx.coin}:${ctx.timeframe}:${ctx.lang || 'ru'}`;
         const cached = cacheGet(cacheKey);
         if (cached) {
             console.log(`✅ AI Scanner cache hit: ${cacheKey}`);
@@ -327,21 +328,65 @@ app.post('/api/ai-scan', async (req, res) => {
                     resistance: ctx.levels.resistance,
                     currentPrice: ctx.currentPrice,
                     fetchCandles: async (sym, interval, limit) => {
-                        const clusterCacheKey = `cluster-candles:${sym}:${interval}:${limit}`;
-                        const cachedCandles = cacheGet(clusterCacheKey);
-                        if (cachedCandles) {
-                            console.log(`  ♻️ Cluster candles from cache: ${clusterCacheKey}`);
-                            return cachedCandles;
-                        }
-                        const data = await proxyFetch(
-                            `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`
-                        );
+                        // ── Загружаем Spot + Futures параллельно и мёрджим объёмы ──
+                        const spotCacheKey = `cluster-candles:spot:${sym}:${interval}:${limit}`;
+                        const futCacheKey = `cluster-candles:fut:${sym}:${interval}:${limit}`;
                         const candleTtl = interval === '4h' ? 15*60*1000
                                         : interval === '1h' ? 5*60*1000
                                         : 3*60*1000;
-                        cacheSet(clusterCacheKey, data, candleTtl);
-                        console.log(`  📥 Cluster candles loaded: ${sym} ${interval} x${data.length} (TTL ${candleTtl/1000}s)`);
-                        return data;
+
+                        // Spot
+                        let spotData = cacheGet(spotCacheKey);
+                        const spotCached = !!spotData;
+                        if (!spotData) {
+                            spotData = await proxyFetch(
+                                `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`
+                            );
+                            cacheSet(spotCacheKey, spotData, candleTtl);
+                        }
+
+                        // Futures (fapi) — параллельно, с fallback при ошибке
+                        let futData = cacheGet(futCacheKey);
+                        const futCached = !!futData;
+                        if (!futData) {
+                            try {
+                                futData = await proxyFetch(
+                                    `https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=${interval}&limit=${limit}`
+                                );
+                                cacheSet(futCacheKey, futData, candleTtl);
+                            } catch (e) {
+                                console.warn(`  ⚠️ Futures klines unavailable for ${sym}: ${e.message}`);
+                                futData = null;
+                            }
+                        }
+
+                        // Мёрджим: суммируем volume (поле [5]) и buyVolume (поле [9])
+                        // Формат Binance klines одинаковый для Spot и Futures
+                        // Мёрджим по openTime (поле [0]) для надёжности
+                        if (futData && Array.isArray(futData) && futData.length > 0) {
+                            const futMap = new Map();
+                            for (const fk of futData) {
+                                futMap.set(fk[0], fk); // ключ = openTime
+                            }
+                            let mergedCount = 0;
+                            const merged = spotData.map(sk => {
+                                const fk = futMap.get(sk[0]); // ищем Futures свечу с тем же openTime
+                                if (fk) {
+                                    mergedCount++;
+                                    const m = [...sk];
+                                    m[5] = String(parseFloat(sk[5] || 0) + parseFloat(fk[5] || 0));  // total volume
+                                    m[9] = String(parseFloat(sk[9] || 0) + parseFloat(fk[9] || 0));  // taker buy volume
+                                    return m;
+                                }
+                                return sk; // нет пары — оставляем Spot as-is
+                            });
+                            console.log(`  📥 Cluster candles: Spot${spotCached ? '(cache)' : ''} + Futures${futCached ? '(cache)' : ''} merged ${mergedCount}/${merged.length}: ${sym} ${interval} x${merged.length} (TTL ${candleTtl/1000}s)`);
+                            return merged;
+                        }
+
+                        // Fallback: только Spot
+                        console.log(`  📥 Cluster candles: Spot only${spotCached ? '(cache)' : ''}: ${sym} ${interval} x${spotData.length} (TTL ${candleTtl/1000}s)`);
+                        return spotData;
                     },
                 });
 
@@ -358,6 +403,11 @@ app.post('/api/ai-scan', async (req, res) => {
                     console.log(`   Volume trend: ${clusterResult.volumeTrend}`);
                     console.log(`   Interpretation: ${clusterResult.interpretation}`);
                     console.log(`   Consecutive at level: ${clusterResult.consecutiveNearLevel}`);
+                    console.log(`   Data quality: ${clusterResult.dataQuality}`);
+                    console.log(`   Cluster strength: ${clusterResult.clusterStrength}`);
+                    if (clusterResult.delta) {
+                        console.log(`   Delta: avg=${clusterResult.delta.avgDelta} (${clusterResult.delta.deltaPct}%) | buy dominance: ${clusterResult.delta.buyDominance}%`);
+                    }
                 }
             }
         } catch (e) {
@@ -375,16 +425,16 @@ Data includes:
 - volatility — average candle size over 10/30/100 candles and volatility trend (compression/expansion/normal)
 - suggestedLevels — mathematically calculated entry/stop/target via average volatility. Use as BASE but adjust by levels and context
 - levels — THE MAIN support/resistance levels (daily channel). This is the CORRIDOR where price moves. These levels are MORE IMPORTANT than heavyZones, patterns, or trend.
-- pricePosition — where price is relative to the channel. THIS IS THE MOST IMPORTANT FIELD:
-  * "inside_channel_middle" — price is in the middle of the channel (20-80%). NO SIGNAL. longPct and shortPct must be 50/50 (maximum ±5%). Do NOT try to find a direction — there is none.
-  * "inside_near_resistance" — price is in the top 20% of the channel, near resistance. SHORT zone, shortPct minimum 60%
-  * "inside_near_support" — price is in the bottom 20% of the channel, near support. LONG zone, longPct minimum 60%
-  * "above_resistance_not_confirmed" — price is CURRENTLY above resistance but less than 3 candles closed above. Likely false breakout — SHORT preferred, shortPct minimum 60%
-  * "above_resistance_confirmed" — price is CURRENTLY above resistance AND 3+ candles closed above. Real breakout — LONG valid, longPct minimum 65%
-  * "below_support_not_confirmed" — price is CURRENTLY below support but less than 3 candles closed below. Likely false breakdown — LONG preferred, longPct minimum 60%
-  * "below_support_confirmed" — price is CURRENTLY below support AND 3+ candles closed below. Real breakdown — SHORT valid, shortPct minimum 65%
-  * "failed_breakout_up" — price WAS above resistance but RETURNED inside the channel. BULL TRAP — buyers got trapped. SHORT signal, shortPct minimum 60%
-  * "failed_breakout_down" — price WAS below support but RETURNED inside the channel. BEAR TRAP — sellers got trapped. LONG signal, longPct minimum 60%
+- pricePosition — where price is relative to the channel. This tells you WHERE the decision point is, NOT what direction to trade:
+  * "inside_channel_middle" — price is in the middle of the channel (20-80%). No clear edge — there is no level nearby to trade from. Uncertainty zone.
+  * "inside_near_resistance" — price is near resistance. This is a DECISION POINT: price is at the level, now look at clusterAnalysis to determine direction.
+  * "inside_near_support" — price is near support. This is a DECISION POINT: price is at the level, now look at clusterAnalysis to determine direction.
+  * "above_resistance_not_confirmed" — price broke above resistance but NOT confirmed (less than 3 closed candles above). Could be a false breakout.
+  * "above_resistance_confirmed" — price confirmed above resistance (3+ closed candles above). Resistance becomes support.
+  * "below_support_not_confirmed" — price broke below support but NOT confirmed. Could be a false breakdown.
+  * "below_support_confirmed" — price confirmed below support (3+ closed candles). Support becomes resistance.
+  * "failed_breakout_up" — price WAS above resistance but RETURNED inside the channel. Bull trap.
+  * "failed_breakout_down" — price WAS below support but RETURNED inside the channel. Bear trap.
 - last20candles — last 20 candles in detail
 - patterns — candlestick patterns from last 20 candles with winRate and result
 - anchorData (for 4H/1H only) — 1D levels, keyPoints, priceProfile, heavyZones. 1D data shows the BIG picture; local TF shows the current move
@@ -399,6 +449,22 @@ Data includes:
   * "consecutiveNearLevel" — how many recent candles stuck at the level. More = stronger test.
   * "scenario" — testing_from_below, testing_from_above, breakout_not_confirmed, breakout_confirmed
   USE clusterAnalysis to ADJUST longPct/shortPct by ±5-10%. If it confirms pricePosition — strengthen. If contradicts — weaken. Describe cluster findings in "situation" using HUMAN LANGUAGE (e.g. "volume clusters show buyers pushing at resistance"), NEVER use field names.
+  * "delta" (if present) — REAL buy/sell volume data from Binance (taker buy vs taker sell). This is the MOST RELIABLE cluster signal:
+    - "deltaPct" — net buying pressure as % of average volume. Positive = buyers dominate, negative = sellers dominate. Example: +8.5% = strong buying, -3.2% = mild selling.
+    - "buyDominance" — % of candles where buyers had more volume than sellers. 70%+ = clear buyer control, 30%- = clear seller control.
+    - When delta data is present (dataQuality="real_delta"), trust it MORE than concentration/bottomPct/topPct (which are estimates). Delta is ground truth.
+
+CRITICAL — HOW TO DETERMINE DIRECTION:
+  Cluster analysis shows WHO is in control (buyers or sellers) near a level. This is the KEY signal for direction:
+  - Clusters at BOTTOM of candles = buyers are in control = LONG signal (regardless of whether it's support or resistance)
+  - Clusters at TOP of candles = sellers are in control = SHORT signal (regardless of whether it's support or resistance)
+  Support and resistance levels are DECISION POINTS — they tell you WHERE to look, not WHAT to do. The cluster analysis tells you WHAT to do.
+  Examples:
+  - Price near resistance + clusters at bottom → buyers pushing for breakout → LONG
+  - Price near resistance + clusters at top → sellers defending → SHORT
+  - Price near support + clusters at bottom → buyers defending → LONG
+  - Price near support + clusters at top → sellers pushing breakdown → SHORT
+  If clusterAnalysis is absent or "mixed" — fall back to the traditional approach (resistance = short zone, support = long zone).
 
 Answer format — 3 parts:
 
@@ -415,15 +481,25 @@ Answer format — 3 parts:
 
 Rules:
 - CRITICAL — HUMAN LANGUAGE ONLY: NEVER use internal field names, variable names, or technical identifiers in "situation", "verdict", "trendLabel", "trendDetail", "holdAdvice" or ANY user-facing text. Forbidden examples: "pricePosition = inside_near_resistance", "clusterAnalysis", "heavyZones", "priceProfile", "anchorData", "suggestedLevels", "inside_channel_middle", "failed_breakout_up", "buyers_pushing_breakout_likely". Instead write in natural trader language: "price is near resistance", "volume clusters show buyers pushing", "major volume zone at $65K-$70K". The user must NEVER see code or JSON field names.
-- ANALYSIS HIERARCHY — follow this order strictly:
-  LEVEL 1 (KING): pricePosition determines the direction. The percentages above are HARD MINIMUMS. If pricePosition = "inside_channel_middle" — you MUST set longPct=50, shortPct=50, signalStrength="neutral". No patterns, volumes, or trends can override this. The trader should NOT enter.
-  LEVEL 2: Global context (keyPoints, 900-day history) can STRENGTHEN or WEAKEN a signal from Level 1, but NEVER flip it. Example: "inside_near_support" gives longPct=60%, but global downtrend weakens it to 55%. It can NEVER turn it into shortPct>50%.
-  LEVEL 3: Patterns, heavyZones — only confirmation or slight adjustment (±5%) of the signal from Level 1-2.
+- ANALYSIS APPROACH:
+  1. LEVELS define WHERE the decision point is (pricePosition tells you if price is at a level or in no-man's land)
+  2. CLUSTER ANALYSIS defines DIRECTION when price is at a level (bottom clusters = long, top clusters = short)
+  3. If price is in "inside_channel_middle" — there is no level nearby, no clear edge. Be cautious, keep longPct/shortPct close to 50/50.
+  4. Global context (keyPoints, priceProfile, heavyZones, patterns) adds confirmation or warns of danger. Use it to adjust confidence (longPct/shortPct spread).
+  5. You determine the probabilities yourself based on ALL available data. No hardcoded minimums — analyze freely.
 - ENTRY RULE: entry for the dominant direction must ALWAYS be within 1% of currentPrice. Never place entry far from the current price — the trader enters NOW, not after a 5% move.
 - entry/stop/target: take suggestedLevels as base, but ADJUST by nearest heavyZones and levels. Stop should not be behind a heavy volume zone (it will hold price). Target — to the next heavy zone (it will stop the move).
 - MINIMUM STOP-LOSS: stop must be at least 1.5 × suggestedLevels.avgCandleSize away from entry. If the calculated stop is closer — widen it. A stop that is too tight will be hit by normal noise.
 - MAXIMUM STOP-LOSS: stop must NEVER be more than 2-3% away from entry. If a volume zone boundary is further than 3% — ignore it for stop placement and use 2-3% from entry instead. Trader's capital protection is the priority.
 - MAXIMUM TARGET: target must NEVER be more than 12% away from entry. Realistic targets are 3-8%. Only set target at 10-12% if ALL signals align (trend, pricePosition, heavyZones, patterns all confirm the same direction). 15%+ targets are FORBIDDEN — they are unrealistic and mislead the trader.
+- TARGET VS SIGNAL STRENGTH: the weaker the signal, the smaller the target. If signalStrength="weak" (difference 10-19%) — maximum target is 5%. If signalStrength="strong" (difference 20%+) — target up to 8%. This is logical: a weak signal means less certainty, so take a smaller, more realistic profit. A trader with 58/42 confidence should NOT aim for 8%+ — that's overconfident for such a weak edge.
+- TARGET VS CLUSTER STRENGTH — MANDATORY when clusterAnalysis is present:
+  * "clusterStrength" shows how dominant buyers or sellers really are at the level:
+    - "none" (buy/sell spread < 15 points, e.g. 54/46) — NO cluster edge. This is balance, not a signal. If concentration="mixed", treat the level as untested. Target must be MINIMAL: 1D max 2%, 4H max 1%, 1H max 0.5%. Consider signalStrength="neutral" regardless of other factors.
+    - "weak" (spread 15-25 points, e.g. 58/42) — slight edge. Target: 1D max 3%, 4H max 2%, 1H max 1%.
+    - "medium" (spread 25-40 points, e.g. 65/35) — solid edge. Target: 1D max 5%, 4H max 3%, 1H max 2%.
+    - "strong" (spread 40+ points, e.g. 72/28) — clear dominance. Target: 1D max 8%, 4H max 5%, 1H max 3%.
+  The cluster strength caps the target — even if all other signals are bullish, a "weak" cluster should NOT produce 6%+ target on 1D. The cluster shows real money flow at the level, and if the edge is slim, the target must be slim too.
 - For 4H and 1H: use anchorData (1D levels, priceProfile, heavyZones) as the BIG picture. 1D levels are more important than local ones. If local support coincides with 1D resistance — it's a trap.
 - winRate is the GLOBAL historical success rate of this pattern. If bullish pattern failed (workedOut: false) — bearish signal.
 - If difference Long/Short less than 15% — uncertainty, say it directly.
@@ -462,16 +538,16 @@ JSON format:
 - volatility — средний размер свечи за 10/30/100 свечей и тренд волатильности (сжатие/расширение/норма)
 - suggestedLevels — математически рассчитанные entry/stop/target через среднюю волатильность. Используй как БАЗУ, но корректируй по уровням и контексту
 - levels — ГЛАВНЫЕ уровни поддержки/сопротивления (дневной коридор). Это КОРИДОР движения цены. Эти уровни ВАЖНЕЕ чем heavyZones, паттерны или тренд.
-- pricePosition — где цена относительно коридора. ЭТО САМОЕ ВАЖНОЕ ПОЛЕ:
-  * "inside_channel_middle" — цена в середине коридора (20-80%). СИГНАЛА НЕТ. longPct и shortPct ДОЛЖНЫ быть 50/50 (максимум ±5%). НЕ пытайся найти направление — его нет. Трейдер НЕ должен входить.
-  * "inside_near_resistance" — цена в верхних 20% коридора, у сопротивления. Зона ШОРТА, shortPct минимум 60%
-  * "inside_near_support" — цена в нижних 20% коридора, у поддержки. Зона ЛОНГА, longPct минимум 60%
-  * "above_resistance_not_confirmed" — цена СЕЙЧАС выше сопротивления, но менее 3 свечей закрылись выше. Скорее всего ложный пробой — ШОРТ, shortPct минимум 60%
-  * "above_resistance_confirmed" — цена СЕЙЧАС выше сопротивления И 3+ свечей закрылись выше. Реальный пробой — ЛОНГ, longPct минимум 65%
-  * "below_support_not_confirmed" — цена СЕЙЧАС ниже поддержки, но менее 3 свечей закрылись ниже. Скорее всего ложный пробой — ЛОНГ, longPct минимум 60%
-  * "below_support_confirmed" — цена СЕЙЧАС ниже поддержки И 3+ свечей закрылись ниже. Реальный пробой вниз — ШОРТ, shortPct минимум 65%
-  * "failed_breakout_up" — цена БЫЛА выше сопротивления, но ВЕРНУЛАСЬ обратно в коридор. ЛОВУШКА ДЛЯ ПОКУПАТЕЛЕЙ. ШОРТ сигнал, shortPct минимум 60%
-  * "failed_breakout_down" — цена БЫЛА ниже поддержки, но ВЕРНУЛАСЬ обратно в коридор. ЛОВУШКА ДЛЯ ПРОДАВЦОВ. ЛОНГ сигнал, longPct минимум 60%
+- pricePosition — где цена относительно коридора. Это говорит ГДЕ точка принятия решения, а НЕ в каком направлении торговать:
+  * "inside_channel_middle" — цена в середине коридора (20-80%). Нет ближайшего уровня — нет чёткого преимущества. Зона неопределённости.
+  * "inside_near_resistance" — цена у сопротивления. Это ТОЧКА ПРИНЯТИЯ РЕШЕНИЯ: цена на уровне, теперь смотри clusterAnalysis для определения направления.
+  * "inside_near_support" — цена у поддержки. Это ТОЧКА ПРИНЯТИЯ РЕШЕНИЯ: цена на уровне, теперь смотри clusterAnalysis для определения направления.
+  * "above_resistance_not_confirmed" — цена пробила сопротивление, но НЕ подтверждено (менее 3 закрытых свечей выше). Возможен ложный пробой.
+  * "above_resistance_confirmed" — цена подтверждена выше сопротивления (3+ закрытых свечей). Сопротивление стало поддержкой.
+  * "below_support_not_confirmed" — цена пробила поддержку, но НЕ подтверждено. Возможен ложный пробой вниз.
+  * "below_support_confirmed" — цена подтверждена ниже поддержки (3+ свечей). Поддержка стала сопротивлением.
+  * "failed_breakout_up" — цена БЫЛА выше сопротивления, но ВЕРНУЛАСЬ в коридор. Ловушка для покупателей.
+  * "failed_breakout_down" — цена БЫЛА ниже поддержки, но ВЕРНУЛАСЬ в коридор. Ловушка для продавцов.
 - last20candles — последние 20 свечей детально
 - patterns — свечные паттерны за последние 20 свечей с winRate и результатом
 - anchorData (только для 4H/1H) — 1D уровни, keyPoints, priceProfile, heavyZones. 1D данные показывают ГЛОБАЛЬНУЮ картину; локальный TF показывает текущее движение
@@ -486,6 +562,22 @@ JSON format:
   * "consecutiveNearLevel" — сколько последних свечей подряд у уровня. Больше = сильнее тест.
   * "scenario" — testing_from_below, testing_from_above, breakout_not_confirmed, breakout_confirmed
   ИСПОЛЬЗУЙ clusterAnalysis для КОРРЕКТИРОВКИ longPct/shortPct на ±5-10%. Если подтверждает сигнал — усиль. Если противоречит — ослабь. Описывай выводы кластеров в "situation" ЧЕЛОВЕЧЕСКИМ ЯЗЫКОМ (напр. "объёмы у сопротивления показывают давление покупателей"), НИКОГДА не используй названия полей.
+  * "delta" (если присутствует) — РЕАЛЬНЫЕ данные покупок/продаж с Binance (taker buy vs taker sell). Это САМЫЙ НАДЁЖНЫЙ кластерный сигнал:
+    - "deltaPct" — чистое давление покупателей как % от среднего объёма. Положительный = покупатели доминируют, отрицательный = продавцы. Пример: +8.5% = сильные покупки, -3.2% = умеренные продажи.
+    - "buyDominance" — % свечей где покупатели имели больше объёма чем продавцы. 70%+ = явный контроль покупателей, 30%- = контроль продавцов.
+    - Когда дельта-данные есть (dataQuality="real_delta"), доверяй им БОЛЬШЕ чем concentration/bottomPct/topPct (которые являются оценками). Дельта — это реальные факты.
+
+КРИТИЧНО — КАК ОПРЕДЕЛЯТЬ НАПРАВЛЕНИЕ:
+  Кластерный анализ показывает КТО контролирует ситуацию (покупатели или продавцы) возле уровня. Это КЛЮЧЕВОЙ сигнал направления:
+  - Кластеры ВНИЗУ свечей = покупатели контролируют = ЛОНГ (неважно, поддержка это или сопротивление)
+  - Кластеры НАВЕРХУ свечей = продавцы контролируют = ШОРТ (неважно, поддержка это или сопротивление)
+  Уровни поддержки и сопротивления — это ТОЧКИ ПРИНЯТИЯ РЕШЕНИЯ. Они говорят ГДЕ смотреть, а не ЧТО делать. Кластерный анализ говорит ЧТО делать.
+  Примеры:
+  - Цена у сопротивления + кластеры внизу → покупатели давят на пробой → ЛОНГ
+  - Цена у сопротивления + кластеры наверху → продавцы защищают → ШОРТ
+  - Цена у поддержки + кластеры внизу → покупатели защищают → ЛОНГ
+  - Цена у поддержки + кластеры наверху → продавцы давят на пробой вниз → ШОРТ
+  Если clusterAnalysis отсутствует или "mixed" — используй классический подход (сопротивление = зона шорта, поддержка = зона лонга).
 
 Формат ответа — 3 части:
 
@@ -502,15 +594,25 @@ JSON format:
 
 Правила:
 - КРИТИЧНО — ТОЛЬКО ЧЕЛОВЕЧЕСКИЙ ЯЗЫК: НИКОГДА не используй в "situation", "verdict", "trendLabel", "trendDetail", "holdAdvice" или ЛЮБОМ тексте для пользователя названия полей, переменных или технических идентификаторов. Запрещённые примеры: "pricePosition = inside_near_resistance", "clusterAnalysis", "heavyZones", "priceProfile", "anchorData", "suggestedLevels", "inside_channel_middle", "failed_breakout_up", "buyers_pushing_breakout_likely". Вместо этого пиши на нормальном языке трейдера: "цена у сопротивления", "кластеры объёмов показывают давление покупателей", "крупная зона объёмов на $65K-$70K". Пользователь НИКОГДА не должен видеть код или имена полей JSON.
-- ИЕРАРХИЯ АНАЛИЗА — следуй этому порядку строго:
-  УРОВЕНЬ 1 (ГЛАВНЫЙ): pricePosition определяет направление. Проценты выше — это ЖЁСТКИЕ МИНИМУМЫ. Если pricePosition = "inside_channel_middle" — ты ОБЯЗАН поставить longPct=50, shortPct=50, signalStrength="neutral". Никакие паттерны, объёмы или тренды не могут это изменить. Трейдер НЕ должен входить.
-  УРОВЕНЬ 2: Глобальный контекст (keyPoints, история 900 дней) может УСИЛИТЬ или ОСЛАБИТЬ сигнал уровня 1, но НИКОГДА не перевернуть его. Пример: "inside_near_support" даёт longPct=60%, но глобальный нисходящий тренд ослабляет до 55%. Но НИКОГДА не превращает в shortPct>50%.
-  УРОВЕНЬ 3: Паттерны, heavyZones — только подтверждение или лёгкая корректировка (±5%) сигнала уровней 1-2.
+- ПОДХОД К АНАЛИЗУ:
+  1. УРОВНИ определяют ГДЕ точка принятия решения (pricePosition говорит, находится ли цена у уровня или в нейтральной зоне)
+  2. КЛАСТЕРНЫЙ АНАЛИЗ определяет НАПРАВЛЕНИЕ когда цена у уровня (кластеры внизу = лонг, кластеры наверху = шорт)
+  3. Если цена в "inside_channel_middle" — рядом нет уровня, нет чёткого преимущества. Будь осторожен, держи longPct/shortPct близко к 50/50.
+  4. Глобальный контекст (keyPoints, priceProfile, heavyZones, паттерны) добавляет подтверждение или предупреждает об опасности. Используй для корректировки уверенности.
+  5. Ты определяешь вероятности сам на основе ВСЕХ доступных данных. Никаких жёстких минимумов — анализируй свободно.
 - ПРАВИЛО ВХОДА: entry для основного направления ВСЕГДА должен быть в пределах 1% от currentPrice. Никогда не ставь entry далеко от текущей цены — трейдер входит СЕЙЧАС, а не после движения на 5%.
 - entry/stop/target: бери suggestedLevels как базу, но КОРРЕКТИРУЙ по ближайшим heavyZones и levels. Стоп не должен быть за сильной объёмной зоной (она удержит цену). Тейк — до следующей тяжёлой зоны (она остановит движение).
 - МИНИМАЛЬНЫЙ СТОП-ЛОСС: стоп должен быть минимум 1.5 × suggestedLevels.avgCandleSize от entry. Если расчётный стоп ближе — расширь его. Слишком узкий стоп выбьет обычным шумом.
 - МАКСИМАЛЬНЫЙ СТОП-ЛОСС: стоп НИКОГДА не должен быть дальше 2-3% от entry. Если граница объёмной зоны дальше 3% — игнорируй её для стопа и ставь стоп на 2-3% от entry. Защита капитала трейдера — приоритет.
 - МАКСИМАЛЬНЫЙ ТЕЙК-ПРОФИТ: цель НИКОГДА не должна быть дальше 12% от entry. Реалистичные цели — 3-8%. Ставь цель 10-12% только если ВСЕ сигналы совпадают (тренд, pricePosition, heavyZones, паттерны — всё подтверждает одно направление). Цели 15%+ ЗАПРЕЩЕНЫ — они нереалистичны и вводят трейдера в заблуждение.
+- ТЕЙК vs СИЛА СИГНАЛА: чем слабее сигнал, тем меньше тейк. Если signalStrength="weak" (разница 10-19%) — максимальный тейк 5%. Если signalStrength="strong" (разница 20%+) — тейк до 8%. Это логично: слабый сигнал = меньше уверенности, значит бери меньший, но реалистичный профит. Трейдер с уверенностью 58/42 НЕ должен целиться на 8%+ — это чрезмерный оптимизм для такого слабого преимущества.
+- ТЕЙК vs СИЛА КЛАСТЕРА — ОБЯЗАТЕЛЬНО когда есть clusterAnalysis:
+  * "clusterStrength" показывает насколько реально доминируют покупатели или продавцы у уровня:
+    - "none" (спред buy/sell < 15 пунктов, напр. 54/46) — НЕТ кластерного преимущества. Это баланс, не сигнал. Тейк МИНИМАЛЬНЫЙ: 1D макс 2%, 4H макс 1%, 1H макс 0.5%. Считай signalStrength="neutral" независимо от других факторов.
+    - "weak" (спред 15-25 пунктов, напр. 58/42) — слабый перевес. Тейк: 1D макс 3%, 4H макс 2%, 1H макс 1%.
+    - "medium" (спред 25-40 пунктов, напр. 65/35) — солидный перевес. Тейк: 1D макс 5%, 4H макс 3%, 1H макс 2%.
+    - "strong" (спред 40+ пунктов, напр. 72/28) — явное доминирование. Тейк: 1D макс 8%, 4H макс 5%, 1H макс 3%.
+  Сила кластера ОГРАНИЧИВАЕТ тейк — даже если все остальные сигналы бычьи, "weak" кластер НЕ должен давать тейк 6%+ на 1D. Кластер показывает реальный денежный поток у уровня, и если перевес мал — тейк тоже должен быть мал.
 - Для 4H и 1H: используй anchorData (1D уровни, priceProfile, heavyZones) как ГЛОБАЛЬНУЮ картину. 1D уровни важнее локальных. Если локальный support совпадает с 1D resistance — это ловушка.
 - winRate — ГЛОБАЛЬНЫЙ исторический процент успешности паттерна. Если бычий паттерн не отработал (workedOut: false) — медвежий сигнал.
 - Если разница Long/Short меньше 15% — неопределённость, скажи прямо.

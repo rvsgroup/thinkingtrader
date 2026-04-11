@@ -120,7 +120,7 @@ async function analyze(params) {
         return null;
     }
 
-    // Binance klines → объекты
+    // Binance klines → объекты (поле [9] = taker buy base asset volume — реальные данные покупателей)
     const candles = rawCandles.map(k => ({
         time: Math.floor(k[0] / 1000),
         open: +k[1],
@@ -128,6 +128,7 @@ async function analyze(params) {
         low: +k[3],
         close: +k[4],
         volume: +(k[5] || 0),
+        buyVolume: +(k[9] || 0), // taker buy volume — реальный объём покупателей
     }));
 
     // ── Фильтруем свечи в зоне уровня (адаптивный радиус) ──
@@ -169,68 +170,83 @@ async function analyze(params) {
     }
 
     // ── Считаем объём в 3 зонах для каждой свечи ──
+    // Приоритет: реальная дельта из Binance (buyVolume, поле [9]), body heuristic как fallback
     const details = [];
     let totalBottomPct = 0;
     let totalTopPct = 0;
     let totalMiddlePct = 0;
+    let totalDelta = 0;
+    let deltaCount = 0;
+    let hasDeltaData = false;
 
     for (const c of candlesInZone) {
         const range = c.high - c.low;
         if (range <= 0 || c.volume <= 0) continue;
 
-        // Границы зон
-        const bottomCutoff = c.low + range * ZONE_BOTTOM;       // верх нижней зоны
-        const topCutoff = c.high - range * (1 - ZONE_BOTTOM - ZONE_MIDDLE); // низ верхней зоны
-
-        // Оценка распределения объёма через форму свечи + volume
-        // Используем weighted подход: где close относительно open показывает давление
-        const bodyTop = Math.max(c.open, c.close);
-        const bodyBottom = Math.min(c.open, c.close);
-        const bodySize = bodyTop - bodyBottom;
         const isBullish = c.close >= c.open;
+        let bottomPct, topPct, middlePct;
 
-        // Какая доля тела попадает в каждую зону
-        const bodyInBottom = Math.max(0, Math.min(bodyTop, bottomCutoff) - Math.max(bodyBottom, c.low));
-        const bodyInTop = Math.max(0, Math.min(bodyTop, c.high) - Math.max(bodyBottom, topCutoff));
-        const bodyInMiddle = Math.max(0, Math.min(bodyTop, topCutoff) - Math.max(bodyBottom, bottomCutoff));
+        // ── PRIMARY: реальная дельта из Binance (buyVolume / sellVolume) ──
+        if (c.buyVolume > 0 && c.volume > 0 && c.buyVolume <= c.volume) {
+            hasDeltaData = true;
+            const buyPct = c.buyVolume / c.volume * 100;   // % покупателей
+            const sellPct = 100 - buyPct;                   // % продавцов
+            const delta = c.buyVolume - (c.volume - c.buyVolume); // абсолютная дельта
 
-        const bodyTotal = bodyInBottom + bodyInTop + bodyInMiddle || 1;
+            totalDelta += delta;
+            deltaCount++;
 
-        // Базовое распределение по телу свечи
-        let bottomPct = bodyInBottom / bodyTotal * 100;
-        let topPct = bodyInTop / bodyTotal * 100;
-        let middlePct = bodyInMiddle / bodyTotal * 100;
-
-        // Корректировка по теням (тени показывают отвержение цены)
-        const lowerShadow = bodyBottom - c.low;
-        const upperShadow = c.high - bodyTop;
-        const totalShadow = lowerShadow + upperShadow || 1;
-
-        // Длинная нижняя тень = покупатели оттолкнули цену снизу → объём внизу
-        // Длинная верхняя тень = продавцы оттолкнули цену сверху → объём вверху
-        const shadowBottomWeight = lowerShadow / totalShadow;
-        const shadowTopWeight = upperShadow / totalShadow;
-
-        // Финальная корректировка: тени перераспределяют 30% оценки
-        const shadowInfluence = 30;
-        bottomPct = bottomPct * 0.7 + shadowBottomWeight * shadowInfluence;
-        topPct = topPct * 0.7 + shadowTopWeight * shadowInfluence;
-        middlePct = 100 - bottomPct - topPct;
-        if (middlePct < 0) {
-            // Нормализуем
-            const total = bottomPct + topPct;
-            bottomPct = bottomPct / total * 100;
-            topPct = topPct / total * 100;
+            // Распределяем по зонам через реальное соотношение buy/sell
+            // buyPct > 50 → покупатели доминируют → объём "внизу" (они поддерживают)
+            // sellPct > 50 → продавцы доминируют → объём "вверху" (они давят)
+            bottomPct = buyPct;
+            topPct = sellPct;
             middlePct = 0;
-        }
 
-        // Дополнительная корректировка: бычья свеча усиливает "bottom", медвежья — "top"
-        if (isBullish) {
-            bottomPct += 5;
-            topPct -= 5;
+            // Корректировка: если разница buy/sell маленькая (<10%) — часть уходит в middle
+            const imbalance = Math.abs(buyPct - sellPct);
+            if (imbalance < 10) {
+                const toMiddle = (10 - imbalance) * 2; // до 20% в middle при полном балансе
+                bottomPct = Math.max(0, bottomPct - toMiddle / 2);
+                topPct = Math.max(0, topPct - toMiddle / 2);
+                middlePct = 100 - bottomPct - topPct;
+            }
         } else {
-            topPct += 5;
-            bottomPct -= 5;
+            // ── FALLBACK: body + shadow heuristic (когда buyVolume недоступен) ──
+            const bottomCutoff = c.low + range * ZONE_BOTTOM;
+            const topCutoff = c.high - range * (1 - ZONE_BOTTOM - ZONE_MIDDLE);
+
+            const bodyTop = Math.max(c.open, c.close);
+            const bodyBottom = Math.min(c.open, c.close);
+
+            const bodyInBottom = Math.max(0, Math.min(bodyTop, bottomCutoff) - Math.max(bodyBottom, c.low));
+            const bodyInTop = Math.max(0, Math.min(bodyTop, c.high) - Math.max(bodyBottom, topCutoff));
+            const bodyInMiddle = Math.max(0, Math.min(bodyTop, topCutoff) - Math.max(bodyBottom, bottomCutoff));
+            const bodyTotal = bodyInBottom + bodyInTop + bodyInMiddle || 1;
+
+            bottomPct = bodyInBottom / bodyTotal * 100;
+            topPct = bodyInTop / bodyTotal * 100;
+            middlePct = bodyInMiddle / bodyTotal * 100;
+
+            const lowerShadow = bodyBottom - c.low;
+            const upperShadow = c.high - bodyTop;
+            const totalShadow = lowerShadow + upperShadow || 1;
+            const shadowBottomWeight = lowerShadow / totalShadow;
+            const shadowTopWeight = upperShadow / totalShadow;
+
+            const shadowInfluence = 30;
+            bottomPct = bottomPct * 0.7 + shadowBottomWeight * shadowInfluence;
+            topPct = topPct * 0.7 + shadowTopWeight * shadowInfluence;
+            middlePct = 100 - bottomPct - topPct;
+            if (middlePct < 0) {
+                const total = bottomPct + topPct;
+                bottomPct = bottomPct / total * 100;
+                topPct = topPct / total * 100;
+                middlePct = 0;
+            }
+
+            if (isBullish) { bottomPct += 5; topPct -= 5; }
+            else { topPct += 5; bottomPct -= 5; }
         }
 
         // Clamp
@@ -251,6 +267,8 @@ async function analyze(params) {
             time: new Date(c.time * 1000).toISOString().slice(0, 16).replace('T', ' '),
             close: _round(c.close),
             volume: Math.round(c.volume),
+            buyVolume: c.buyVolume > 0 ? Math.round(c.buyVolume) : undefined,
+            delta: (c.buyVolume > 0 && c.volume > 0) ? Math.round(c.buyVolume - (c.volume - c.buyVolume)) : undefined,
             bottomPct,
             topPct,
             midPct: middlePct,
@@ -281,11 +299,40 @@ async function analyze(params) {
     const middleVolumeAvg = Math.round(totalMiddlePct / count);
 
     // ── Концентрация ──
+    // Для реальной дельты нужен ДВОЙНОЙ фильтр:
+    // 1) buyDominance — в скольких свечах покупатели сильнее (частота)
+    // 2) avgBuyPct — насколько сильнее (амплитуда)
+    // Оба условия должны выполниться, иначе — mixed
     let concentration;
-    const diff = bottomVolumeAvg - topVolumeAvg;
-    if (diff >= 10) concentration = 'bottom';
-    else if (diff <= -10) concentration = 'top';
-    else concentration = 'mixed';
+    let _avgBuyPctForConc = 50; // сохраняем для использования ниже
+
+    if (hasDeltaData && deltaCount > 0) {
+        const buyDomCandles = details.filter(d => d.delta !== undefined && d.delta > 0).length;
+        const buyDom = Math.round(buyDomCandles / deltaCount * 100);
+
+        // Считаем avgBuyPct прямо здесь (до deltaData)
+        let _tbp = 0, _tbc = 0;
+        for (const d of candlesInZone) {
+            if (d.buyVolume > 0 && d.volume > 0 && d.buyVolume <= d.volume) {
+                _tbp += d.buyVolume / d.volume * 100;
+                _tbc++;
+            }
+        }
+        _avgBuyPctForConc = _tbc > 0 ? Math.round(_tbp / _tbc) : 50;
+        const spread = Math.abs(_avgBuyPctForConc - 50); // отклонение от 50/50
+
+        // spread < 7 (buyPct < 57%) → mixed, даже если buyDominance высокий
+        // spread >= 7 → смотрим buyDominance для подтверждения
+        if (spread >= 7 && buyDom >= 60) concentration = 'bottom';        // покупатели реально давят
+        else if (spread >= 7 && buyDom <= 40) concentration = 'top';      // продавцы реально давят
+        else concentration = 'mixed';                                      // баланс сил
+    } else {
+        // Fallback: по bottomPct/topPct (body heuristic)
+        const diff = bottomVolumeAvg - topVolumeAvg;
+        if (diff >= 10) concentration = 'bottom';
+        else if (diff <= -10) concentration = 'top';
+        else concentration = 'mixed';
+    }
 
     // ── Последовательные свечи у уровня (от последней назад) ──
     let consecutiveNearLevel = 0;
@@ -306,13 +353,71 @@ async function analyze(params) {
 
     // ── Тренд объёма (последние 5 свечей vs первые 5) ──
     let volumeTrend = 'stable';
-    if (details.length >= 6) {
+    if (hasDeltaData && details.length >= 6) {
+        // С реальной дельтой — сравниваем delta первой и второй половины
+        const withDelta = details.filter(d => d.delta !== undefined);
+        if (withDelta.length >= 6) {
+            const firstHalf = withDelta.slice(0, Math.floor(withDelta.length / 2));
+            const secondHalf = withDelta.slice(Math.floor(withDelta.length / 2));
+            const avgDeltaFirst = firstHalf.reduce((s, d) => s + d.delta, 0) / firstHalf.length;
+            const avgDeltaSecond = secondHalf.reduce((s, d) => s + d.delta, 0) / secondHalf.length;
+            // Нормализуем через средний объём
+            const avgVol = details.reduce((s, d) => s + d.volume, 0) / details.length || 1;
+            const deltaDiff = (avgDeltaSecond - avgDeltaFirst) / avgVol * 100;
+            if (deltaDiff > 5) volumeTrend = 'buyers_increasing';
+            else if (deltaDiff < -5) volumeTrend = 'buyers_decreasing';
+        }
+    } else if (details.length >= 6) {
+        // Fallback: по bottomPct (как было раньше)
         const firstHalf = details.slice(0, Math.floor(details.length / 2));
         const secondHalf = details.slice(Math.floor(details.length / 2));
         const avgFirst = firstHalf.reduce((s, d) => s + d.bottomPct, 0) / firstHalf.length;
         const avgSecond = secondHalf.reduce((s, d) => s + d.bottomPct, 0) / secondHalf.length;
         if (avgSecond - avgFirst > 8) volumeTrend = 'buyers_increasing';
         else if (avgFirst - avgSecond > 8) volumeTrend = 'buyers_decreasing';
+    }
+
+    // ── Агрегированная дельта для AI ──
+    let deltaData = null;
+    if (hasDeltaData && deltaCount > 0) {
+        const avgDelta = totalDelta / deltaCount;
+        const avgVolume = details.reduce((s, d) => s + d.volume, 0) / details.length || 1;
+        const deltaPct = Math.round(avgDelta / avgVolume * 1000) / 10; // % от среднего объёма
+        const buyDominance = Math.round(
+            details.filter(d => d.delta !== undefined && d.delta > 0).length / deltaCount * 100
+        );
+
+        // Средний buy/sell% по свечам в зоне — для UI (чистые числа без эвристик)
+        let totalBuyPct = 0;
+        let deltaDetails = 0;
+        for (const d of candlesInZone) {
+            if (d.buyVolume > 0 && d.volume > 0 && d.buyVolume <= d.volume) {
+                totalBuyPct += d.buyVolume / d.volume * 100;
+                deltaDetails++;
+            }
+        }
+        const avgBuyPct = deltaDetails > 0 ? Math.round(totalBuyPct / deltaDetails) : 50;
+        const avgSellPct = 100 - avgBuyPct;
+
+        deltaData = {
+            avgDelta: Math.round(avgDelta),
+            deltaPct: deltaPct,           // дельта как % от объёма (+3.5% = покупатели доминируют)
+            buyDominance: buyDominance,   // % свечей где покупатели сильнее (70 = 70% свечей buy-dominated)
+            avgBuyPct: avgBuyPct,         // средний % покупателей (для UI)
+            avgSellPct: avgSellPct,       // средний % продавцов (для UI)
+            dataSource: 'binance_taker',  // чтобы AI знал что это реальные данные
+        };
+    }
+
+    // ── Сила кластерного сигнала (для калибровки target в AI) ──
+    // Основан на реальном спреде buy/sell: чем больше перевес, тем сильнее сигнал
+    let clusterStrength = 'none'; // none / weak / medium / strong
+    if (hasDeltaData) {
+        const spread = Math.abs(_avgBuyPctForConc - 50);
+        if (spread < 7) clusterStrength = 'none';           // < 57/43 — баланс, нет сигнала
+        else if (spread < 13) clusterStrength = 'weak';     // 57-62 / 43-38 — слабый перевес
+        else if (spread < 20) clusterStrength = 'medium';   // 63-69 / 37-31 — средний перевес
+        else clusterStrength = 'strong';                     // 70+ / 30- — явное доминирование
     }
 
     return {
@@ -327,10 +432,13 @@ async function analyze(params) {
         topVolumeAvg,
         middleVolumeAvg,
         concentration,
+        clusterStrength,                         // none / weak / medium / strong
         volumeTrend,
         interpretation,
         consecutiveNearLevel,
-        details: details.slice(-10), // Последние 10 для промпта (не перегружаем)
+        delta: deltaData,
+        dataQuality: hasDeltaData ? 'real_delta' : 'estimated_heuristic',
+        details: details.slice(-10),
     };
 }
 

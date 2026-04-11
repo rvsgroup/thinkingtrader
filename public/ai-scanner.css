@@ -101,7 +101,7 @@
     top: 6px;
     right: 128px;
     z-index: 1000;
-    width: 450px;
+    width: 500px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -671,23 +671,25 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 7px;
     width: calc(100% - 20px);
-    margin: 4px 10px 6px;
-    padding: 5px 0;
-    min-height: 30px;
-    background: rgba(41,98,255,0.06);
-    border: 1px solid rgba(41,98,255,0.2);
-    border-radius: 6px;
-    color: #B2B5BE;
-    font-size: 11px;
-    font-weight: 500;
+    margin: 2px 10px 8px;
+    padding: 0;
+    height: 48px;
+    background: rgba(41,98,255,0.1);
+    border: 1px solid rgba(41,98,255,0.35);
+    border-radius: 4px;
+    color: #5B8EF0;
+    font-size: 12px;
+    font-weight: 600;
     cursor: pointer;
     text-align: center;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s;
+    font-family: inherit;
+    letter-spacing: 0.2px;
 }
-.ai-chat-open-btn svg { flex-shrink: 0; }
-.ai-chat-open-btn:hover { background: rgba(41,98,255,0.15); }
+.ai-chat-open-btn svg { flex-shrink: 0; width: 14px; height: 14px; stroke: currentColor; }
+.ai-chat-open-btn:hover { background: rgba(41,98,255,0.18); border-color: rgba(41,98,255,0.55); }
 
 /* ── Чат сбоку (десктоп) — абсолютное позиционирование ── */
 #aiChatPanel.chat-side {
@@ -695,8 +697,8 @@
     flex-direction: column;
     position: absolute;
     top: 0;
-    left: calc(-450px - 6px);
-    width: 450px;
+    left: calc(-500px - 6px);
+    width: 500px;
     border-radius: 6px;
     border: 1px solid transparent;
     background:
@@ -1073,3 +1075,60 @@
     background: rgba(41,98,255,0.25) !important;
     border-color: rgba(41,98,255,0.6) !important;
 }
+
+/* ── Cluster Analysis Bar (legacy classes kept for compat) ──── */
+.ai-cluster-bar {
+    margin: 0 10px 8px;
+    padding: 8px 10px;
+    background: #182030;
+    border: 1px solid #242A3A;
+    border-radius: 4px;
+}
+.ai-cluster-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 6px;
+}
+.ai-cluster-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.ai-cluster-title {
+    font-size: 9px;
+    color: #5C6B82;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.ai-cluster-who {
+    font-size: 9px;
+    font-weight: 700;
+    margin-left: auto;
+}
+.ai-cluster-segments {
+    display: flex;
+    height: 42px;
+    border-radius: 3px;
+    gap: 4px;
+}
+.ai-cluster-seg {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    border-radius: 3px;
+    min-width: 28px;
+}
+.ai-cluster-seg span {
+    font-size: 15px;
+    font-weight: 700;
+    color: #D0D6E0;
+    line-height: 1;
+}
+.ai-cluster-bottom { background: linear-gradient(180deg, rgba(8,153,129,0.15) 0%, rgba(8,153,129,0.06) 100%); border: 1px solid rgba(8,153,129,0.12); }
+.ai-cluster-mid    { background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04); }
+.ai-cluster-top    { background: linear-gradient(180deg, rgba(242,54,69,0.1) 0%, rgba(242,54,69,0.03) 100%); border: 1px solid rgba(242,54,69,0.08); }
