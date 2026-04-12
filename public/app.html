@@ -3760,6 +3760,28 @@
         .news-featured-meta { display: flex; align-items: center; justify-content: space-between; }
         .news-featured-source { font-size: 9px; color: #475569; }
         .news-featured-link { font-size: 9px; color: #2962FF; text-decoration: none; }
+        .news-featured-btn {
+            display: inline-flex;
+            align-items: center;
+            height: 28px;
+            padding: 0 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(41,98,255,0.45);
+            background: rgba(41,98,255,0.1);
+            color: #5B8EF0;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+            letter-spacing: 0.2px;
+        }
+        .news-featured-btn:hover {
+            background: rgba(41,98,255,0.2);
+            border-color: rgba(41,98,255,0.7);
+            color: #818CF8;
+        }
         .news-trend-grid-card {
             background: transparent; border: none; border-radius: 0;
             border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -10026,11 +10048,13 @@
                     </div>`;
 
                 widget.style.cursor = 'pointer';
-                widget.addEventListener('click', e => {
+                widget._newsClickHandler && widget.removeEventListener('click', widget._newsClickHandler);
+                widget._newsClickHandler = e => {
                     if (e.target.closest('.nw-all-news')) return;
                     if (typeof newsOpenModalByItem === 'function') newsOpenModalByItem(n);
                     else window.open(n.link, '_blank');
-                }, { once: true });
+                };
+                widget.addEventListener('click', widget._newsClickHandler);
                 widget.querySelector('.nw-all-news').addEventListener('click', e => {
                     e.stopPropagation();
                     if (typeof window.goToPage === 'function') window.goToPage(1);

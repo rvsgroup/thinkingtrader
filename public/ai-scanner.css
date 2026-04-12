@@ -1132,3 +1132,96 @@
 .ai-cluster-bottom { background: linear-gradient(180deg, rgba(8,153,129,0.15) 0%, rgba(8,153,129,0.06) 100%); border: 1px solid rgba(8,153,129,0.12); }
 .ai-cluster-mid    { background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04); }
 .ai-cluster-top    { background: linear-gradient(180deg, rgba(242,54,69,0.1) 0%, rgba(242,54,69,0.03) 100%); border: 1px solid rgba(242,54,69,0.08); }
+
+/* ══════════════════════════════════════════════════════════════
+   MACBOOK COMPACT — экраны с высотой ≤ 860px (MacBook 13/14")
+   ══════════════════════════════════════════════════════════════ */
+@media (max-height: 860px) and (min-width: 901px) {
+
+    /* ── Контейнер: ограничить по высоте экрана ── */
+    #aiContainer {
+        max-height: calc(100vh - 60px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    /* ── Тултип: скроллируется внутри контейнера ── */
+    #aiTooltip {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #aiTooltip::-webkit-scrollbar { width: 3px; }
+    #aiTooltip::-webkit-scrollbar-track { background: transparent; }
+    #aiTooltip::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+    /* ── Header: компактнее ── */
+    .ai-tt-header {
+        padding: 5px 10px 4px;
+        flex-shrink: 0;
+    }
+
+    /* ── Trend и Scale: меньше отступы ── */
+    .ai-tt-trend,
+    .ai-tt-scale {
+        flex-shrink: 0;
+    }
+
+    /* ── Текстовый анализ: убираем max-height, он теперь скроллит родитель ── */
+    .ai-tt-text {
+        max-height: none;
+        overflow-y: visible;
+        font-size: 11px;
+        line-height: 1.5;
+        padding: 6px 10px;
+    }
+
+    /* ── Verdict: компактнее ── */
+    .ai-tt-verdict {
+        padding: 4px 10px;
+    }
+
+    /* ── Action (Long/Short сценарии): компактнее ── */
+    .ai-tt-action {
+        margin: 0 10px 6px;
+    }
+
+    /* ── Кнопка AI Chat: sticky снизу тултипа ── */
+    .ai-chat-open-btn {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+        height: 38px;
+        font-size: 11px;
+        margin: 2px 10px 6px;
+        background: rgba(20, 26, 40, 0.97);
+        border-top: 1px solid rgba(41, 98, 255, 0.2);
+        flex-shrink: 0;
+    }
+
+    /* ── Cluster bar: компактнее ── */
+    .ai-cluster-bar {
+        margin: 0 10px 6px;
+        padding: 6px 8px;
+    }
+
+    .ai-cluster-segments {
+        height: 32px;
+    }
+
+    .ai-cluster-seg span {
+        font-size: 12px;
+    }
+
+    /* ── Внутренние блоки trend/scale/verdict: уменьшить padding ── */
+    .ai-tt-trend > *,
+    .ai-tt-scale > * {
+        margin-bottom: 4px !important;
+    }
+}
