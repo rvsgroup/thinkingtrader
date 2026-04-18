@@ -289,18 +289,25 @@
         _state.paused       = data.paused        || false;
         _state.bbData       = data.bbData        || null;
 
-        // Синхронизируем параметры трейлинга — нужны для отрисовки метки TR на шкале позиции
-        if (data.trailingEnabled !== undefined) _state.trailingEnabled = !!data.trailingEnabled;
-        if (data.trailingActivation !== undefined) _state.trailingActivation = data.trailingActivation;
-        if (data.trailingOffset !== undefined) _state.trailingOffset = data.trailingOffset;
-        if (data.bbExitEnabled !== undefined) _state.bbExitEnabled = !!data.bbExitEnabled;
-        if (data.bbExitTolerance !== undefined) _state.bbExitTolerance = data.bbExitTolerance;
-        if (data.smaReturnTolerance !== undefined) _state.smaReturnTolerance = data.smaReturnTolerance;
-
-        // Не перезаписываем настройки из polling если модалка открыта (пользователь выбирает)
+        // Параметры которые пользователь может менять в модалке настроек —
+        // НЕ перезаписываем из polling пока модалка открыта, иначе затрём его выбор.
         var modalOpen = document.querySelector('#botModal.visible');
         if (!modalOpen) {
             _state.strategy = data.strategy || 'scalper';
+            if (data.trailingEnabled !== undefined) _state.trailingEnabled = !!data.trailingEnabled;
+            if (data.trailingActivation !== undefined) _state.trailingActivation = data.trailingActivation;
+            if (data.trailingOffset !== undefined) _state.trailingOffset = data.trailingOffset;
+            if (data.bbExitEnabled !== undefined) _state.bbExitEnabled = !!data.bbExitEnabled;
+            if (data.bbExitTolerance !== undefined) _state.bbExitTolerance = data.bbExitTolerance;
+            if (data.smaReturnTolerance !== undefined) _state.smaReturnTolerance = data.smaReturnTolerance;
+        } else {
+            // Модалка открыта — обновляем ТОЛЬКО то, что нужно для отрисовки позиции на шкале
+            // (trailingActivation читается в renderPosition для метки TR).
+            // bbExitEnabled / trailingEnabled / tolerances не трогаем — они настраиваются пользователем.
+            if (data.trailingActivation !== undefined && !_state.trailingEnabled) {
+                // Если трейлинг выключен в клиенте — можно безопасно обновить activation
+                _state.trailingActivation = data.trailingActivation;
+            }
         }
 
         // Обновляем bot selector dot (running/stopped)
@@ -2131,11 +2138,16 @@
             if (data.ok) {
                 _state.bots = data.bots || [];
                 _state.botId = data.botId;
-                // Сбрасываем настройки для нового бота — модалка определит
+                // Полностью сбрасываем ВСЕ настройки к дефолтам, иначе унаследуются от предыдущего бота
                 _state.strategy = 'scalper';
                 _state.direction = 'both';
                 _state.entryMode = 'candle';
                 _state.trailingEnabled = false;
+                _state.trailingActivation = '70';
+                _state.trailingOffset = '0.25';
+                _state.bbExitEnabled = false;
+                _state.bbExitTolerance = '5';
+                _state.smaReturnTolerance = '5';
                 _state.pair = 'BTC/USDT';
                 updateBotSelector();
                 openModal(0);

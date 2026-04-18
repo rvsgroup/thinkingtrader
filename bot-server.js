@@ -2201,7 +2201,18 @@ module.exports = function(app) {
         try {
             const uid = req.query.uid || 'anonymous';
             const botId = req.query.botId || 'default';
-            const session = getSession(uid, botId);
+            const key = uid + ':' + botId;
+
+            // Не создаём новую сессию при просмотре статуса —
+            // иначе будут появляться "призрачные" боты в списке.
+            if (!sessions.has(key)) {
+                return res.json({
+                    botId, exists: false, running: false, paused: false,
+                    position: null, levels: [], tradeCount: 0, currentPrice: 0,
+                    balance: 0, dayPnl: 0, totalPnl: 0,
+                });
+            }
+            const session = sessions.get(key);
 
             res.json({
                 botId:       botId,
