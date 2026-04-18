@@ -691,42 +691,142 @@ const PatternScanner = (function() {
         // Не определяем боковик для таймфреймов 1М и выше
         if (days >= 30) return null;
 
-        // Количество свечей для анализа: 60 для 1D, 70 для остальных
-        const barsCount = (days > 0.17 && days <= 1) ? 60 : 70;
-        if (candles.length < barsCount) return null;
+        // ── Количество свечей для анализа (увеличено для точности) ──
+        // Минутные/5-минутные: до 200, часовые: 150, дневные: 100
+        let barsCount;
+        if (days <= 0.01)       barsCount = 200;   // 1м, 5м, 15м
+        else if (days <= 0.04)  barsCount = 150;   // 1ч
+        else if (days <= 0.17)  barsCount = 120;   // 4ч
+        else                    barsCount = 100;    // 1д
 
-        const window70 = candles.slice(-barsCount);
+        if (candles.length < barsCount) barsCount = candles.length;
+        if (barsCount < 30) return null;
+
+        const window = candles.slice(-barsCount);
         const rangeStart = candles.length - barsCount;
 
-        // ATR по последним 14 свечам
-        const atrLen = 14;
+        // ── ATR по последним 14 свечам ──
+        const atrLen = Math.min(14, candles.length);
         let atrSum = 0;
         for (let i = candles.length - atrLen; i < candles.length; i++) {
             atrSum += candles[i].high - candles[i].low;
         }
         const atr = atrSum / atrLen;
 
-        // ── Уровни через перцентили high/low по 70 свечам ──
-        const highs = window70.map(c => c.high).sort((a, b) => a - b);
-        const lows  = window70.map(c => c.low).sort((a, b) => a - b);
+        // ── Tolerance для кластеризации: адаптивная к таймфрейму ──
+        // Младшие ТФ (1м–15м): 0.05%, Старшие (1ч+): 0.08%, Дневные: 0.12%
+        let tolerance;
+        if (days <= 0.01)       tolerance = 0.0005;   // 0.05%
+        else if (days <= 0.04)  tolerance = 0.0008;   // 0.08%
+        else if (days <= 0.17)  tolerance = 0.001;    // 0.1%
+        else                    tolerance = 0.0012;   // 0.12%
 
-        const topStart = Math.floor(highs.length * 0.8);
-        const resistance = highs.slice(topStart).reduce((a, b) => a + b, 0) / (highs.length - topStart);
+        // ── Шаг 1: Pivot Points (локальные экстремумы) ──
+        // Проверяем 2 свечи в каждую сторону (radius = 2)
+        const pivots = [];
+        for (let i = 2; i < window.length - 2; i++) {
+            const c = window[i];
 
-        const botEnd = Math.ceil(lows.length * 0.2);
-        const support = lows.slice(0, botEnd).reduce((a, b) => a + b, 0) / botEnd;
+            const isHigh = c.high > window[i-1].high && c.high > window[i+1].high
+                        && c.high >= window[i-2].high && c.high >= window[i+2].high;
 
-        // ── Сила уровней — количество касаний ──
-        const touchZone = atr * 0.5;
-        let supportTouches = 0;
-        let resistanceTouches = 0;
-        window70.forEach(c => {
-            if (Math.abs(c.low  - support)    <= touchZone) supportTouches++;
-            if (Math.abs(c.high - resistance) <= touchZone) resistanceTouches++;
-        });
+            const isLow = c.low < window[i-1].low && c.low < window[i+1].low
+                       && c.low <= window[i-2].low && c.low <= window[i+2].low;
 
-        // ── Позиция текущей цены ──
-        const lastPrice   = candles[candles.length - 1].close;
+            if (isHigh) pivots.push({ price: c.high, index: rangeStart + i, type: 'high' });
+            if (isLow)  pivots.push({ price: c.low,  index: rangeStart + i, type: 'low' });
+        }
+
+        if (pivots.length < 2) return null;
+
+        // ── Шаг 2: Кластеризация близких pivot-ов ──
+        const used = new Set();
+        const clusters = [];
+
+        for (let i = 0; i < pivots.length; i++) {
+            if (used.has(i)) continue;
+            const cluster = [pivots[i]];
+            used.add(i);
+
+            for (let j = i + 1; j < pivots.length; j++) {
+                if (used.has(j)) continue;
+                const diff = Math.abs(pivots[i].price - pivots[j].price) / pivots[i].price;
+                if (diff <= tolerance) {
+                    cluster.push(pivots[j]);
+                    used.add(j);
+                }
+            }
+            clusters.push(cluster);
+        }
+
+        // ── Шаг 3: Фильтр — минимум 2 касания ──
+        const allLevels = [];
+        for (const cluster of clusters) {
+            if (cluster.length < 2) continue;
+
+            const avgPrice = cluster.reduce((sum, p) => sum + p.price, 0) / cluster.length;
+            const highs = cluster.filter(p => p.type === 'high').length;
+            const lows  = cluster.filter(p => p.type === 'low').length;
+            const type  = highs > lows ? 'resistance' : 'support';
+
+            allLevels.push({
+                price:   Math.round(avgPrice * 100) / 100,
+                touches: cluster.length,
+                type:    type,
+            });
+        }
+
+        // ── Шаг 4: Убираем дубликаты (уровни ближе 0.1%) ──
+        const merged = [];
+        const sortedAll = allLevels.sort((a, b) => a.price - b.price);
+
+        for (const level of sortedAll) {
+            const existing = merged.find(m =>
+                Math.abs(m.price - level.price) / m.price < 0.001
+            );
+            if (existing) {
+                if (level.touches > existing.touches) {
+                    Object.assign(existing, level);
+                }
+            } else {
+                merged.push({ ...level });
+            }
+        }
+
+        if (merged.length === 0) return null;
+
+        // ── Шаг 5: Выбираем основные support и resistance ──
+        const lastPrice = candles[candles.length - 1].close;
+
+        // Поддержка: самый сильный уровень НИЖЕ текущей цены
+        const supLevels = merged.filter(l => l.price < lastPrice).sort((a, b) => b.touches - a.touches);
+        const support = supLevels.length > 0 ? supLevels[0].price : merged[0].price;
+        const supportTouches = supLevels.length > 0 ? supLevels[0].touches : merged[0].touches;
+
+        // Сопротивление: самый сильный уровень ВЫШЕ текущей цены
+        const resLevels = merged.filter(l => l.price > lastPrice).sort((a, b) => b.touches - a.touches);
+        const resistance = resLevels.length > 0 ? resLevels[0].price : merged[merged.length - 1].price;
+        const resistanceTouches = resLevels.length > 0 ? resLevels[0].touches : merged[merged.length - 1].touches;
+
+        // Если support >= resistance (цена за пределами всех уровней), корректируем
+        if (support >= resistance) {
+            // Берём самый нижний и самый верхний
+            const fallbackSup = merged[0].price;
+            const fallbackRes = merged[merged.length - 1].price;
+            if (fallbackSup < fallbackRes) {
+                return buildResult(fallbackSup, merged[0].touches, fallbackRes, merged[merged.length-1].touches,
+                                   rangeStart, candles, barsCount, lastPrice, atr);
+            }
+            return null;
+        }
+
+        return buildResult(support, supportTouches, resistance, resistanceTouches,
+                           rangeStart, candles, barsCount, lastPrice, atr);
+    }
+
+    // Формируем результат в том же формате что и раньше (совместимость с app.html)
+    function buildResult(support, supportTouches, resistance, resistanceTouches,
+                         rangeStart, candles, barsCount, lastPrice, atr) {
         const rangeSize   = resistance - support;
         const positionPct = rangeSize > 0 ? ((lastPrice - support) / rangeSize) * 100 : 50;
 
@@ -775,16 +875,43 @@ const PatternScanner = (function() {
         const patterns = detectPatterns(candles);
         const results = {};
 
+        // ── Адаптивные параметры под таймфрейм ──
+        // UI передаёт days: 0.0007=1m, 0.003=5m, 0.04=1h, 0.17=4h, 1=1d, 7=1w
+        let lookforward, minMovePct;
+        if (days <= 0.001) {
+            // 1-минутный таймфрейм: 10 свечей, цена должна пройти 0.15%
+            lookforward = 10;
+            minMovePct = 0.0015;
+        } else if (days <= 0.005) {
+            // 5-минутный таймфрейм: 6 свечей, цена должна пройти 0.20%
+            lookforward = 6;
+            minMovePct = 0.0020;
+        } else if (days <= 0.04) {
+            // 1-часовой таймфрейм: 6 свечей, цена должна пройти 0.20%
+            lookforward = 6;
+            minMovePct = 0.0020;
+        } else {
+            // 4h, 1d, 1w — оставляем старую логику (body-based targets)
+            lookforward = 0; // 0 = использовать старую логику
+            minMovePct = 0;
+        }
+
         // Бычье поглощение
         const bullEngulf = patterns.filter(p => p.type === 'Бычье поглощение');
         if (bullEngulf.length > 0) {
             let win = 0, total = 0;
             bullEngulf.forEach(p => {
                 const idx = p.index;
-                if (idx + 2 >= candles.length) return;
+                const lf = lookforward || 2;
+                if (idx + lf >= candles.length) return;
                 const body = Math.abs(candles[idx].close - candles[idx].open);
-                const target = candles[idx].close + 0.5 * body;
-                const maxClose = Math.max(candles[idx + 1].close, candles[idx + 2].close);
+                const target = minMovePct > 0
+                    ? candles[idx].close * (1 + minMovePct)
+                    : candles[idx].close + 0.5 * body;
+                let maxClose = 0;
+                for (let n = 1; n <= lf; n++) {
+                    if (idx + n < candles.length && candles[idx + n].close > maxClose) maxClose = candles[idx + n].close;
+                }
                 total++;
                 if (maxClose >= target) win++;
             });
@@ -799,10 +926,16 @@ const PatternScanner = (function() {
             let win = 0, total = 0;
             bearEngulf.forEach(p => {
                 const idx = p.index;
-                if (idx + 2 >= candles.length) return;
+                const lf = lookforward || 2;
+                if (idx + lf >= candles.length) return;
                 const body = Math.abs(candles[idx].close - candles[idx].open);
-                const target = candles[idx].close - 0.5 * body;
-                const minClose = Math.min(candles[idx + 1].close, candles[idx + 2].close);
+                const target = minMovePct > 0
+                    ? candles[idx].close * (1 - minMovePct)
+                    : candles[idx].close - 0.5 * body;
+                let minClose = Infinity;
+                for (let n = 1; n <= lf; n++) {
+                    if (idx + n < candles.length && candles[idx + n].close < minClose) minClose = candles[idx + n].close;
+                }
                 total++;
                 if (minClose <= target) win++;
             });
@@ -811,39 +944,63 @@ const PatternScanner = (function() {
             }
         }
 
-        // Бычий марибозу — следующие 3 свечи не закрылись ниже low паттерна
+        // Бычий марибозу — цена должна вырасти на minMovePct (или не пробить low для больших TF)
         const bullMar = patterns.filter(p => p.type === 'Бычий марибозу');
         if (bullMar.length > 0) {
             let win = 0, total = 0;
             bullMar.forEach(p => {
                 const idx = p.index;
-                if (idx + 3 >= candles.length) return;
-                const broken = [1,2,3].some(n => candles[idx + n].close < candles[idx].low);
+                const lf = lookforward || 3;
+                if (idx + lf >= candles.length) return;
                 total++;
-                if (!broken) win++;
+                if (minMovePct > 0) {
+                    // Короткие TF: цена должна вырасти на minMovePct
+                    const target = candles[idx].close * (1 + minMovePct);
+                    let maxClose = 0;
+                    for (let n = 1; n <= lf; n++) {
+                        if (idx + n < candles.length && candles[idx + n].close > maxClose) maxClose = candles[idx + n].close;
+                    }
+                    if (maxClose >= target) win++;
+                } else {
+                    // Большие TF: старая логика — не пробил low
+                    const broken = [1,2,3].some(n => candles[idx + n].close < candles[idx].low);
+                    if (!broken) win++;
+                }
             });
             if (total >= 2) {
                 results['Бычий марибозу'] = { win, total, pct: Math.round((win / total) * 100) };
             }
         }
 
-        // Медвежий марибозу — следующие 3 свечи не закрылись выше high паттерна
+        // Медвежий марибозу — цена должна упасть на minMovePct (или не пробить high для больших TF)
         const bearMar = patterns.filter(p => p.type === 'Медвежий марибозу');
         if (bearMar.length > 0) {
             let win = 0, total = 0;
             bearMar.forEach(p => {
                 const idx = p.index;
-                if (idx + 3 >= candles.length) return;
-                const broken = [1,2,3].some(n => candles[idx + n].close > candles[idx].high);
+                const lf = lookforward || 3;
+                if (idx + lf >= candles.length) return;
                 total++;
-                if (!broken) win++;
+                if (minMovePct > 0) {
+                    // Короткие TF: цена должна упасть на minMovePct
+                    const target = candles[idx].close * (1 - minMovePct);
+                    let minClose = Infinity;
+                    for (let n = 1; n <= lf; n++) {
+                        if (idx + n < candles.length && candles[idx + n].close < minClose) minClose = candles[idx + n].close;
+                    }
+                    if (minClose <= target) win++;
+                } else {
+                    // Большие TF: старая логика — не пробил high
+                    const broken = [1,2,3].some(n => candles[idx + n].close > candles[idx].high);
+                    if (!broken) win++;
+                }
             });
             if (total >= 2) {
                 results['Медвежий марибозу'] = { win, total, pct: Math.round((win / total) * 100) };
             }
         }
 
-        // Утренняя звезда — цена должна вырасти на размер тела 3-й (зелёной) свечи за 3-8 свечей
+        // Утренняя звезда — цена должна вырасти на minMovePct (или на тело 3-й свечи для больших TF)
         const mornStars = patterns.filter(p => p.type === 'Утренняя звезда');
         if (mornStars.length > 0) {
             let win = 0, total = 0;
@@ -854,10 +1011,14 @@ const PatternScanner = (function() {
                 const c3 = candles[thirdIdx];
                 const body3 = Math.abs(c3.close - c3.open);
                 if (body3 <= 0) return;
-                const target = c3.close + body3;
+                const target = minMovePct > 0
+                    ? c3.close * (1 + minMovePct)
+                    : c3.close + body3;
+                const startN = minMovePct > 0 ? 1 : 3;
+                const endN = lookforward || 8;
                 let maxClose = -Infinity;
                 let checked = 0;
-                for (let n = 3; n <= 8; n++) {
+                for (let n = startN; n <= endN; n++) {
                     if (thirdIdx + n < candles.length) {
                         if (candles[thirdIdx + n].close > maxClose) maxClose = candles[thirdIdx + n].close;
                         checked++;
@@ -872,7 +1033,7 @@ const PatternScanner = (function() {
             }
         }
 
-        // Вечерняя звезда — цена должна упасть на размер тела 3-й (красной) свечи за 3-8 свечей
+        // Вечерняя звезда — цена должна упасть на minMovePct (или на тело 3-й свечи для больших TF)
         const eveStars = patterns.filter(p => p.type === 'Вечерняя звезда');
         if (eveStars.length > 0) {
             let win = 0, total = 0;
@@ -883,10 +1044,14 @@ const PatternScanner = (function() {
                 const c3 = candles[thirdIdx];
                 const body3 = Math.abs(c3.close - c3.open);
                 if (body3 <= 0) return;
-                const target = c3.close - body3;
+                const target = minMovePct > 0
+                    ? c3.close * (1 - minMovePct)
+                    : c3.close - body3;
+                const startN = minMovePct > 0 ? 1 : 3;
+                const endN = lookforward || 8;
                 let minClose = Infinity;
                 let checked = 0;
-                for (let n = 3; n <= 8; n++) {
+                for (let n = startN; n <= endN; n++) {
                     if (thirdIdx + n < candles.length) {
                         if (candles[thirdIdx + n].close < minClose) minClose = candles[thirdIdx + n].close;
                         checked++;
@@ -901,38 +1066,50 @@ const PatternScanner = (function() {
             }
         }
 
-        // Бычьи: Молот, Перевёрнутый молот — два условия (30% от глубины ИЛИ направление)
+        // Бычьи: Молот, Перевёрнутый молот
         ['Молот', 'Перевёрнутый молот'].forEach(type => {
             const pts = patterns.filter(p => p.type === type);
             if (pts.length > 0) {
                 let win = 0, total = 0;
+                const lf = lookforward || 5;
                 pts.forEach(p => {
                     const idx = p.index;
-                    if (idx < 3 || idx + 5 >= candles.length) return;
-                    let preHigh = 0;
-                    for (let n = 3; n <= Math.min(6, idx); n++) {
-                        if (candles[idx - n].high > preHigh) preHigh = candles[idx - n].high;
-                    }
-                    const depth = preHigh - candles[idx].low;
+                    if (idx < 3 || idx + lf >= candles.length) return;
+
                     let worked = false;
 
-                    // Условие 1: 30% от глубины падения
-                    if (depth > 0) {
-                        const target = candles[idx].low + depth * 0.3;
+                    if (minMovePct > 0) {
+                        // Короткие TF: цена должна вырасти на minMovePct
+                        const target = candles[idx].close * (1 + minMovePct);
                         let maxClose = 0;
-                        for (let n = 1; n <= 5; n++) {
+                        for (let n = 1; n <= lf; n++) {
                             if (idx + n < candles.length && candles[idx + n].close > maxClose) maxClose = candles[idx + n].close;
                         }
                         if (maxClose >= target) worked = true;
-                    }
-
-                    // Условие 2: минимум 3 из 5 свечей закрылись выше close
-                    if (!worked) {
-                        let aboveCount = 0;
-                        for (let n = 1; n <= 5; n++) {
-                            if (idx + n < candles.length && candles[idx + n].close > candles[idx].close) aboveCount++;
+                    } else {
+                        // Большие TF: старая логика — 30% от глубины или направление
+                        let preHigh = 0;
+                        for (let n = 3; n <= Math.min(6, idx); n++) {
+                            if (candles[idx - n].high > preHigh) preHigh = candles[idx - n].high;
                         }
-                        if (aboveCount >= 3) worked = true;
+                        const depth = preHigh - candles[idx].low;
+
+                        if (depth > 0) {
+                            const target = candles[idx].low + depth * 0.3;
+                            let maxClose = 0;
+                            for (let n = 1; n <= 5; n++) {
+                                if (idx + n < candles.length && candles[idx + n].close > maxClose) maxClose = candles[idx + n].close;
+                            }
+                            if (maxClose >= target) worked = true;
+                        }
+
+                        if (!worked) {
+                            let aboveCount = 0;
+                            for (let n = 1; n <= 5; n++) {
+                                if (idx + n < candles.length && candles[idx + n].close > candles[idx].close) aboveCount++;
+                            }
+                            if (aboveCount >= 3) worked = true;
+                        }
                     }
 
                     total++;
@@ -944,38 +1121,50 @@ const PatternScanner = (function() {
             }
         });
 
-        // Медвежьи: Повешенный, Падающая звезда — два условия (30% от глубины ИЛИ направление)
+        // Медвежьи: Повешенный, Падающая звезда
         ['Повешенный', 'Падающая звезда'].forEach(type => {
             const pts = patterns.filter(p => p.type === type);
             if (pts.length > 0) {
                 let win = 0, total = 0;
+                const lf = lookforward || 5;
                 pts.forEach(p => {
                     const idx = p.index;
-                    if (idx < 3 || idx + 5 >= candles.length) return;
-                    let preLow = Infinity;
-                    for (let n = 3; n <= Math.min(6, idx); n++) {
-                        if (candles[idx - n].low < preLow) preLow = candles[idx - n].low;
-                    }
-                    const rise = candles[idx].high - preLow;
+                    if (idx < 3 || idx + lf >= candles.length) return;
+
                     let worked = false;
 
-                    // Условие 1: 30% от глубины роста
-                    if (rise > 0) {
-                        const target = candles[idx].high - rise * 0.3;
+                    if (minMovePct > 0) {
+                        // Короткие TF: цена должна упасть на minMovePct
+                        const target = candles[idx].close * (1 - minMovePct);
                         let minClose = Infinity;
-                        for (let n = 1; n <= 5; n++) {
+                        for (let n = 1; n <= lf; n++) {
                             if (idx + n < candles.length && candles[idx + n].close < minClose) minClose = candles[idx + n].close;
                         }
                         if (minClose <= target) worked = true;
-                    }
-
-                    // Условие 2: минимум 3 из 5 свечей закрылись ниже close
-                    if (!worked) {
-                        let belowCount = 0;
-                        for (let n = 1; n <= 5; n++) {
-                            if (idx + n < candles.length && candles[idx + n].close < candles[idx].close) belowCount++;
+                    } else {
+                        // Большие TF: старая логика — 30% от глубины или направление
+                        let preLow = Infinity;
+                        for (let n = 3; n <= Math.min(6, idx); n++) {
+                            if (candles[idx - n].low < preLow) preLow = candles[idx - n].low;
                         }
-                        if (belowCount >= 3) worked = true;
+                        const rise = candles[idx].high - preLow;
+
+                        if (rise > 0) {
+                            const target = candles[idx].high - rise * 0.3;
+                            let minClose = Infinity;
+                            for (let n = 1; n <= 5; n++) {
+                                if (idx + n < candles.length && candles[idx + n].close < minClose) minClose = candles[idx + n].close;
+                            }
+                            if (minClose <= target) worked = true;
+                        }
+
+                        if (!worked) {
+                            let belowCount = 0;
+                            for (let n = 1; n <= 5; n++) {
+                                if (idx + n < candles.length && candles[idx + n].close < candles[idx].close) belowCount++;
+                            }
+                            if (belowCount >= 3) worked = true;
+                        }
                     }
 
                     total++;

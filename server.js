@@ -1849,8 +1849,13 @@ app.get('/api/admin/status', (req, res) => {
 // СЕРВЕРНЫЕ АЛЕРТЫ — проверка каждые 30 сек, push на все устройства
 // ══════════════════════════════════════════════════════════════
 
-async function sendPushToUser(userId, title, body) {
+async function sendPushToUser(userId, title, body, opts) {
     if (!adminDb || !adminMsg) return;
+    opts = opts || {};
+    const subtitle = opts.subtitle || null;  // вторая строка на iOS PWA
+    const tag      = opts.tag      || null;  // если задан — новое уведомление заменяет старое с тем же тегом
+    const link     = opts.link     || '/app';
+    const icon     = opts.icon     || '/favicon-192.png';
     try {
         const tokensSnap = await adminDb
             .collection('users').doc(userId)
@@ -1858,13 +1863,21 @@ async function sendPushToUser(userId, title, body) {
         const tokens = tokensSnap.docs.map(d => d.data().token).filter(Boolean);
         if (!tokens.length) return;
 
+        // notification: title + body + опционально tag (группировка)
+        // iOS PWA дополнительно читает subtitle из data — отрисует его между title и body
+        const notification = { title, body, icon, badge: '/favicon-192.png' };
+        if (tag) notification.tag = tag;
+
+        const dataPayload = { title, body };
+        if (subtitle) dataPayload.subtitle = subtitle;
+
         const results = await Promise.allSettled(tokens.map(token =>
             adminMsg.send({
                 token,
                 webpush: {
-                    notification: { title, body, icon: '/favicon-192.png', badge: '/favicon-192.png' },
-                    data: { title, body },
-                    fcmOptions: { link: '/app' }
+                    notification,
+                    data: dataPayload,
+                    fcmOptions: { link }
                 }
             })
         ));
@@ -1880,8 +1893,12 @@ async function sendPushToUser(userId, title, body) {
     } catch(e) {}
 }
 
+// Экспонируем для bot-server.js — он вызывает push при закрытии сделок
+global.sendPushToUser = sendPushToUser;
+
+let _alertsDisabled = false;
 async function checkUserAlerts() {
-    if (!adminDb) return;
+    if (!adminDb || _alertsDisabled) return;
     try {
         // collectionGroup читает alerts у ВСЕХ пользователей сразу
         // даже если у документа пользователя нет полей (только подколлекции)
@@ -1938,7 +1955,12 @@ async function checkUserAlerts() {
         }));
 
     } catch(e) {
-        console.error('checkUserAlerts error:', e.message);
+        if (e.message && e.message.includes('UNAUTHENTICATED')) {
+            _alertsDisabled = true;
+            console.warn('⚠️ Серверные алерты отключены — Firebase ключ невалиден (локальная среда)');
+        } else {
+            console.error('checkUserAlerts error:', e.message);
+        }
     }
 }
 
@@ -2231,7 +2253,12 @@ app.get('/api/pay/status', requireAuth, async (req, res) => {
                     isPro = proUntil && proUntil > Date.now();
                 }
             } catch(e) {
-                console.warn('pay/status Firestore error (continuing):', e.message.slice(0, 60));
+                if (!_alertsDisabled && e.message && e.message.includes('UNAUTHENTICATED')) {
+                    // Тихо пропускаем — уже предупредили в checkUserAlerts
+                } else if (!e._payLogged) {
+                    console.warn('pay/status Firestore error (continuing):', e.message.slice(0, 60));
+                    e._payLogged = true;
+                }
                 // Firestore недоступен — отдаём Free статус, не ломаем ответ
             }
         }
@@ -2252,6 +2279,9 @@ app.get('/api/pay/status', requireAuth, async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// ── Algo Bot ───────────────────────────────────────────────────
+require('./bot-server')(app);
 
 // ── Запуск ─────────────────────────────────────────────────────
 
