@@ -685,6 +685,159 @@ module.exports = function(app) {
         return 100 - (100 / (1 + rs));
     }
 
+
+    /* ══════════════════════════════════════════
+       5c. MARKET REGIME — EMA50 + EMA200 на двух ТФ
+       Определяет глобальный тренд: up / down / flat
+       Блокирует вход против старшего тренда
+    ══════════════════════════════════════════ */
+
+    /**
+     * Экспоненциальная скользящая средняя.
+     * EMA = close_today × k + EMA_yesterday × (1 − k), где k = 2/(period+1).
+     * Инициализируем как SMA первых `period` свечей (стандарт).
+     * Возвращает массив EMA той же длины что и closes (первые period-1 значений = null).
+     */
+    function calcEMA(closes, period) {
+        if (!closes || closes.length < period) return [];
+        const k = 2 / (period + 1);
+        const ema = new Array(closes.length).fill(null);
+
+        // Seed: SMA первых `period` значений
+        let sum = 0;
+        for (let i = 0; i < period; i++) sum += closes[i];
+        ema[period - 1] = sum / period;
+
+        // Рекурсивный расчёт
+        for (let i = period; i < closes.length; i++) {
+            ema[i] = closes[i] * k + ema[i - 1] * (1 - k);
+        }
+        return ema;
+    }
+
+    /**
+     * Определяет режим по EMA50 и EMA200 на одном таймфрейме.
+     *
+     * Правила:
+     * - UP:   EMA50 > EMA200  И  EMA50 растёт (текущая > 10 баров назад)
+     * - DOWN: EMA50 < EMA200  И  EMA50 падает
+     * - FLAT: все остальные случаи (переплетаются, горизонтальные)
+     *
+     * @param {Array} candles — массив свечей (закрытых)
+     * @returns {string} 'up' | 'down' | 'flat'
+     */
+    function detectRegimeForTF(candles) {
+        if (!candles || candles.length < 210) return 'flat';
+
+        const closes = candles.map(c => c.close);
+        const ema50 = calcEMA(closes, 50);
+        const ema200 = calcEMA(closes, 200);
+
+        const last = closes.length - 1;
+        const e50 = ema50[last];
+        const e200 = ema200[last];
+        if (e50 == null || e200 == null) return 'flat';
+
+        // Сравниваем с EMA50 за 10 баров назад для определения угла наклона
+        const e50Prev = ema50[last - 10];
+        if (e50Prev == null) return 'flat';
+
+        // Разрыв между EMA50 и EMA200 (насколько значимо отклонение)
+        const gap = Math.abs(e50 - e200) / e200 * 100; // в процентах
+
+        // Если разрыв меньше 0.1% — считаем что EMA переплетаются (флет)
+        if (gap < 0.1) return 'flat';
+
+        // Наклон EMA50 (в процентах от цены)
+        const slope = (e50 - e50Prev) / e50Prev * 100;
+
+        // UP: EMA50 выше EMA200 и растёт
+        if (e50 > e200 && slope > 0.02) return 'up';
+        // DOWN: EMA50 ниже EMA200 и падает
+        if (e50 < e200 && slope < -0.02) return 'down';
+
+        // Переплетение или противоречие направления и наклона
+        return 'flat';
+    }
+
+    /**
+     * Кэш режимов: ключ = symbol, значение = { data, updatedAt }.
+     * Режим пересчитываем максимум раз в 15 минут (900 сек),
+     * т.к. основная 15m-свеча за это время полностью обновляется.
+     */
+    const _regimeCache = new Map();
+    const REGIME_TTL_MS = 15 * 60 * 1000; // 15 минут
+
+    /**
+     * Определяет режим рынка для торговой пары.
+     * Для 5m-бота смотрим 15m + 1h; для 1m-бота — 5m + 15m.
+     *
+     * @param {string} symbol — 'BTCUSDT'
+     * @param {string} tradingTF — '5m' | '1m'
+     * @returns {Promise<{h1: string, m15: string, m5: string, allowed: string, higher: string, main: string}>}
+     */
+    async function detectMarketRegime(symbol, tradingTF = '5m') {
+        const now = Date.now();
+        const cacheKey = symbol + ':' + tradingTF;
+        const cached = _regimeCache.get(cacheKey);
+        if (cached && (now - cached.updatedAt) < REGIME_TTL_MS) {
+            return cached.data;
+        }
+
+        // Выбираем какие ТФ использовать в зависимости от торгового
+        // Для 5m: main = 15m, higher = 1h
+        // Для 1m: main = 5m,  higher = 15m
+        const tfMain = tradingTF === '1m' ? '5m' : '15m';
+        const tfHigher = tradingTF === '1m' ? '15m' : '1h';
+
+        try {
+            // Загружаем 250 свечей каждого ТФ (для EMA200 нужно минимум 200)
+            const [candlesMain, candlesHigher] = await Promise.all([
+                loadHistoricalCandles(symbol, tfMain, 250),
+                loadHistoricalCandles(symbol, tfHigher, 250),
+            ]);
+
+            const regimeMain = detectRegimeForTF(candlesMain);
+            const regimeHigher = detectRegimeForTF(candlesHigher);
+
+            // Таблица решений:
+            // higher = down      → только SHORT
+            // higher = up        → только LONG
+            // higher = flat + main = up   → только LONG
+            // higher = flat + main = down → только SHORT
+            // оба flat           → BOTH
+            let allowed = 'BOTH';
+            if (regimeHigher === 'down') allowed = 'SHORT';
+            else if (regimeHigher === 'up') allowed = 'LONG';
+            else if (regimeHigher === 'flat') {
+                if (regimeMain === 'up') allowed = 'LONG';
+                else if (regimeMain === 'down') allowed = 'SHORT';
+                else allowed = 'BOTH';
+            }
+
+            const data = {
+                higher:     regimeHigher,   // 'up' | 'down' | 'flat'
+                main:       regimeMain,     // 'up' | 'down' | 'flat'
+                tfHigher:   tfHigher,       // '1h' | '15m'
+                tfMain:     tfMain,         // '15m' | '5m'
+                allowed:    allowed,        // 'LONG' | 'SHORT' | 'BOTH'
+                updatedAt:  now,
+            };
+
+            _regimeCache.set(cacheKey, { data, updatedAt: now });
+            return data;
+        } catch(e) {
+            console.error(`[BOT] detectMarketRegime(${symbol}) failed:`, e.message);
+            // При ошибке не блокируем торговлю — возвращаем BOTH
+            return {
+                higher: 'flat', main: 'flat',
+                tfHigher, tfMain,
+                allowed: 'BOTH', updatedAt: now, error: true,
+            };
+        }
+    }
+
+
     function checkSignalMeanReversion(session) {
         const { candles, market } = session;
         if (candles.length < 30) return null;
@@ -727,6 +880,15 @@ module.exports = function(app) {
         // ── Фильтр направления ──
         if (session.direction === 'long' && side === 'SHORT') return null;
         if (session.direction === 'short' && side === 'LONG') return null;
+
+        // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
+        // Если режим загружен и блокирует наше направление — пропускаем
+        if (session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
+            if (session.regime.allowed !== side) {
+                console.log(`[BOT ${ts()}] 🚫 ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
+                return null;
+            }
+        }
 
         // ── Кластерный фильтр при входе (если включён) ──
         if (session.clusterEntryFilter) {
@@ -840,6 +1002,14 @@ module.exports = function(app) {
         if (market === 'spot' && side === 'SHORT') return;
         if (session.direction === 'long' && side === 'SHORT') return;
         if (session.direction === 'short' && side === 'LONG') return;
+
+        // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
+        if (session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
+            if (session.regime.allowed !== side) {
+                console.log(`[BOT ${ts()}] 🚫 tick ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
+                return;
+            }
+        }
 
         // ── Кластерный фильтр при входе (если включён) ──
         if (session.clusterEntryFilter) {
@@ -958,6 +1128,14 @@ module.exports = function(app) {
         if (session.direction === 'long' && side === 'SHORT') return null;
         if (session.direction === 'short' && side === 'LONG') return null;
 
+        // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
+        if (session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
+            if (session.regime.allowed !== side) {
+                console.log(`[BOT ${ts()}] 🚫 ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
+                return null;
+            }
+        }
+
         // ── ATR-based стоп ──
         const atr = calcATR(candles, 20);
         if (atr <= 0) return null;
@@ -1060,6 +1238,16 @@ module.exports = function(app) {
             strategy:        session.strategy || 'scalper',
             direction:       session.direction || 'both',
             clusterEntryFilter: session.clusterEntryFilter || false,
+            // ── Снэпшот режима рынка при входе ──
+            // Сохраняем полностью, чтобы в журнале сделок было видно
+            // какой режим EMA был на момент открытия позиции.
+            entryRegime:     session.regime ? {
+                higher:   session.regime.higher,
+                main:     session.regime.main,
+                allowed:  session.regime.allowed,
+                tfHigher: session.regime.tfHigher,
+                tfMain:   session.regime.tfMain,
+            } : null,
             // ── Трекинг max/min для анализа ──
             maxUnrealized:   0,    // максимальный unrealized P&L ($)
             maxDrawdown:     0,    // максимальный drawdown ($)
@@ -1135,6 +1323,7 @@ module.exports = function(app) {
             entryMode:        pos.entryMode || 'candle',
             direction:        pos.direction || 'both',
             clusterEntryUsed: pos.clusterEntryFilter || false,
+            entryRegime:      pos.entryRegime || null,
             entryRsi:         pos.entryRsi,
             entryBbUpper:     pos.entryBbUpper,
             entryBbMiddle:    pos.entryBbMiddle,
@@ -1795,6 +1984,29 @@ module.exports = function(app) {
         );
         console.log(`[BOT] Found ${session.levels.length} micro-levels`);
 
+        // ── Режим рынка (EMA50/EMA200 на 15m + 1h) ──
+        // Первичный расчёт — до WebSocket, чтобы первая же свеча проверялась с режимом.
+        // Дальше обновляем раз в 15 минут в фоне.
+        try {
+            session.regime = await detectMarketRegime(session.symbol, session.binanceInterval);
+            console.log(`[BOT] 🧭 Regime for ${session.pair}: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
+        } catch (e) {
+            console.error(`[BOT] Failed initial regime detection:`, e.message);
+            session.regime = { higher: 'flat', main: 'flat', allowed: 'BOTH', tfHigher: '1h', tfMain: '15m' };
+        }
+
+        // Фоновое обновление каждые 15 минут
+        if (session._regimeInterval) clearInterval(session._regimeInterval);
+        session._regimeInterval = setInterval(async () => {
+            if (!session.running) return;
+            try {
+                session.regime = await detectMarketRegime(session.symbol, session.binanceInterval);
+                console.log(`[BOT] 🧭 Regime refreshed for ${session.pair}: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
+            } catch (e) {
+                console.error(`[BOT] Regime refresh failed:`, e.message);
+            }
+        }, 15 * 60 * 1000);
+
         // ── Подключаем WebSocket ──
         connectWebSocket(uid, botId);
 
@@ -1822,6 +2034,12 @@ module.exports = function(app) {
 
         // Отключаем WebSocket
         disconnectWebSocket(uid, botId);
+
+        // Останавливаем обновление режима
+        if (session._regimeInterval) {
+            clearInterval(session._regimeInterval);
+            session._regimeInterval = null;
+        }
 
         console.log(`[BOT] 🛑 Bot stopped for uid=${uid} bot=${botId}${silent ? ' (silent)' : ''}`);
 
@@ -2264,6 +2482,7 @@ module.exports = function(app) {
                 volumeInfo: getVolumeInfo(session),
                 clusterInfo: getClusterInfo(session),
                 strategy: session.strategy || 'scalper',
+                regime: session.regime || null,
                 bbData: session.strategy === 'mean_reversion' ? (() => {
                     const closedCandles = session.candles.filter(c => c.closed);
                     const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);

@@ -1590,3 +1590,42 @@
     text-align: center;
     letter-spacing: 0.5px;
 }
+
+/* ══════════════════════════════════════════
+   СОСТОЯНИЕ ТОЧКИ (3 состояния, везде одинаково)
+   - stopped:       серый #636B76
+   - idle:          зелёный #26a69a (бот запущен, ждёт сигнал)
+   - in-position:   янтарный #F59E0B с пульсацией
+   ══════════════════════════════════════════ */
+
+/* Пульсирующая янтарная точка — индикатор что бот в открытой позиции.
+   Анимируем background вместе с box-shadow, чтобы обойти любые
+   transition: background, которые могут тормозить переход цвета. */
+@keyframes botDotPulse {
+    0%, 100% {
+        opacity: 1;
+        background-color: #F59E0B;
+        box-shadow: 0 0 0 0 rgba(245,158,11,0.55);
+    }
+    50% {
+        opacity: 0.75;
+        background-color: #F59E0B;
+        box-shadow: 0 0 0 5px rgba(245,158,11,0);
+    }
+}
+
+/* Универсальный класс для любой точки-индикатора. !important на box-shadow
+   нужен, чтобы перебить зелёный шадоу у #botBtnApp.bot-active .bot-btn-dot. */
+.bot-dot-stopped {
+    background-color: #636B76 !important;
+    animation: none !important;
+    box-shadow: none !important;
+}
+.bot-dot-idle {
+    background-color: #26a69a !important;
+    animation: none !important;
+}
+.bot-dot-in-position {
+    background-color: #F59E0B !important;
+    animation: botDotPulse 1.6s ease-in-out infinite !important;
+}

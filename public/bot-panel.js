@@ -68,6 +68,20 @@
         document.head.appendChild(link);
     }
 
+    /* Утилита: ставит точке состояние. state: 'stopped' | 'idle' | 'in-position'.
+       Снимает inline background/animation (могут остаться с прошлых версий кода)
+       и выставляет один из трёх классов. Так состояние всегда управляется CSS. */
+    function setBotDotState(dotEl, state) {
+        if (!dotEl) return;
+        dotEl.classList.remove('bot-dot-stopped', 'bot-dot-idle', 'bot-dot-in-position');
+        // Чистим inline стили, которые могли быть выставлены старым кодом —
+        // иначе они перебили бы наши CSS-классы.
+        dotEl.style.background = '';
+        dotEl.style.backgroundColor = '';
+        dotEl.style.animation = '';
+        dotEl.classList.add('bot-dot-' + state);
+    }
+
     /* ── Кнопка БОТ (только для админа) ── */
     function createBotButton() {
         var btn = document.createElement('button');
@@ -158,12 +172,18 @@
             </div>\
             \
             <div class="bot-w-section" id="botBBSection" style="display:none;">\
-                <div class="bot-w-section-title">Bollinger Bands / RSI</div>\
-                <div id="botBBContainer" style="font-size:11px;color:#94A3B8;line-height:1.8;"></div>\
+                <div class="bot-w-section-title" id="botBBToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">\
+                    <span>Bollinger Bands / RSI</span>\
+                    <span id="botBBArrow" style="font-size:10px;color:#636B76;transition:transform 0.2s;display:inline-flex;"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="0,2 8,2 4,7"/></svg></span>\
+                </div>\
+                <div id="botBBCollapsible">\
+                    <div id="botBBContainer" style="font-size:11px;color:#94A3B8;line-height:1.8;"></div>\
+                    <div id="botWidgetStatusLine" class="bot-w-status-line" style="margin-top:8px;">—</div>\
+                </div>\
             </div>\
             \
-            <div class="bot-w-section" id="botWidgetStatusSection" style="display:none;">\
-                <div id="botWidgetStatusLine" class="bot-w-status-line">—</div>\
+            <div class="bot-w-section" id="botRegimeSection" style="display:none;">\
+                <div id="botRegimeContainer"></div>\
             </div>\
             \
             <div class="bot-w-section" id="botClusterSection" style="display:none;">\
@@ -261,6 +281,35 @@
                 arrow.style.transform = 'rotate(-90deg)';
             }
         };
+
+        // BB/RSI секция — схлопывается, состояние в localStorage
+        var bbToggle = widget.querySelector('#botBBToggle');
+        if (bbToggle) {
+            bbToggle.onclick = function() {
+                var body = document.getElementById('botBBCollapsible');
+                var arrow = document.getElementById('botBBArrow');
+                if (!body) return;
+                var isHidden = body.style.display === 'none';
+                if (isHidden) {
+                    body.style.display = '';
+                    if (arrow) arrow.style.transform = 'rotate(0deg)';
+                    try { localStorage.setItem('botBBCollapsed', '0'); } catch(e) {}
+                } else {
+                    body.style.display = 'none';
+                    if (arrow) arrow.style.transform = 'rotate(-90deg)';
+                    try { localStorage.setItem('botBBCollapsed', '1'); } catch(e) {}
+                }
+            };
+            // Восстанавливаем состояние при загрузке
+            try {
+                if (localStorage.getItem('botBBCollapsed') === '1') {
+                    var body = widget.querySelector('#botBBCollapsible');
+                    var arrow = widget.querySelector('#botBBArrow');
+                    if (body) body.style.display = 'none';
+                    if (arrow) arrow.style.transform = 'rotate(-90deg)';
+                }
+            } catch(e) {}
+        }
         widget.querySelector('#botModeWidgetPaper').onclick = function() { setMode('paper'); openModal(); };
         widget.querySelector('#botModeWidgetLive').onclick  = function() { setMode('live');  openModal(); };
 
@@ -288,6 +337,7 @@
         _state.running      = data.running       || false;
         _state.paused       = data.paused        || false;
         _state.bbData       = data.bbData        || null;
+        _state.regime       = data.regime        || null;
 
         // Параметры которые пользователь может менять в модалке настроек —
         // НЕ перезаписываем из polling пока модалка открыта, иначе затрём его выбор.
@@ -328,7 +378,18 @@
                 }
             }
         }
-        if (selectorDot) selectorDot.style.background = _state.running ? '#26a69a' : '#636B76';
+        // 3 состояния: серый (остановлен) / зелёный (ждёт сигнала) / янтарный пульс (в позиции).
+        // Здесь это КРИТИЧНО: функция вызывается при каждом поллинге статуса, и раньше она
+        // безусловно затирала янтарный цвет на зелёный.
+        var dotState = !_state.running ? 'stopped' : (_state.position ? 'in-position' : 'idle');
+        if (selectorDot) setBotDotState(selectorDot, dotState);
+
+        // Точка в кнопке БОТ в главной шапке (тоже 3 состояния).
+        var mainBtn = document.getElementById('botBtnApp');
+        if (mainBtn) {
+            var mainDot = mainBtn.querySelector('.bot-btn-dot');
+            if (mainDot) setBotDotState(mainDot, dotState);
+        }
 
         // ── Обновляем пару в виджете ──
         var pairLabel = document.getElementById('botWidgetPairLabel');
@@ -408,6 +469,9 @@
 
         // ── Позиция ──
         renderPosition();
+
+        // ── Полоска режима рынка (EMA 15m + 1h) ──
+        renderRegimeBar();
 
         // ── Статус-строка (что бот делает) ──
         renderStatusLine();
@@ -551,15 +615,20 @@
         var domLabel = ci.concentration === 'buyers' ? '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;"><polygon points="0,7 8,7 4,1"/></svg> Покупатели' : ci.concentration === 'sellers' ? '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;"><polygon points="0,1 8,1 4,7"/></svg> Продавцы' : '<svg width="8" height="6" viewBox="0 0 8 6" fill="none" style="vertical-align:-1px;"><line x1="0" y1="3" x2="8" y2="3" stroke="currentColor" stroke-width="1.2"/><polygon points="6,1 8,3 6,5" fill="currentColor"/><polygon points="2,1 0,3 2,5" fill="currentColor"/></svg> Баланс';
         var domColor = ci.concentration === 'buyers' ? '#26a69a' : ci.concentration === 'sellers' ? '#EF5350' : '#636B76';
 
+        var buyPct = Math.max(0, Math.min(100, ci.buyPct));
+        var fadeStart = Math.max(0, buyPct - 8);
+        var fadeEnd   = Math.min(100, buyPct + 8);
+
         container.innerHTML = '<div style="padding:6px 8px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:11px;">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
             '<span style="color:#636B76;">Кластеры (' + ci.lookback + ' свечей)</span>' +
             '<span style="color:' + domColor + ';font-weight:600;">' + domLabel + '</span>' +
             '</div>' +
-            '<div style="display:flex;gap:0;height:6px;border-radius:3px;overflow:hidden;">' +
-            '<div style="width:' + ci.buyPct + '%;background:#26a69a;"></div>' +
-            '<div style="width:' + ci.sellPct + '%;background:#EF5350;"></div>' +
-            '</div>' +
+            '<div style="height:6px;border-radius:3px;background:linear-gradient(to right,' +
+                '#26a69a 0%,' +
+                '#26a69a ' + fadeStart + '%,' +
+                '#EF5350 ' + fadeEnd + '%,' +
+                '#EF5350 100%);"></div>' +
             '<div style="display:flex;justify-content:space-between;margin-top:3px;color:#636B76;font-size:10px;">' +
             '<span>Buy ' + ci.buyPct + '%</span>' +
             '<span>Sell ' + ci.sellPct + '%</span>' +
@@ -676,7 +745,7 @@
 
         container.innerHTML = '\
             <div class="bot-w-pos-header">\
-                <span class="bot-w-pos-side" style="color:' + sideColor + ';">' + pos.side + ' @ ' + entryPriceFmt + '</span>\
+                <span class="bot-w-pos-side" style="color:' + sideColor + ';">' + pos.side + ' \u00B7 ' + entryPriceFmt + '</span>\
                 <span class="bot-w-pos-pnl-big" style="color:' + pnlColor + ';">' + pnlStr + ' <span style="font-size:11px;font-weight:500;opacity:0.75;">(' + pnlPct + '%)</span></span>\
             </div>\
             \
@@ -710,17 +779,59 @@
             </div>';
     }
 
-    function renderStatusLine() {
-        var section = document.getElementById('botWidgetStatusSection');
-        var line = document.getElementById('botWidgetStatusLine');
-        if (!section || !line) return;
+    function renderRegimeBar() {
+        var section = document.getElementById('botRegimeSection');
+        var container = document.getElementById('botRegimeContainer');
+        if (!section || !container) return;
 
-        if (!_state.running && !_state.paused) {
+        if (!_state.running || !_state.regime) {
             section.style.display = 'none';
             return;
         }
 
+        var r = _state.regime;
+
+        function arrowGlyph(v){ return v==='up' ? '↑' : v==='down' ? '↓' : '↑↓'; }
+        function colorFor(v){ return v==='up' ? '#26a69a' : v==='down' ? '#ef5350' : '#F59E0B'; }
+        function labelFor(v){ return v==='up' ? 'Up' : v==='down' ? 'Down' : 'Flat'; }
+
+        var allowed = r.allowed || 'BOTH';
+        var allowedColor = allowed === 'LONG' ? '#26a69a' : allowed === 'SHORT' ? '#ef5350' : '#F59E0B';
+
+        var tfHigher = r.tfHigher || '1h';
+        var tfMain   = r.tfMain   || '15m';
+
+        var colorH = colorFor(r.higher);
+        var colorM = colorFor(r.main);
+
+        container.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+                '<span style="font-size:11px;color:#94A3B8;">Режим рынка (' + tfHigher + ' · ' + tfMain + ')</span>' +
+                '<span style="color:' + allowedColor + ';font-weight:600;letter-spacing:0.5px;font-size:10px;">→ ' + allowed + '</span>' +
+            '</div>' +
+            '<div style="height:5px;border-radius:3px;background:linear-gradient(to right,' +
+                colorH + ' 0%,' +
+                colorH + ' 42%,' +
+                colorM + ' 58%,' +
+                colorM + ' 100%);"></div>' +
+            '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:#636B76;">' +
+                '<span>' + tfHigher + ' <span style="color:' + colorH + ';font-weight:700;">' + arrowGlyph(r.higher) + ' ' + labelFor(r.higher) + '</span></span>' +
+                '<span>' + tfMain + ' <span style="color:' + colorM + ';font-weight:700;">' + arrowGlyph(r.main) + ' ' + labelFor(r.main) + '</span></span>' +
+            '</div>';
+
         section.style.display = '';
+    }
+
+    function renderStatusLine() {
+        var line = document.getElementById('botWidgetStatusLine');
+        if (!line) return;
+
+        if (!_state.running && !_state.paused) {
+            line.style.display = 'none';
+            return;
+        }
+
+        line.style.display = '';
         var isSpot = _state.market === 'spot';
 
         if (_state.paused) {
@@ -1742,18 +1853,25 @@
             'manual_close': 'Ручной', 'bb_touch': 'BB', 'sma_return': 'SMA'
         };
 
+        // Определяем мобильный режим
+        var isMobile = window.innerWidth < 768;
+
         // Колонка бота — всегда видна с полным лейблом
         var botColHeader = '<th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">Бот</th>';
 
-        // Строим таблицу
+        // Строим содержимое — таблица для десктопа, карточки для мобилы
         var rowsHtml = '';
+        var cardsHtml = '';
         var colSpan = 11;
         if (trades.length === 0) {
             rowsHtml = '<tr><td colspan="' + colSpan + '" style="text-align:center;color:#475569;padding:20px;">Сделок пока нет</td></tr>';
+            cardsHtml = '<div style="text-align:center;color:#475569;padding:40px 20px;font-size:13px;">Сделок пока нет</div>';
         } else {
             trades.forEach(function(t, i) {
                 var openTime = t.openedAt ? new Date(t.openedAt).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
                 var closeTime = t.closedAt ? new Date(t.closedAt).toLocaleString('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+                var openTimeShort = t.openedAt ? new Date(t.openedAt).toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'}) : '—';
+                var closeTimeShort = t.closedAt ? new Date(t.closedAt).toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'}) : '—';
                 var sideColor = t.side === 'SHORT' ? '#EF5350' : '#26a69a';
                 var pnlColor = t.pnl >= 0 ? '#10B981' : '#EF4444';
                 var reason = reasonMap[t.reason] || t.reason || '—';
@@ -1762,8 +1880,11 @@
                 var pnlPct = t.pnlPct !== undefined ? ('(' + (t.pnlPct >= 0 ? '+' : '') + t.pnlPct + '%)') : '';
                 var entryLabel = t.entryType === 'manual' ? 'Ручной' : (t.entryType === 'bot_tick' ? 'Бот (тик)' : 'Бот');
                 var entryColor = t.entryType === 'manual' ? '#FBBF24' : '#3B82F6';
-                var botCol = '<td style="padding:6px 4px;font-size:9px;color:#94A3B8;vertical-align:top;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (t.botLabel || '—') + '">' + (t.botLabel || '—') + '</td>';
-                // Детали строка
+                var botLabel = t.botLabel || '—';
+                var pnlStr = (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2);
+
+                // ── DESKTOP: таблица (как раньше) ──
+                var botCol = '<td style="padding:6px 4px;font-size:9px;color:#94A3B8;vertical-align:top;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + botLabel + '">' + botLabel + '</td>';
                 var details = [];
                 if (t.entryRsi != null) details.push('RSI: ' + t.entryRsi);
                 if (t.entryClusterBuy != null) details.push('Класт.вх: B' + t.entryClusterBuy + '%');
@@ -1774,6 +1895,14 @@
                 if (t.durationMin != null) details.push(t.durationMin + ' мин');
                 if (t.strategy) details.push(t.strategy === 'mean_reversion' ? 'MR' : 'Scalp');
                 if (t.clusterEntryUsed) details.push('Класт.фильтр');
+                if (t.entryRegime && t.entryRegime.allowed) {
+                    // Компактный формат: "Режим: 1h↓ 15m↓ →SHORT"
+                    var reg = t.entryRegime;
+                    function regArrow(v){ return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
+                    var regStr = (reg.tfHigher || '1h') + regArrow(reg.higher) + ' ' +
+                                 (reg.tfMain || '15m') + regArrow(reg.main) + ' →' + reg.allowed;
+                    details.push('Режим: ' + regStr);
+                }
                 var detailsHtml = details.length ? '<div style="font-size:8px;color:#475569;margin-top:2px;">' + details.join(' · ') + '</div>' : '';
 
                 rowsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">' +
@@ -1785,10 +1914,54 @@
                     '<td style="padding:6px 4px;vertical-align:top;"><span style="color:' + sideColor + ';font-weight:600;font-size:10px;">' + (t.side || '—') + '</span></td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:' + entryColor + ';vertical-align:top;">' + entryLabel + '</td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;">' + entryP + ' → ' + exitP + '</td>' +
-                    '<td style="padding:6px 4px;font-size:10px;color:' + pnlColor + ';font-weight:600;vertical-align:top;">' + (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2) + ' <span style="font-weight:400;font-size:9px;">' + pnlPct + '</span></td>' +
+                    '<td style="padding:6px 4px;font-size:10px;color:' + pnlColor + ';font-weight:600;vertical-align:top;">' + pnlStr + ' <span style="font-weight:400;font-size:9px;">' + pnlPct + '</span></td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:#636B76;vertical-align:top;">$' + (t.fee || 0).toFixed(2) + '</td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;">' + reason + detailsHtml + '</td>' +
                     '</tr>';
+
+                // ── MOBILE: карточка, раскрывается по тапу ──
+                // Скрытая часть — все технические детали
+                var expandedRows = '';
+                if (t.fee != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Комиссия</span><span style="color:#CBD5E1;">$' + t.fee.toFixed(2) + '</span></div>';
+                if (t.entryRsi != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">RSI на входе</span><span style="color:#CBD5E1;">' + t.entryRsi + '</span></div>';
+                if (t.entryClusterBuy != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Кластер вход</span><span style="color:#CBD5E1;">B' + t.entryClusterBuy + '%</span></div>';
+                if (t.exitClusterBuy != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Кластер выход</span><span style="color:#CBD5E1;">B' + t.exitClusterBuy + '%</span></div>';
+                if (t.entryAtr != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">ATR</span><span style="color:#CBD5E1;">' + t.entryAtr + '</span></div>';
+                if (t.maxUnrealized) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс +</span><span style="color:#10B981;">+$' + t.maxUnrealized.toFixed(2) + '</span></div>';
+                if (t.maxDrawdown) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс −</span><span style="color:#EF4444;">−$' + Math.abs(t.maxDrawdown).toFixed(2) + '</span></div>';
+                expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Тип входа</span><span style="color:' + entryColor + ';">' + entryLabel + '</span></div>';
+                if (t.clusterEntryUsed) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Кластер-фильтр</span><span style="color:#FBBF24;">вкл</span></div>';
+                if (t.entryRegime && t.entryRegime.allowed) {
+                    var regM = t.entryRegime;
+                    function regArrowM(v){ return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
+                    function regColorM(v){ return v==='up'?'#26a69a':v==='down'?'#ef5350':'#F59E0B'; }
+                    var allowedColorM = regM.allowed==='LONG'?'#26a69a':regM.allowed==='SHORT'?'#ef5350':'#F59E0B';
+                    expandedRows +=
+                        '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Режим рынка</span>' +
+                        '<span>' +
+                            '<span style="color:#94A3B8;">' + (regM.tfHigher || '1h') + ' </span>' +
+                            '<span style="color:' + regColorM(regM.higher) + ';font-weight:600;">' + regArrowM(regM.higher) + '</span>' +
+                            '<span style="color:#636B76;"> · </span>' +
+                            '<span style="color:#94A3B8;">' + (regM.tfMain || '15m') + ' </span>' +
+                            '<span style="color:' + regColorM(regM.main) + ';font-weight:600;">' + regArrowM(regM.main) + '</span>' +
+                            '<span style="color:#636B76;"> → </span>' +
+                            '<span style="color:' + allowedColorM + ';font-weight:600;">' + regM.allowed + '</span>' +
+                        '</span></div>';
+                }
+
+                cardsHtml += '<div class="bjm-card" style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px;">' +
+                        '<span style="font-size:12px;font-weight:600;color:' + sideColor + ';letter-spacing:0.3px;">' + (t.side || '—') + ' · ' + pnlStr + ' <span style="font-weight:400;font-size:10px;opacity:0.8;">' + pnlPct + '</span></span>' +
+                        '<span style="font-size:10px;color:#94A3B8;white-space:nowrap;">' + reason + '</span>' +
+                    '</div>' +
+                    '<div style="font-size:10px;color:#64748B;margin-bottom:8px;word-break:break-word;line-height:1.4;">' + botLabel + '</div>' +
+                    '<div style="display:flex;justify-content:space-between;font-size:11px;color:#94A3B8;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);">' +
+                        '<span>' + openTimeShort + ' → ' + closeTimeShort + (t.durationMin != null ? ' · ' + t.durationMin + ' мин' : '') + '</span>' +
+                        '<span style="color:#CBD5E1;">' + entryP + ' → ' + exitP + '</span>' +
+                    '</div>' +
+                    (expandedRows ? '<div class="bjm-expanded" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;">' + expandedRows + '</div>' : '') +
+                    (expandedRows ? '<div class="bjm-expand-arrow" style="text-align:center;margin-top:6px;color:#475569;font-size:10px;">▼</div>' : '') +
+                    '</div>';
             });
         }
 
@@ -1798,26 +1971,30 @@
 
         var modal = document.createElement('div');
         modal.id = 'botJournalModal';
-        modal.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
-        modal.innerHTML = '\
-            <div style="background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:90%;max-width:900px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">\
-                <div style="padding:14px 18px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);">\
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="#26a69a" stroke-width="1.2" fill="none"/><line x1="5" y1="4.5" x2="11" y2="4.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="7" x2="11" y2="7" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="9.5" x2="9" y2="9.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/></svg>\
-                    <span style="font-size:13px;font-weight:700;color:#E2E8F0;flex:1;">Журнал сделок</span>\
-                    <div id="botJournalCsv" style="cursor:pointer;font-size:10px;padding:3px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);color:#94A3B8;transition:all 0.2s;display:flex;align-items:center;gap:4px;" title="Скачать CSV"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1v6M2.5 4.5L5 7l2.5-2.5M1 8.5h8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>CSV</div>\
-                    <div id="botJournalToggle" style="cursor:pointer;font-size:10px;padding:3px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);color:' + toggleBtnColor + ';transition:all 0.2s;">' + toggleBtnLabel + '</div>\
-                    <div id="botJournalClose" style="cursor:pointer;color:#636B76;padding:0 4px;display:flex;align-items:center;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><line x1="2" y1="2" x2="10" y2="10" stroke="#636B76" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="2" x2="2" y2="10" stroke="#636B76" stroke-width="1.5" stroke-linecap="round"/></svg></div>\
-                </div>\
-                <div style="padding:12px 18px;display:flex;gap:16px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.04);">\
-                    <div style="font-size:10px;color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + totalTrades + '</span></div>\
-                    <div style="font-size:10px;color:#636B76;">Win rate <span style="color:' + (winRate >= 50 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + winRate + '%</span></div>\
-                    <div style="font-size:10px;color:#636B76;">P&L <span style="color:' + (totalPnl >= 0 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2) + '</span></div>\
-                    <div style="font-size:10px;color:#636B76;">Комиссии <span style="color:#FBBF24;font-weight:700;">$' + totalFees.toFixed(2) + '</span></div>\
-                    <div style="font-size:10px;color:#636B76;">Сред. <span style="color:#94A3B8;font-weight:700;">' + (avgPnl >= 0 ? '+' : '') + '$' + avgPnl.toFixed(2) + '</span></div>\
-                    <div style="font-size:10px;color:#636B76;">Лучшая <span style="color:#10B981;font-weight:700;">+$' + best.toFixed(2) + '</span></div>\
-                    <div style="font-size:10px;color:#636B76;">Худшая <span style="color:#EF4444;font-weight:700;">$' + worst.toFixed(2) + '</span></div>\
-                </div>\
-                <div style="flex:1;overflow-y:auto;padding:0 18px;">\
+
+        // Мобильный fullscreen vs десктопная центральная модалка
+        var modalOuterStyle, modalInnerStyle, headerPadding, statsPadding, contentPadding, closeSize;
+        if (isMobile) {
+            modalOuterStyle = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#0B0E16;z-index:9999;display:flex;flex-direction:column;';
+            modalInnerStyle = 'background:#0B0E16;width:100%;height:100%;max-width:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;border-radius:0;border:none;';
+            headerPadding = 'padding:16px 16px 14px;';
+            statsPadding = 'padding:14px 16px;';
+            contentPadding = 'padding:14px 14px 24px;';
+            closeSize = 'width:40px;height:40px;';
+        } else {
+            modalOuterStyle = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+            modalInnerStyle = 'background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:90%;max-width:900px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;';
+            headerPadding = 'padding:14px 18px;';
+            statsPadding = 'padding:12px 18px;';
+            contentPadding = 'padding:0 18px;';
+            closeSize = 'width:24px;height:24px;';
+        }
+        modal.style.cssText = modalOuterStyle;
+
+        // Содержимое — разное на мобиле и десктопе
+        var contentHtml = isMobile
+            ? '<div style="flex:1;overflow-y:auto;' + contentPadding + '-webkit-overflow-scrolling:touch;">' + cardsHtml + '</div>'
+            : '<div style="flex:1;overflow-y:auto;' + contentPadding + '">\
                     <table style="width:100%;border-collapse:collapse;">\
                         <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08);">\
                             <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">#</th>\
@@ -1834,17 +2011,68 @@
                         </tr></thead>\
                         <tbody>' + rowsHtml + '</tbody>\
                     </table>\
+                </div>';
+
+        // Крестик крупнее на мобиле (40×40) и обычный на десктопе (24×24)
+        var closeIconSize = isMobile ? 20 : 12;
+
+        modal.innerHTML = '\
+            <div style="' + modalInnerStyle + '">\
+                <div style="' + headerPadding + 'display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);">\
+                    <svg width="' + (isMobile ? 20 : 16) + '" height="' + (isMobile ? 20 : 16) + '" viewBox="0 0 16 16" fill="none"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="#26a69a" stroke-width="1.2" fill="none"/><line x1="5" y1="4.5" x2="11" y2="4.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="7" x2="11" y2="7" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="9.5" x2="9" y2="9.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/></svg>\
+                    <span style="font-size:' + (isMobile ? '15px' : '13px') + ';font-weight:700;color:#E2E8F0;flex:1;">Журнал сделок</span>\
+                    <div id="botJournalCsv" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:#94A3B8;transition:all 0.2s;display:flex;align-items:center;gap:4px;" title="Скачать CSV"><svg width="' + (isMobile ? 12 : 10) + '" height="' + (isMobile ? 12 : 10) + '" viewBox="0 0 10 10" fill="none"><path d="M5 1v6M2.5 4.5L5 7l2.5-2.5M1 8.5h8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>CSV</div>\
+                    <div id="botJournalToggle" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:' + toggleBtnColor + ';transition:all 0.2s;">' + toggleBtnLabel + '</div>\
+                    <div id="botJournalClose" style="cursor:pointer;color:#94A3B8;' + closeSize + 'display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;"><svg width="' + closeIconSize + '" height="' + closeIconSize + '" viewBox="0 0 12 12" fill="none"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>\
                 </div>\
+                <div style="' + statsPadding + 'display:flex;gap:' + (isMobile ? '10px' : '16px') + ';flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.04);">\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + totalTrades + '</span></div>\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Win rate <span style="color:' + (winRate >= 50 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + winRate + '%</span></div>\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">P&L <span style="color:' + (totalPnl >= 0 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2) + '</span></div>\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Комиссии <span style="color:#FBBF24;font-weight:700;">$' + totalFees.toFixed(2) + '</span></div>\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Сред. <span style="color:#94A3B8;font-weight:700;">' + (avgPnl >= 0 ? '+' : '') + '$' + avgPnl.toFixed(2) + '</span></div>\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Лучшая <span style="color:#10B981;font-weight:700;">+$' + best.toFixed(2) + '</span></div>\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Худшая <span style="color:#EF4444;font-weight:700;">$' + worst.toFixed(2) + '</span></div>\
+                </div>\
+                ' + contentHtml + '\
             </div>';
 
-        // Привязываем к контейнеру графика (как настройки)
-        var leftCol = document.querySelector('.left-col') || document.body;
-        if (leftCol) { leftCol.style.position = 'relative'; leftCol.appendChild(modal); }
+        // Привязываем к правильному контейнеру: на мобилке — к body (fullscreen), на десктопе — к графику
+        if (isMobile) {
+            document.body.appendChild(modal);
+        } else {
+            var leftCol = document.querySelector('.left-col') || document.body;
+            if (leftCol) { leftCol.style.position = 'relative'; leftCol.appendChild(modal); }
+        }
 
         modal.querySelector('#botJournalClose').onclick = function() { modal.remove(); };
         modal.querySelector('#botJournalToggle').onclick = function() { openJournal(!isAllBots); };
         modal.querySelector('#botJournalCsv').onclick = function() { exportTradesToCSV(trades, isAllBots); };
-        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+        // Закрытие по клику в тёмный фон — только на десктопе (на мобиле фона нет, это fullscreen)
+        if (!isMobile) {
+            modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+        }
+
+        // На мобилке — раскрытие карточек по тапу + блокировка свайпа страниц внутри модалки
+        if (isMobile) {
+            modal.querySelectorAll('.bjm-card').forEach(function(card) {
+                card.addEventListener('click', function() {
+                    var expanded = card.querySelector('.bjm-expanded');
+                    var arrow = card.querySelector('.bjm-expand-arrow');
+                    if (!expanded) return;
+                    var isOpen = expanded.style.display !== 'none' && expanded.style.display !== '';
+                    if (isOpen) {
+                        expanded.style.display = 'none';
+                        if (arrow) arrow.textContent = '▼';
+                    } else {
+                        expanded.style.display = 'block';
+                        if (arrow) arrow.textContent = '▲';
+                    }
+                });
+            });
+            // Блокировка свайпа страниц — ставим data-атрибут, который глобальный touch-handler проверит
+            modal.setAttribute('data-blocks-swipe', '1');
+        }
     }
 
     // ── CSV-экспорт журнала сделок ──
@@ -1920,14 +2148,16 @@
 
 
     /* ══════════════════════════════════════════
-       POLLING — опрос статуса каждые 10 секунд
+       POLLING — опрос статуса каждые 5 секунд.
+       Раньше было 10 сек, но этого мало для индикатора позиции —
+       после закрытия сделки точка оставалась янтарной до 10 сек.
     ══════════════════════════════════════════ */
 
     var _pollInterval = null;
 
     function startStatusPolling(uid) {
         if (_pollInterval) clearInterval(_pollInterval);
-        _pollInterval = setInterval(function() { pollStatus(uid); }, 10000);
+        _pollInterval = setInterval(function() { pollStatus(uid); }, 5000);
         pollStatus(uid);
     }
 
@@ -1939,21 +2169,65 @@
     }
 
     function pollStatus(uid) {
+        // Запоминаем "до" — было ли у нас открытая позиция и был ли бот запущен.
+        // Если эти поля меняются в результате поллинга — нужно синхронизировать
+        // список ботов (где каждому элементу приписано свое bot.position / bot.running).
+        var prevHasPos = !!_state.position;
+        var prevRunning = !!_state.running;
+
         fetch('/api/bot/status?uid=' + uid + '&botId=' + _state.botId)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 updateWidgetFromStatus(data);
-                if (data.tradeCount > 0) fetchTrades(uid);
+                // Всегда вызываем fetchTrades — даже если tradeCount === 0.
+                // Внутри он поставит placeholder "Сделок пока нет", если сделок нет.
+                // Это важно после переключения/удаления бота, чтобы не висел лог предыдущего.
+                fetchTrades(uid);
+
+                var nowHasPos = !!_state.position;
+                var nowRunning = !!_state.running;
+
+                // Синхронизируем запись текущего бота в _state.bots — иначе bot.position
+                // там будет устаревшим, и точка в раскрытом dropdown останется пульсировать
+                // ещё долго после того, как бот реально закрыл сделку.
+                if (_state.bots && _state.bots.length) {
+                    for (var i = 0; i < _state.bots.length; i++) {
+                        if (_state.bots[i].botId === _state.botId) {
+                            _state.bots[i].position = _state.position || null;
+                            _state.bots[i].running = nowRunning;
+                            _state.bots[i].dayPnl = _state.dayPnl;
+                            break;
+                        }
+                    }
+                }
+
+                // Если состояние изменилось — перерисуем dropdown (если он сейчас открыт)
+                // и подтянем свежий список ботов с сервера, чтобы обновить и ДРУГИХ ботов тоже.
+                if (prevHasPos !== nowHasPos || prevRunning !== nowRunning) {
+                    var dd = document.getElementById('botSelectorDropdown');
+                    if (dd && dd.style.display !== 'none') renderBotDropdown();
+                    // Подтянем свежий общий список (положения других ботов тоже могли измениться).
+                    loadBotList();
+                }
             })
             .catch(function(e) { console.warn('[BOT] poll error', e); });
     }
 
     function fetchTrades(uid) {
-        fetch('/api/bot/trades?uid=' + uid + '&botId=' + _state.botId + '&limit=10')
+        // Запоминаем, для какого бота был запрос — пока ответ идёт, пользователь
+        // мог переключиться на другого бота, и тогда чужой ответ не должен
+        // перезаписать лог нового бота.
+        var requestedBotId = _state.botId;
+        fetch('/api/bot/trades?uid=' + uid + '&botId=' + requestedBotId + '&limit=10')
             .then(function(r) { return r.json(); })
             .then(function(data) {
+                if (requestedBotId !== _state.botId) return; // бота уже переключили
                 var log = document.getElementById('botWidgetLog');
-                if (!log || !data.trades || !data.trades.length) return;
+                if (!log) return;
+                if (!data.trades || !data.trades.length) {
+                    log.innerHTML = '<div class="bot-w-log-empty">Сделок пока нет</div>';
+                    return;
+                }
                 log.innerHTML = data.trades.map(function(t) {
                     var isProfit = t.pnl >= 0;
                     var pnlClass = isProfit ? 'green' : 'red';
@@ -2029,7 +2303,11 @@
         var current = _state.bots.find(function(b) { return b.botId === _state.botId; });
         if (current) {
             label.textContent = getBotLabel(current);
-            if (dot) dot.style.background = current.running ? '#26a69a' : '#636B76';
+            // Для текущего бота предпочитаем _state.position — он всегда свежий (из /api/bot/status),
+            // а bot.position из /api/bot/list может отсутствовать или запаздывать.
+            var hasPos = _state.position || current.position;
+            var state = !current.running ? 'stopped' : (hasPos ? 'in-position' : 'idle');
+            setBotDotState(dot, state);
         } else {
             var fallback = {
                 pair: _state.pair, strategy: _state.strategy, timeframe: _state.timeframe,
@@ -2038,9 +2316,15 @@
                 rsiOversold: _state.rsiOversold, rsiOverbought: _state.rsiOverbought
             };
             label.textContent = getBotLabel(fallback);
-            if (dot) dot.style.background = _state.running ? '#26a69a' : '#636B76';
+            var fbState = !_state.running ? 'stopped' : (_state.position ? 'in-position' : 'idle');
+            setBotDotState(dot, fbState);
         }
     }
+
+    /* Таймер опроса списка ботов — запускается только когда dropdown открыт.
+       Без него точки других ботов в раскрытом списке никогда не обновляются
+       (poll статуса ходит только за ТЕКУЩИМ ботом). */
+    var _dropdownPollTimer = null;
 
     function toggleBotDropdown() {
         var dd = document.getElementById('botSelectorDropdown');
@@ -2048,6 +2332,29 @@
         if (dd.style.display === 'none') {
             renderBotDropdown();
             dd.style.display = 'block';
+            // Обновляем список каждые 4 сек, пока dropdown открыт — чтобы индикаторы
+            // (running / in-position / P&L) у ВСЕХ ботов оставались актуальными.
+            if (_dropdownPollTimer) clearInterval(_dropdownPollTimer);
+            _dropdownPollTimer = setInterval(function() {
+                var stillOpen = document.getElementById('botSelectorDropdown');
+                if (!stillOpen || stillOpen.style.display === 'none') {
+                    clearInterval(_dropdownPollTimer);
+                    _dropdownPollTimer = null;
+                    return;
+                }
+                // loadBotList() обновит _state.bots и вызовет updateBotSelector(),
+                // но перерисовкой dropdown в этом месте управляем сами — после приезда данных.
+                var uid = getUid();
+                fetch('/api/bot/list?uid=' + uid)
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        _state.bots = data.bots || [];
+                        updateBotSelector();
+                        var ddNow = document.getElementById('botSelectorDropdown');
+                        if (ddNow && ddNow.style.display !== 'none') renderBotDropdown();
+                    })
+                    .catch(function() {});
+            }, 4000);
             setTimeout(function() {
                 document.addEventListener('click', _closeDDHandler, { once: true });
             }, 10);
@@ -2069,6 +2376,10 @@
     function closeBotDropdown() {
         var dd = document.getElementById('botSelectorDropdown');
         if (dd) dd.style.display = 'none';
+        if (_dropdownPollTimer) {
+            clearInterval(_dropdownPollTimer);
+            _dropdownPollTimer = null;
+        }
     }
 
     function renderBotDropdown() {
@@ -2085,14 +2396,23 @@
             var row = document.createElement('div');
             var isActive = bot.botId === _state.botId;
             var label = getBotLabel(bot);
-            var dotColor = bot.running ? '#26a69a' : '#636B76';
-            var pnlStr = bot.dayPnl >= 0 ? '+$' + bot.dayPnl.toFixed(2) : '-$' + Math.abs(bot.dayPnl).toFixed(2);
-            var pnlColor = bot.dayPnl >= 0 ? '#26a69a' : '#EF5350';
+            // 3 состояния: серый = остановлен, зелёный = ждёт сигнала, янтарный пульс = в позиции.
+            // Для активного бота предпочитаем свежее состояние позиции из _state
+            // (bot.position из /api/bot/list может отсутствовать или запаздывать).
+            var hasPos = isActive ? (_state.position || bot.position) : bot.position;
+            var dotClass;
+            if (!bot.running) dotClass = 'bot-dot-stopped';
+            else if (hasPos)  dotClass = 'bot-dot-in-position';
+            else              dotClass = 'bot-dot-idle';
+
+            var dayPnl = (typeof bot.dayPnl === 'number' && !isNaN(bot.dayPnl)) ? bot.dayPnl : 0;
+            var pnlStr = dayPnl >= 0 ? '+$' + dayPnl.toFixed(2) : '-$' + Math.abs(dayPnl).toFixed(2);
+            var pnlColor = dayPnl >= 0 ? '#26a69a' : '#EF5350';
 
             row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:7px 10px;cursor:pointer;transition:background 0.15s;' +
                 (isActive ? 'background:rgba(38,166,154,0.08);' : '');
 
-            row.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;"></span>' +
+            row.innerHTML = '<span class="' + dotClass + '" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>' +
                 '<span style="flex:1;font-size:11px;color:' + (isActive ? '#26a69a' : '#D1D5DB') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + label + '</span>' +
                 '<span style="font-size:10px;color:' + pnlColor + ';flex-shrink:0;margin-right:4px;">' + pnlStr + '</span>' +
                 '<span class="bot-dd-delete" data-botid="' + bot.botId + '" style="flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:3px;cursor:pointer;opacity:0.3;transition:opacity 0.15s;" title="Удалить">' +
@@ -2128,6 +2448,9 @@
 
     function createNewBot() {
         var uid = getUid();
+        // Наследуем настройки от текущего бота — пользователь обычно создаёт боты одной серии.
+        // В запрос на сервер передаём только пару (BTC как дефолт); остальные настройки он подхватит
+        // при старте из _state через endpoint /api/bot/start.
         fetch('/api/bot/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2138,16 +2461,8 @@
             if (data.ok) {
                 _state.bots = data.bots || [];
                 _state.botId = data.botId;
-                // Полностью сбрасываем ВСЕ настройки к дефолтам, иначе унаследуются от предыдущего бота
-                _state.strategy = 'scalper';
-                _state.direction = 'both';
-                _state.entryMode = 'candle';
-                _state.trailingEnabled = false;
-                _state.trailingActivation = '70';
-                _state.trailingOffset = '0.25';
-                _state.bbExitEnabled = false;
-                _state.bbExitTolerance = '5';
-                _state.smaReturnTolerance = '5';
+                // НЕ сбрасываем настройки — они наследуются от предыдущего бота.
+                // Только меняем пару на BTC/USDT (дефолт нового бота), пользователь сменит в модалке.
                 _state.pair = 'BTC/USDT';
                 updateBotSelector();
                 openModal(0);
@@ -2156,8 +2471,37 @@
         .catch(function(e) { console.warn('[BOT] create error', e); });
     }
 
+    /* Сбрасывает локальное состояние, привязанное к конкретному боту,
+       и чистит DOM-лог сделок. Нужно при переключении/удалении бота,
+       чтобы в UI не оставались сделки и индикаторы предыдущего бота. */
+    function resetBotLocalState() {
+        _state.trades = [];
+        _state.position = null;
+        _state.levels = [];
+        _state.currentPrice = 0;
+        _state.dayPnl = 0;
+        _state.totalPnl = 0;
+        _state.tradeCount = 0;
+        _state.winRate = null;
+        _state.bbData = null;
+        _state.volumeInfo = null;
+        _state.clusterInfo = null;
+
+        var log = document.getElementById('botWidgetLog');
+        if (log) log.innerHTML = '<div class="bot-w-log-empty">Сделок пока нет</div>';
+
+        // Позиция скрывается (renderPosition прячет секцию при _state.position === null).
+        if (typeof renderPosition === 'function') renderPosition();
+    }
+
     function deleteBot(botId) {
         var uid = getUid();
+        // Если удаляем текущего бота — сразу чистим UI, не дожидаясь ответа сервера.
+        // Иначе старый лог сделок остаётся висеть, пока придут данные нового бота
+        // (а если у нового 0 сделок — остаётся висеть вообще всегда).
+        var deletingActive = (_state.botId === botId);
+        if (deletingActive) resetBotLocalState();
+
         fetch('/api/bot/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2169,6 +2513,9 @@
                 _state.bots = data.bots || [];
                 if (_state.botId === botId) {
                     _state.botId = _state.bots.length > 0 ? _state.bots[0].botId : 'default';
+                    // Мы переключились на другого бота — чистим UI ещё раз
+                    // (resetBotLocalState выше был для удаляемого, теперь для нового).
+                    resetBotLocalState();
                 }
                 updateBotSelector();
                 pollStatus(uid);
@@ -2180,6 +2527,11 @@
     function switchBot(botId) {
         if (_state.botId === botId) return;
         _state.botId = botId;
+
+        // Чистим UI от данных старого бота (лог сделок, позиция, PnL, уровни),
+        // чтобы они не «всплывали» на долю секунды и не оставались висеть,
+        // если у нового бота 0 сделок.
+        resetBotLocalState();
 
         var bot = _state.bots.find(function(b) { return b.botId === botId; });
         if (bot) {
@@ -2360,16 +2712,9 @@
                         _state.market = data.market || 'futures';
                         _state.pair = data.pair || 'BTC/USDT';
 
-                        // Обновляем виджет данными
+                        // Обновляем виджет данными (включая точки-индикаторы в шапке и у селектора бота).
                         updateWidgetFromStatus(data);
                         updateWidgetMode();
-
-                        // Показываем кнопку БОТ как активную
-                        var btn = document.getElementById('botBtnApp');
-                        if (btn) {
-                            var dot = btn.querySelector('.bot-btn-dot');
-                            if (dot) dot.style.background = '#26a69a';
-                        }
 
                         // Запускаем поллинг
                         startStatusPolling(uid);
