@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Thinking Trader</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -4324,9 +4328,50 @@
             .chart-loading { height: 300px !important; }
             .chart-title h3 { font-size: 13px; }
             .chart-header { flex-wrap: wrap; gap: 6px; }
-            #ourChartControls { flex-wrap: wrap; gap: 4px; padding: 2px 0; }
-            #chartToolsRight { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; flex-wrap: nowrap !important; flex-shrink: 1; min-width: 0; }
-            #chartToolsRight::-webkit-scrollbar { display: none; }
+            #ourChartControls {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 4px;
+                padding: 2px 0;
+                width: 100% !important;
+                justify-content: flex-start !important;
+            }
+            /* Левая группа (таймфреймы + тип графика) — первая строка */
+            #ourChartControls > div:first-child {
+                width: 100% !important;
+                flex: 0 0 100% !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: none !important;
+                flex-wrap: nowrap !important;
+                min-width: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 4px !important;
+            }
+            #ourChartControls > div:first-child::-webkit-scrollbar { display: none !important; }
+            #ourChartControls > div:first-child > * {
+                flex-shrink: 0 !important;
+            }
+            /* Правая группа (REPLAY, инструменты, и т.д.) — вторая строка */
+            #chartToolsRight {
+                width: 100% !important;
+                flex: 0 0 100% !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: none !important;
+                flex-wrap: nowrap !important;
+                min-width: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 4px !important;
+            }
+            #chartToolsRight::-webkit-scrollbar { display: none !important; }
+            #chartToolsRight > * {
+                flex-shrink: 0 !important;
+            }
             .period-btn { padding: 0 6px; font-size: 10px; }
             .chart-coin-bar { flex-wrap: wrap; gap: 6px; }
             .coin-select-trigger { white-space: nowrap; max-width: calc(100vw - 48px); overflow: hidden; text-overflow: ellipsis; }
@@ -8708,9 +8753,10 @@
                     });
                     const candleData = rawOhlcCache
                         .map(([t, o, h, l, c]) => ({ time: Math.floor(t / 1000), open: o, high: h, low: l, close: c }))
+                        .filter(d => isFinite(d.time) && d.time > 0 && isFinite(d.open) && isFinite(d.high) && isFinite(d.low) && isFinite(d.close))
                         .sort((a, b) => a.time - b.time)
                         .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
-                    lwSeries.setData(candleData);
+                    try { lwSeries.setData(candleData); } catch (e) { console.warn('[CHART] setData candles failed:', e.message); }
 
                     // Объёмы — синхронизированные со свечами
                     if (lwVolumeSeries) {
@@ -8721,9 +8767,10 @@
                                 value: v,
                                 color: c >= o ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)',
                             }))
+                            .filter(d => isFinite(d.time) && d.time > 0 && isFinite(d.value))
                             .sort((a, b) => a.time - b.time)
                             .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
-                        lwVolumeSeries.setData(volData);
+                        try { lwVolumeSeries.setData(volData); } catch (e) { console.warn('[CHART] setData volume failed:', e.message); }
                         lwChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
                     }
 
@@ -8743,9 +8790,10 @@
                     });
                     const lineData = prices
                         .map(([t, v]) => ({ time: Math.floor(t / 1000), value: v }))
+                        .filter(d => isFinite(d.time) && d.time > 0 && isFinite(d.value))
                         .sort((a, b) => a.time - b.time)
                         .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
-                    lwSeries.setData(lineData);
+                    try { lwSeries.setData(lineData); } catch (e) { console.warn('[CHART] setData line failed:', e.message); }
 
                     // Прячем объёмы в линейном режиме
                     if (lwVolumeSeries) {
@@ -9479,10 +9527,11 @@
 
             const data = prices
                 .map(([t, v]) => ({ time: Math.floor(t / 1000), value: v }))
+                .filter(d => isFinite(d.time) && d.time > 0 && isFinite(d.value))
                 .sort((a, b) => a.time - b.time)
                 .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
 
-            lwSeries.setData(data);
+            try { lwSeries.setData(data); } catch (e) { console.warn('[CHART] createLWLine setData failed:', e.message); }
 
             // В линейном режиме прячем объёмы и легенду
             if (lwVolumeSeries) {
@@ -9513,10 +9562,11 @@
 
             const data = ohlc
                 .map(([t, o, h, l, c]) => ({ time: Math.floor(t / 1000), open: o, high: h, low: l, close: c }))
+                .filter(d => isFinite(d.time) && d.time > 0 && isFinite(d.open) && isFinite(d.high) && isFinite(d.low) && isFinite(d.close))
                 .sort((a, b) => a.time - b.time)
                 .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
 
-            lwSeries.setData(data);
+            try { lwSeries.setData(data); } catch (e) { console.warn('[CHART] createLWCandles setData failed:', e.message); }
 
             // В свечном режиме показываем объёмы
             if (lwVolumeSeries) {
@@ -9527,9 +9577,10 @@
                         value: v,
                         color: c >= o ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)',
                     }))
+                    .filter(d => isFinite(d.time) && d.time > 0 && isFinite(d.value))
                     .sort((a, b) => a.time - b.time)
                     .filter((d, i, arr) => i === 0 || d.time !== arr[i-1].time);
-                lwVolumeSeries.setData(volData);
+                try { lwVolumeSeries.setData(volData); } catch (e) { console.warn('[CHART] createLWCandles volume setData failed:', e.message); }
                 lwChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
             }
 
@@ -9572,14 +9623,14 @@
                     lwLegendEl.innerHTML = `
                         <div>
                             <span class="ohlc-dot" style="background:${dot}"></span>
-                            <span class="ohlc-label">${isRu?'О':'O'}</span><span class="ohlc-val ${cls}">${fmtP(d.open)}</span>
-                            <span class="ohlc-label">${isRu?'М':'H'}</span><span class="ohlc-val ${cls}">${fmtP(d.high)}</span>
-                            <span class="ohlc-label">${isRu?'м':'L'}</span><span class="ohlc-val ${cls}">${fmtP(d.low)}</span>
-                            <span class="ohlc-label">${isRu?'З':'C'}</span><span class="ohlc-val ${cls}">${fmtP(d.close)}</span>
+                            <span class="ohlc-label">${isRu?'ОТКР':'O'}</span><span class="ohlc-val ${cls}">${fmtP(d.open)}</span>
+                            <span class="ohlc-label">${isRu?'МАКС':'H'}</span><span class="ohlc-val ${cls}">${fmtP(d.high)}</span>
+                            <span class="ohlc-label">${isRu?'МИН':'L'}</span><span class="ohlc-val ${cls}">${fmtP(d.low)}</span>
+                            <span class="ohlc-label">${isRu?'ЗАКР':'C'}</span><span class="ohlc-val ${cls}">${fmtP(d.close)}</span>
                             <span class="ohlc-change ${cls}">${sign}${fmtP(Math.abs(ch))} (${sign}${pct}%)</span>
                         </div>
                         <div>
-                            <span class="ohlc-label">${isRu?'ОБЪ':'VOL'}</span>
+                            <span class="ohlc-label">VOL</span>
                             <span class="ohlc-vol">${fmtV(vol)}</span>${clusterHtml}
                         </div>`;
                 }
@@ -9621,19 +9672,37 @@
         function createChart(prices) {
             chartLoading.style.display = 'none';
             if (!lwChart) initLWChart();
+
+            // Сохраняем текущий зум пользователя ДО пересоздания серии, чтобы
+            // переключение line/candle не сбрасывало вид на "последние 100 баров".
+            // Раньше fitContent + setVisibleRange всегда отматывали график к концу,
+            // и любое переключение представления выкидывало пользователя с того
+            // места, где он рассматривал историю.
+            let savedLR = null;
+            try {
+                if (lwChart) savedLR = lwChart.timeScale().getVisibleLogicalRange();
+            } catch (e) {}
+
             if (chartDisplayType === 'candle' && rawOhlcCache.length) {
                 createLWCandles(rawOhlcCache);
             } else {
                 createLWLine(prices);
             }
-            lwChart.timeScale().fitContent();
-            // Показываем последние N баров (мобилка 100, десктоп 100)
-            const _bars2 = 100;
-            if (prices.length > 0) {
-                const _from2 = prices.length > _bars2
-                    ? Math.floor(prices[prices.length - _bars2][0] / 1000)
-                    : Math.floor(prices[0][0] / 1000);
-                lwChart.timeScale().setVisibleRange({ from: _from2, to: Math.floor(Date.now() / 1000) });
+
+            // Если пользователь был в "дефолтной" позиции (зум не сохранён или это
+            // первая отрисовка) — показываем последние 100 баров как раньше.
+            // Если был в своём зуме — возвращаем его обратно.
+            if (savedLR && savedLR.from !== undefined && savedLR.to !== undefined) {
+                try { lwChart.timeScale().setVisibleLogicalRange(savedLR); } catch (e) {}
+            } else {
+                lwChart.timeScale().fitContent();
+                const _bars2 = 100;
+                if (prices.length > 0) {
+                    const _from2 = prices.length > _bars2
+                        ? Math.floor(prices[prices.length - _bars2][0] / 1000)
+                        : Math.floor(prices[0][0] / 1000);
+                    try { lwChart.timeScale().setVisibleRange({ from: _from2, to: Math.floor(Date.now() / 1000) }); } catch (e) {}
+                }
             }
             setTimeout(() => drawLWLevels(), 0);
             // Перерисовываем уровни бота если активен
@@ -10222,7 +10291,7 @@
             touchStartY = e.touches[0].clientY;
             touchLocked = false;
             // Проверяем — начался ли свайп на графике
-            touchOnChart = !!(e.target.closest('.chart-container') || e.target.closest('.tv-lightweight-charts') || e.target.tagName === 'CANVAS' || e.target.closest('#chartToolsRight'));
+            touchOnChart = !!(e.target.closest('.chart-container') || e.target.closest('.tv-lightweight-charts') || e.target.tagName === 'CANVAS' || e.target.closest('#chartToolsRight') || e.target.closest('.chart-period-buttons') || e.target.closest('.chart-type-toggle') || e.target.closest('#ourChartControls'));
             // Проверяем — открыта ли модалка которая блокирует свайп (журнал, и будущие)
             touchInModal = !!(e.target.closest('[data-blocks-swipe]') || document.querySelector('[data-blocks-swipe]'));
         }, { passive: true });
@@ -11404,9 +11473,24 @@
         }
 
         function applyPriceTick(price, volume, isClosed, buyVolume) {
-            if (!price) return;
+            if (!price || !isFinite(price) || price <= 0) return;
             _prevWsPrice = _lastWsPrice;
             _lastWsPrice = price;
+
+            // Хелпер: безопасный .update() — если lightweight-charts бросит
+            // "Value is null" или "time must be greater than..." — ловим и не
+            // даём одному битому тику сломать весь график (без этого после
+            // первого же плохого тика серия навсегда зависает).
+            const safeUpdate = (series, point) => {
+                if (!series || !point) return;
+                if (!isFinite(point.time) || point.time <= 0) return;
+                if (point.value !== undefined && !isFinite(point.value)) return;
+                if (point.close !== undefined) {
+                    if (!isFinite(point.open) || !isFinite(point.high) ||
+                        !isFinite(point.low)  || !isFinite(point.close)) return;
+                }
+                try { series.update(point); } catch (e) { /* проглатываем */ }
+            };
 
             // Обновляем график если серия загружена
             if (lwSeries && !window.__replayActive && !window.__replayPlaying) {
@@ -11424,10 +11508,10 @@
                         rawOhlcCache.push(newCandle);
                         // Ограничиваем размер кеша
                         if (rawOhlcCache.length > 1000) rawOhlcCache.splice(0, 100);
-                        lwSeries.update({ time: Math.floor(newT / 1000), open: price, high: price, low: price, close: price });
+                        safeUpdate(lwSeries, { time: Math.floor(newT / 1000), open: price, high: price, low: price, close: price });
                         // Обновляем volume серию
                         if (lwVolumeSeries) {
-                            lwVolumeSeries.update({ time: Math.floor(newT / 1000), value: volume || 0, color: 'rgba(16,185,129,0.4)' });
+                            safeUpdate(lwVolumeSeries, { time: Math.floor(newT / 1000), value: volume || 0, color: 'rgba(16,185,129,0.4)' });
                         }
                         // Обновляем линейный кеш тоже
                         if (rawPricesCache.length) {
@@ -11453,11 +11537,11 @@
                         const vol = volume || (last[5] || 0);
                         const bVol = buyVolume || (last[6] || 0);
                         rawOhlcCache[rawOhlcCache.length - 1] = [t, o, newHigh, newLow, price, vol, bVol];
-                        lwSeries.update({ time: Math.floor(t / 1000), open: o, high: newHigh, low: newLow, close: price });
+                        safeUpdate(lwSeries, { time: Math.floor(t / 1000), open: o, high: newHigh, low: newLow, close: price });
                         // Обновляем объём текущей свечи
                         if (lwVolumeSeries && volume > 0) {
                             const volColor = price >= o ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)';
-                            lwVolumeSeries.update({ time: Math.floor(t / 1000), value: vol, color: volColor });
+                            safeUpdate(lwVolumeSeries, { time: Math.floor(t / 1000), value: vol, color: volColor });
                         }
 
                         // Live-обновление легенды (O/H/L/C + объём + B%/S% кластер) на каждый тик
@@ -11484,10 +11568,10 @@
                     if (intervalMs > 0 && now >= t + intervalMs) {
                         const newT = t + intervalMs * Math.floor((now - t) / intervalMs);
                         rawPricesCache.push([newT, price]);
-                        lwSeries.update({ time: Math.floor(newT / 1000), value: price });
+                        safeUpdate(lwSeries, { time: Math.floor(newT / 1000), value: price });
                     } else {
                         rawPricesCache[rawPricesCache.length - 1] = [t, price];
-                        lwSeries.update({ time: Math.floor(t / 1000), value: price });
+                        safeUpdate(lwSeries, { time: Math.floor(t / 1000), value: price });
                     }
                 }
             }
@@ -11557,8 +11641,16 @@
             };
             ws.onerror = () => {};
             ws.onclose = () => {
-                if (_priceWs === null && _priceWsSymbol === symbol) {
-                    _priceWsReconnectTimer = setTimeout(() => startPriceWs(symbol), 3000);
+                // Реконнект срабатывает, если этот ws был текущим (_priceWs === ws)
+                // и символ не менялся. Раньше тут было `_priceWs === null`, из-за чего
+                // реконнект никогда не происходил при естественном закрытии от Binance
+                // (idle >10 мин) — сокет умирал молча, график зависал.
+                if (_priceWs === ws && _priceWsSymbol === symbol) {
+                    _priceWs = null;
+                    _priceWsReconnectTimer = setTimeout(() => {
+                        _priceWsReconnectTimer = null;
+                        startPriceWs(symbol);
+                    }, 3000);
                 }
             };
         }
@@ -15486,7 +15578,7 @@
                 <span class="ohlc-label">${isRu ? 'ЗАКР' : 'C'}</span><span class="ohlc-val ${cls}">${fmt(d.close)}</span>
                 <span class="ohlc-change ${cls}">${sign}${fmt(Math.abs(change))} (${sign}${changePct}%)</span>
                 <br>
-                <span class="ohlc-label" style="color:#64748B">${isRu ? 'ОБЪ' : 'VOL'}</span><span class="ohlc-val" style="color:#94A3B8">${fmtVol(vol)}</span>
+                <span class="ohlc-label" style="color:#64748B">VOL</span><span class="ohlc-val" style="color:#94A3B8">${fmtVol(vol)}</span>
             `;
         }
     }

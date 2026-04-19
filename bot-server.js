@@ -42,6 +42,8 @@ module.exports = function(app) {
         if (session.trailingEnabled) extra += ` ${s} TR`;
         if (session.bbExitEnabled) extra += ` ${s} BB`;
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
+        if (session.regimeFilterEnabled) extra += ` ${s} R`;
+        if (session.atrFilterEnabled) extra += ` ${s} A`;
         if (session.rsiOversold || session.rsiOverbought) {
             extra += ` ${s} ${session.rsiOversold || 35}/${session.rsiOverbought || 65}`;
         }
@@ -72,6 +74,8 @@ module.exports = function(app) {
                     rsiOverbought: session.rsiOverbought || 65,
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
+                    regimeFilterEnabled: session.regimeFilterEnabled || false,
+                    atrFilterEnabled: session.atrFilterEnabled || false,
                     bbExitEnabled: session.bbExitEnabled || false,
                     notifyEnabled: session.notifyEnabled !== false,
                 });
@@ -225,7 +229,12 @@ module.exports = function(app) {
                 // ── Выход по противоположной полосе Боллинджера (только для MR) ──
                 bbExitEnabled:       false,  // если true — игнорируется minProfit и trailing
                 bbExitTolerance:     5,      // % от ширины канала: насколько не дотягивать до ББ считать касанием
+                smaReturnEnabled:    false,  // если true — закрываем при возврате к SMA после глубокого захода
                 smaReturnTolerance:  5,      // % от ширины канала: глубина захода за SMA для поднятия флага wasBeyondSma
+
+                // ── ATR-фильтр волатильности (ненаправленный) ──
+                atrFilterEnabled:    false,  // если true — блокируем вход когда multiplier >= threshold
+                atrFilterThreshold:  2.0,    // отношение atr14/atr50, выше которого это "импульс"
 
                 // ── Push-уведомления ──
                 notifyEnabled:   true,      // уведомлять о закрытии сделок и остановке бота
@@ -649,6 +658,38 @@ module.exports = function(app) {
         return sumTR / period;
     }
 
+    /**
+     * Определяет текущий режим волатильности через отношение короткого ATR к длинному.
+     * Возвращает { multiplier, level, blocked } где:
+     *   multiplier — atrShort/atrLong (1.0 = норма, 2.0 = вдвое больше обычного)
+     *   level      — 'calm' | 'active' | 'impulse'
+     *   blocked    — true если multiplier >= threshold (вход запрещать)
+     *
+     * Короткий ATR (14) реагирует на последние несколько свечей,
+     * длинный (50) — это "нормальный" фон. Отношение растёт, когда
+     * рынок входит в импульс (новость, ликвидация, паника).
+     */
+    function detectATRRegime(candles, threshold = 2.0) {
+        const atrShort = calcATR(candles, 14);
+        const atrLong  = calcATR(candles, 50);
+        if (atrShort <= 0 || atrLong <= 0) {
+            return { multiplier: 1.0, level: 'calm', blocked: false, atrShort: 0, atrLong: 0 };
+        }
+        const multiplier = atrShort / atrLong;
+        let level;
+        if (multiplier < 1.3)      level = 'calm';
+        else if (multiplier < threshold) level = 'active';
+        else                       level = 'impulse';
+        return {
+            multiplier: Math.round(multiplier * 100) / 100,
+            level,
+            blocked: multiplier >= threshold,
+            atrShort: Math.round(atrShort * 100) / 100,
+            atrLong:  Math.round(atrLong  * 100) / 100,
+            threshold,
+        };
+    }
+
 
     /* ══════════════════════════════════════════
        5b. BOLLINGER BANDS + RSI
@@ -882,12 +923,19 @@ module.exports = function(app) {
         if (session.direction === 'short' && side === 'LONG') return null;
 
         // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
-        // Если режим загружен и блокирует наше направление — пропускаем
-        if (session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
+        // Работает только если тумблер regimeFilterEnabled включён пользователем.
+        if (session.regimeFilterEnabled && session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
             if (session.regime.allowed !== side) {
                 console.log(`[BOT ${ts()}] 🚫 ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
                 return null;
             }
+        }
+
+        // ── ATR-фильтр волатильности (ненаправленный) ──
+        // Блокируем вход в любую сторону, когда atr14/atr50 >= threshold.
+        if (session.atrFilterEnabled && session.atrRegime && session.atrRegime.blocked) {
+            console.log(`[BOT ${ts()}] 🚫 ${side} blocked by ATR impulse: ×${session.atrRegime.multiplier} >= ${session.atrRegime.threshold}`);
+            return null;
         }
 
         // ── Кластерный фильтр при входе (если включён) ──
@@ -1004,11 +1052,17 @@ module.exports = function(app) {
         if (session.direction === 'short' && side === 'LONG') return;
 
         // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
-        if (session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
+        if (session.regimeFilterEnabled && session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
             if (session.regime.allowed !== side) {
                 console.log(`[BOT ${ts()}] 🚫 tick ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
                 return;
             }
+        }
+
+        // ── ATR-фильтр волатильности ──
+        if (session.atrFilterEnabled && session.atrRegime && session.atrRegime.blocked) {
+            console.log(`[BOT ${ts()}] 🚫 tick ${side} blocked by ATR impulse: ×${session.atrRegime.multiplier} >= ${session.atrRegime.threshold}`);
+            return;
         }
 
         // ── Кластерный фильтр при входе (если включён) ──
@@ -1129,11 +1183,17 @@ module.exports = function(app) {
         if (session.direction === 'short' && side === 'LONG') return null;
 
         // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
-        if (session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
+        if (session.regimeFilterEnabled && session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
             if (session.regime.allowed !== side) {
                 console.log(`[BOT ${ts()}] 🚫 ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
                 return null;
             }
+        }
+
+        // ── ATR-фильтр волатильности ──
+        if (session.atrFilterEnabled && session.atrRegime && session.atrRegime.blocked) {
+            console.log(`[BOT ${ts()}] 🚫 ${side} blocked by ATR impulse: ×${session.atrRegime.multiplier} >= ${session.atrRegime.threshold}`);
+            return null;
         }
 
         // ── ATR-based стоп ──
@@ -1238,6 +1298,7 @@ module.exports = function(app) {
             strategy:        session.strategy || 'scalper',
             direction:       session.direction || 'both',
             clusterEntryFilter: session.clusterEntryFilter || false,
+            regimeFilterEnabled: session.regimeFilterEnabled || false,
             // ── Снэпшот режима рынка при входе ──
             // Сохраняем полностью, чтобы в журнале сделок было видно
             // какой режим EMA был на момент открытия позиции.
@@ -1458,28 +1519,30 @@ module.exports = function(app) {
                         }
                     }
 
-                    // --- SMA-RETURN (работает в обоих режимах) ---
+                    // --- SMA-RETURN (работает в обоих режимах, если включён тумблер) ---
                     // Шаг 1: поднимаем флаг wasBeyondSma если цена глубоко зашла за SMA
-                    const smaTolPct = (session.smaReturnTolerance || 5) / 100;
-                    const smaDeepDist = channelWidth * smaTolPct;
-                    if (pos.side === 'LONG') {
-                        // глубокий заход = выше SMA + толеранс
-                        if (price >= bb.middle + smaDeepDist) {
-                            pos.wasBeyondSma = true;
-                        }
-                        // возврат = цена вернулась к SMA сверху (строго, без толеранса)
-                        if (pos.wasBeyondSma && price <= bb.middle) {
-                            closePosition(session, price, 'sma_return');
-                            return;
-                        }
-                    } else {
-                        // SHORT — глубокий заход = ниже SMA − толеранс
-                        if (price <= bb.middle - smaDeepDist) {
-                            pos.wasBeyondSma = true;
-                        }
-                        if (pos.wasBeyondSma && price >= bb.middle) {
-                            closePosition(session, price, 'sma_return');
-                            return;
+                    if (session.smaReturnEnabled) {
+                        const smaTolPct = (session.smaReturnTolerance || 5) / 100;
+                        const smaDeepDist = channelWidth * smaTolPct;
+                        if (pos.side === 'LONG') {
+                            // глубокий заход = выше SMA + толеранс
+                            if (price >= bb.middle + smaDeepDist) {
+                                pos.wasBeyondSma = true;
+                            }
+                            // возврат = цена вернулась к SMA сверху (строго, без толеранса)
+                            if (pos.wasBeyondSma && price <= bb.middle) {
+                                closePosition(session, price, 'sma_return');
+                                return;
+                            }
+                        } else {
+                            // SHORT — глубокий заход = ниже SMA − толеранс
+                            if (price <= bb.middle - smaDeepDist) {
+                                pos.wasBeyondSma = true;
+                            }
+                            if (pos.wasBeyondSma && price >= bb.middle) {
+                                closePosition(session, price, 'sma_return');
+                                return;
+                            }
                         }
                     }
                 }
@@ -1550,6 +1613,16 @@ module.exports = function(app) {
 
     function onCandleClose(session) {
         if (!session.running || session.paused) return;
+
+        // Пересчитываем режим волатильности (ATR): дёшево, не требует сети.
+        // Обновляется даже если фильтр выключен — чтобы панель в виджете всегда
+        // показывала актуальное состояние (пользователь может включить тумблер
+        // не перезапуская бота).
+        try {
+            session.atrRegime = detectATRRegime(session.candles, session.atrFilterThreshold || 2.0);
+        } catch (e) {
+            session.atrRegime = { multiplier: 1.0, level: 'calm', blocked: false };
+        }
 
         // Обновляем уровни
         session.levels = findMicroLevels(
@@ -1892,8 +1965,14 @@ module.exports = function(app) {
         session.bbExitEnabled      = !!settings.bbExitEnabled;
         session.bbExitTolerance    = parseFloat(settings.bbExitTolerance);
         if (!Number.isFinite(session.bbExitTolerance)) session.bbExitTolerance = 5;
+        session.smaReturnEnabled   = !!settings.smaReturnEnabled;
         session.smaReturnTolerance = parseFloat(settings.smaReturnTolerance);
         if (!Number.isFinite(session.smaReturnTolerance)) session.smaReturnTolerance = 5;
+
+        // ATR-фильтр волатильности
+        session.atrFilterEnabled   = !!settings.atrFilterEnabled;
+        session.atrFilterThreshold = parseFloat(settings.atrFilterThreshold);
+        if (!Number.isFinite(session.atrFilterThreshold)) session.atrFilterThreshold = 2.0;
 
         // Режим 2 жёстко отключает трейлинг и minProfit на серверной стороне, независимо от UI
         if (session.bbExitEnabled) {
@@ -1993,6 +2072,17 @@ module.exports = function(app) {
         } catch (e) {
             console.error(`[BOT] Failed initial regime detection:`, e.message);
             session.regime = { higher: 'flat', main: 'flat', allowed: 'BOTH', tfHigher: '1h', tfMain: '15m' };
+        }
+
+        // ── ATR-режим волатильности ──
+        // Первичный расчёт сразу при старте, чтобы панель в виджете показывалась
+        // с первой секунды (а не ждала закрытия свечи через onCandleClose).
+        // Дальше пересчитываем в onCandleClose на каждой закрытой свече.
+        try {
+            session.atrRegime = detectATRRegime(session.candles, session.atrFilterThreshold || 2.0);
+            console.log(`[BOT] 📊 ATR for ${session.pair}: ×${session.atrRegime.multiplier} ${session.atrRegime.level}`);
+        } catch (e) {
+            session.atrRegime = { multiplier: 1.0, level: 'calm', blocked: false, threshold: session.atrFilterThreshold || 2.0 };
         }
 
         // Фоновое обновление каждые 15 минут
@@ -2289,6 +2379,12 @@ module.exports = function(app) {
             if (s.clusterExitConfirm) { session.clusterExitConfirm = parseInt(s.clusterExitConfirm); changed.push('clusterExitConfirm'); }
             if (s.clusterLookback) { session.clusterLookback = parseInt(s.clusterLookback); changed.push('clusterLookback'); }
 
+            // Фильтр режима рынка (EMA50/EMA200)
+            if (s.regimeFilterEnabled !== undefined) {
+                session.regimeFilterEnabled = !!s.regimeFilterEnabled;
+                changed.push(`regimeFilter:${session.regimeFilterEnabled ? 'ON' : 'OFF'}`);
+            }
+
             // Направление
             if (s.direction) { session.direction = s.direction; changed.push(`direction:${s.direction}`); }
 
@@ -2311,6 +2407,25 @@ module.exports = function(app) {
             if (s.trailingEnabled !== undefined) { session.trailingEnabled = !!s.trailingEnabled; changed.push(`trailing:${session.trailingEnabled ? 'ON' : 'OFF'}`); }
             if (s.trailingOffset) { session.trailingOffset = parseFloat(s.trailingOffset); changed.push('trailingOffset'); }
             if (s.trailingActivation) { session.trailingActivation = parseFloat(s.trailingActivation); changed.push('trailingActivation'); }
+
+            // SMA-возврат (MR)
+            if (s.smaReturnEnabled !== undefined) {
+                session.smaReturnEnabled = !!s.smaReturnEnabled;
+                changed.push(`smaReturn:${session.smaReturnEnabled ? 'ON' : 'OFF'}`);
+            }
+
+            // ATR-фильтр волатильности
+            if (s.atrFilterEnabled !== undefined) {
+                session.atrFilterEnabled = !!s.atrFilterEnabled;
+                changed.push(`atrFilter:${session.atrFilterEnabled ? 'ON' : 'OFF'}`);
+            }
+            if (s.atrFilterThreshold !== undefined) {
+                const t = parseFloat(s.atrFilterThreshold);
+                if (Number.isFinite(t) && t > 1.0 && t < 10.0) {
+                    session.atrFilterThreshold = t;
+                    changed.push(`atrThreshold:${t}`);
+                }
+            }
 
             // Bollinger / RSI (Mean Reversion)
             if (s.bbPeriod) { session.bbPeriod = parseInt(s.bbPeriod); changed.push('bbPeriod'); }
@@ -2452,12 +2567,16 @@ module.exports = function(app) {
                 trailingOffset: session.trailingOffset,
                 bbExitEnabled: session.bbExitEnabled,
                 bbExitTolerance: session.bbExitTolerance,
+                smaReturnEnabled: session.smaReturnEnabled || false,
                 smaReturnTolerance: session.smaReturnTolerance,
                 maxProfitPct: session.maxProfitPct,
                 cooldownCandles: session.cooldownCandles,
                 stopAtrMultiplier: session.stopAtrMultiplier,
                 clusterEnabled: session.clusterEnabled,
                 clusterEntryFilter: session.clusterEntryFilter || false,
+                regimeFilterEnabled: session.regimeFilterEnabled || false,
+                atrFilterEnabled: session.atrFilterEnabled || false,
+                atrFilterThreshold: session.atrFilterThreshold || 2.0,
                 clusterThreshold: session.clusterThreshold,
                 clusterExitConfirm: session.clusterExitConfirm,
                 clusterLookback: session.clusterLookback,
@@ -2483,6 +2602,7 @@ module.exports = function(app) {
                 clusterInfo: getClusterInfo(session),
                 strategy: session.strategy || 'scalper',
                 regime: session.regime || null,
+                atrRegime: session.atrRegime || null,
                 bbData: session.strategy === 'mean_reversion' ? (() => {
                     const closedCandles = session.candles.filter(c => c.closed);
                     const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);

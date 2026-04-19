@@ -30,7 +30,10 @@
         trailingActivation: '70',
         bbExitEnabled: false,
         bbExitTolerance: '5',
+        smaReturnEnabled: false,
         smaReturnTolerance: '5',
+        atrFilterEnabled: false,
+        atrFilterThreshold: '2.0',
         maxProfitPct: '1.0',
         cooldownCandles: '5',
         stopAtrMultiplier: '1.5',
@@ -182,8 +185,28 @@
                 </div>\
             </div>\
             \
+            <div class="bot-w-section" id="botAtrSection" style="display:none;padding-top:6px;padding-bottom:6px;">\
+                <div id="botAtrContainer"></div>\
+                <div id="botAtrToggleWrap" style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
+                    <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
+                    <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
+                        <input type="checkbox" id="botAtrEntryToggle" style="opacity:0;width:0;height:0;">\
+                        <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
+                        <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botAtrToggleDot"></span>\
+                    </label>\
+                </div>\
+            </div>\
+            \
             <div class="bot-w-section" id="botRegimeSection" style="display:none;">\
                 <div id="botRegimeContainer"></div>\
+                <div id="botRegimeToggleWrap" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
+                    <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
+                    <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
+                        <input type="checkbox" id="botRegimeEntryToggle" style="opacity:0;width:0;height:0;">\
+                        <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
+                        <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botRegimeToggleDot"></span>\
+                    </label>\
+                </div>\
             </div>\
             \
             <div class="bot-w-section" id="botClusterSection" style="display:none;">\
@@ -262,6 +285,38 @@
                 body: JSON.stringify({ uid: uid, botId: _state.botId, clusterEntryFilter: on })
             }).then(function() { loadBotList(); }).catch(function() {});
         };
+        widget.querySelector('#botRegimeEntryToggle').onchange = function() {
+            var on = this.checked;
+            var dot = document.getElementById('botRegimeToggleDot');
+            if (dot) {
+                dot.style.left = on ? '16px' : '2px';
+                dot.style.background = on ? '#26a69a' : '#636B76';
+                dot.parentElement.querySelector('span').style.background = on ? 'rgba(38,166,154,0.3)' : 'rgba(255,255,255,0.1)';
+            }
+            // Отправляем на сервер
+            var uid = getUid();
+            fetch('/api/bot/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid, botId: _state.botId, regimeFilterEnabled: on })
+            }).then(function() { loadBotList(); }).catch(function() {});
+        };
+        widget.querySelector('#botAtrEntryToggle').onchange = function() {
+            var on = this.checked;
+            var dot = document.getElementById('botAtrToggleDot');
+            if (dot) {
+                dot.style.left = on ? '16px' : '2px';
+                dot.style.background = on ? '#26a69a' : '#636B76';
+                dot.parentElement.querySelector('span').style.background = on ? 'rgba(38,166,154,0.3)' : 'rgba(255,255,255,0.1)';
+            }
+            _state.atrFilterEnabled = on;
+            var uid = getUid();
+            fetch('/api/bot/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid, botId: _state.botId, atrFilterEnabled: on })
+            }).then(function() { loadBotList(); }).catch(function() {});
+        };
         widget.querySelector('#botWidgetStart').onclick = startBot;
         widget.querySelector('#botWidgetStop').onclick  = stopBot;
         widget.querySelector('#botSaveSettings').onclick = saveSettingsHot;
@@ -338,6 +393,7 @@
         _state.paused       = data.paused        || false;
         _state.bbData       = data.bbData        || null;
         _state.regime       = data.regime        || null;
+        _state.atrRegime    = data.atrRegime     || null;
 
         // Параметры которые пользователь может менять в модалке настроек —
         // НЕ перезаписываем из polling пока модалка открыта, иначе затрём его выбор.
@@ -349,6 +405,7 @@
             if (data.trailingOffset !== undefined) _state.trailingOffset = data.trailingOffset;
             if (data.bbExitEnabled !== undefined) _state.bbExitEnabled = !!data.bbExitEnabled;
             if (data.bbExitTolerance !== undefined) _state.bbExitTolerance = data.bbExitTolerance;
+            if (data.smaReturnEnabled !== undefined) _state.smaReturnEnabled = !!data.smaReturnEnabled;
             if (data.smaReturnTolerance !== undefined) _state.smaReturnTolerance = data.smaReturnTolerance;
         } else {
             // Модалка открыта — обновляем ТОЛЬКО то, что нужно для отрисовки позиции на шкале
@@ -377,6 +434,41 @@
                     if (track) track.style.background = on ? 'rgba(38,166,154,0.3)' : 'rgba(255,255,255,0.1)';
                 }
             }
+        }
+        // Обновляем тумблер режима рынка из данных бота
+        if (data.regimeFilterEnabled !== undefined) {
+            var rgToggle = document.getElementById('botRegimeEntryToggle');
+            var rgDot = document.getElementById('botRegimeToggleDot');
+            if (rgToggle) rgToggle.checked = !!data.regimeFilterEnabled;
+            if (rgDot) {
+                var onR = !!data.regimeFilterEnabled;
+                rgDot.style.left = onR ? '16px' : '2px';
+                rgDot.style.background = onR ? '#26a69a' : '#636B76';
+                if (rgDot.parentElement) {
+                    var trackR = rgDot.parentElement.querySelector('span');
+                    if (trackR) trackR.style.background = onR ? 'rgba(38,166,154,0.3)' : 'rgba(255,255,255,0.1)';
+                }
+            }
+            _state.regimeFilterEnabled = !!data.regimeFilterEnabled;
+        }
+        // Обновляем тумблер ATR-фильтра из данных бота
+        if (data.atrFilterEnabled !== undefined) {
+            var atrToggle = document.getElementById('botAtrEntryToggle');
+            var atrDot = document.getElementById('botAtrToggleDot');
+            if (atrToggle) atrToggle.checked = !!data.atrFilterEnabled;
+            if (atrDot) {
+                var onA = !!data.atrFilterEnabled;
+                atrDot.style.left = onA ? '16px' : '2px';
+                atrDot.style.background = onA ? '#26a69a' : '#636B76';
+                if (atrDot.parentElement) {
+                    var trackA = atrDot.parentElement.querySelector('span');
+                    if (trackA) trackA.style.background = onA ? 'rgba(38,166,154,0.3)' : 'rgba(255,255,255,0.1)';
+                }
+            }
+            _state.atrFilterEnabled = !!data.atrFilterEnabled;
+        }
+        if (data.atrFilterThreshold !== undefined) {
+            _state.atrFilterThreshold = data.atrFilterThreshold;
         }
         // 3 состояния: серый (остановлен) / зелёный (ждёт сигнала) / янтарный пульс (в позиции).
         // Здесь это КРИТИЧНО: функция вызывается при каждом поллинге статуса, и раньше она
@@ -469,6 +561,9 @@
 
         // ── Позиция ──
         renderPosition();
+
+        // ── Панель волатильности (ATR-фильтр) ──
+        renderAtrBar();
 
         // ── Полоска режима рынка (EMA 15m + 1h) ──
         renderRegimeBar();
@@ -672,8 +767,14 @@
         // Общий янтарный цвет для обеих меток
         var amber = '#F59E0B';
 
-        // ── Метка активации трейлинга (янтарная ПУНКТИРНАЯ, подпись СНИЗУ) ──
+        // ── Метка активации трейлинга ──
+        // ШТРИХ пунктирный — на самой шкале (top:0, height:100%, проходит от верха до низа).
+        // ПОДПИСЬ — отдельным элементом над шкалой, чтобы они не толкались по Y.
+        // Раньше подпись TR жила под шкалой рядом с "Тейк ..." и накладывалась на неё;
+        // потом я по ошибке сделал штрих частью контейнера с подписью наверху — штрих
+        // перестал быть на шкале. Теперь это два разных абсолютных элемента.
         var trailMarkerHtml = '';
+        var trailLabelHtml = '';
         if (_state.trailingEnabled && pos.entryPrice && totalRange > 0) {
             var activationPct = parseFloat(_state.trailingActivation) || 70;
             var pathToTarget = pos.target - pos.entryPrice;
@@ -686,18 +787,26 @@
                 var trailPriceFmt = trailPrice >= 1000 ? trailPrice.toFixed(2)
                                   : trailPrice >= 1    ? trailPrice.toFixed(2)
                                   : trailPrice.toFixed(4);
+                // Штрих на шкале — от верха до низа шкалы, строго по позиции.
                 trailMarkerHtml =
-                    '<div class="bot-w-pos-bar-trail" style="position:absolute;top:-2px;left:' + trailOnBar.toFixed(1) + '%;transform:translateX(-50%);pointer-events:none;opacity:' + markerOpacity + ';z-index:2;">' +
-                        '<div style="width:1px;height:12px;margin:0 auto;background-image:repeating-linear-gradient(to bottom,' + amber + ' 0 2px,transparent 2px 4px);"></div>' +
-                        '<div style="font-size:9px;font-weight:600;line-height:1;margin-top:4px;text-align:center;letter-spacing:0.3px;color:' + amber + ';white-space:nowrap;">TR ' + trailPriceFmt + '</div>' +
-                    '</div>';
+                    '<div class="bot-w-pos-bar-trail" style="position:absolute;top:0;left:' + trailOnBar.toFixed(1) + '%;width:1px;height:100%;transform:translateX(-50%);pointer-events:none;opacity:' + markerOpacity + ';z-index:2;background-image:repeating-linear-gradient(to bottom,' + amber + ' 0 2px,transparent 2px 4px);"></div>';
+                // Подпись над шкалой — опция отступа, если SMA тоже сверху.
+                var trailLabelOffset = _state.smaReturnEnabled ? 16 : 2;
+                trailLabelHtml =
+                    '<div style="position:absolute;left:' + trailOnBar.toFixed(1) + '%;bottom:calc(100% + ' + trailLabelOffset + 'px);transform:translateX(-50%);font-size:9px;font-weight:600;line-height:1;letter-spacing:0.3px;color:' + amber + ';white-space:nowrap;pointer-events:none;z-index:4;opacity:' + markerOpacity + ';">TR ' + trailPriceFmt + '</div>';
             }
         }
 
-        // ── Метка SMA + зона (янтарная СПЛОШНАЯ, подпись СВЕРХУ) ──
+        // ── Метка SMA + зона ──
+        // Штрих — ВНУТРИ шкалы (top:0, height:100%), подпись — над шкалой отдельно.
+        // Раньше подпись и штрих были в одном контейнере с `bottom:-2px` — из-за
+        // чего штрих в реальности висел ВЫШЕ шкалы.
+        // Показываем ТОЛЬКО если тумблер "Выход по возврату к SMA" включён — иначе
+        // метка вводит в заблуждение (бот не реагирует на SMA если фича off).
         var smaMarkerHtml = '';
+        var smaLabelHtml = '';
         var smaZoneHtml = '';
-        if (_state.strategy === 'mean_reversion' && _state.bbData && totalRange > 0) {
+        if (_state.smaReturnEnabled && _state.strategy === 'mean_reversion' && _state.bbData && totalRange > 0) {
             var smaPrice = _state.bbData.middle;
             var channelWidth = (_state.bbData.upper || 0) - (_state.bbData.lower || 0);
             if (smaPrice && channelWidth > 0) {
@@ -723,12 +832,10 @@
                     var smaPriceFmt = smaPrice >= 1000 ? smaPrice.toFixed(2)
                                     : smaPrice >= 1    ? smaPrice.toFixed(2)
                                     : smaPrice.toFixed(4);
-                    // Подпись СВЕРХУ, чтобы разойтись с TR (у того снизу)
                     smaMarkerHtml =
-                        '<div class="bot-w-pos-bar-sma" style="position:absolute;bottom:-2px;left:' + smaOnBar.toFixed(1) + '%;transform:translateX(-50%);pointer-events:none;z-index:3;">' +
-                            '<div style="font-size:9px;font-weight:600;line-height:1;margin-bottom:4px;text-align:center;letter-spacing:0.3px;color:' + amber + ';white-space:nowrap;">SMA ' + smaPriceFmt + '</div>' +
-                            '<div style="width:1px;height:12px;margin:0 auto;background:' + amber + ';opacity:0.95;"></div>' +
-                        '</div>';
+                        '<div class="bot-w-pos-bar-sma" style="position:absolute;top:0;left:' + smaOnBar.toFixed(1) + '%;width:1px;height:100%;transform:translateX(-50%);background:' + amber + ';opacity:0.95;pointer-events:none;z-index:3;"></div>';
+                    smaLabelHtml =
+                        '<div style="position:absolute;left:' + smaOnBar.toFixed(1) + '%;bottom:calc(100% + 2px);transform:translateX(-50%);font-size:9px;font-weight:600;line-height:1;letter-spacing:0.3px;color:' + amber + ';white-space:nowrap;pointer-events:none;z-index:4;">SMA ' + smaPriceFmt + '</div>';
                 }
             }
         }
@@ -755,6 +862,8 @@
                     ' + smaZoneHtml + '\
                     ' + trailMarkerHtml + '\
                     ' + smaMarkerHtml + '\
+                    ' + trailLabelHtml + '\
+                    ' + smaLabelHtml + '\
                     <div class="bot-w-pos-bar-thumb" style="left:' + progressPct.toFixed(1) + '%;"></div>\
                 </div>\
                 <div class="bot-w-pos-bar-labels">\
@@ -818,6 +927,48 @@
                 '<span>' + tfHigher + ' <span style="color:' + colorH + ';font-weight:700;">' + arrowGlyph(r.higher) + ' ' + labelFor(r.higher) + '</span></span>' +
                 '<span>' + tfMain + ' <span style="color:' + colorM + ';font-weight:700;">' + arrowGlyph(r.main) + ' ' + labelFor(r.main) + '</span></span>' +
             '</div>';
+
+        section.style.display = '';
+    }
+
+    function renderAtrBar() {
+        var section = document.getElementById('botAtrSection');
+        var container = document.getElementById('botAtrContainer');
+        if (!section || !container) return;
+
+        if (!_state.running || !_state.atrRegime) {
+            section.style.display = 'none';
+            return;
+        }
+
+        var a = _state.atrRegime;
+        var mult = typeof a.multiplier === 'number' ? a.multiplier : 1.0;
+        var threshold = typeof a.threshold === 'number' ? a.threshold : (parseFloat(_state.atrFilterThreshold) || 2.0);
+
+        // Уровень (level) приходит с сервера: calm / active / impulse
+        var levelColor = a.level === 'impulse' ? '#ef5350' : a.level === 'active' ? '#F59E0B' : '#26a69a';
+        var levelLabel = a.level === 'impulse' ? 'Импульс' : a.level === 'active' ? 'Активно' : 'Спокойно';
+
+        // Заполнение шкалы: от 0 (mult=1.0) до 100% (mult=threshold*1.5)
+        // — т.е. когда mult = threshold, шкала заполнена на ~66% (как раз рядом с риской)
+        var maxScale = threshold * 1.5;
+        var fillPct = Math.max(0, Math.min(100, ((mult - 1.0) / (maxScale - 1.0)) * 100));
+        var thresholdPct = Math.max(0, Math.min(100, ((threshold - 1.0) / (maxScale - 1.0)) * 100));
+
+        container.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+                '<span style="font-size:11px;color:#94A3B8;">Волатильность (ATR) <span style="font-size:9px;color:#636B76;">×' + mult.toFixed(2) + '</span></span>' +
+                '<span style="color:' + levelColor + ';font-weight:600;letter-spacing:0.3px;font-size:10px;">' + levelLabel + '</span>' +
+            '</div>' +
+            '<div style="height:3px;border-radius:2px;background:rgba(255,255,255,0.06);position:relative;overflow:hidden;">' +
+                '<div style="position:absolute;top:0;left:0;height:100%;width:' + fillPct.toFixed(1) + '%;background:' + levelColor + ';border-radius:2px;"></div>' +
+                '<div style="position:absolute;top:-2px;left:' + thresholdPct.toFixed(1) + '%;width:1px;height:7px;background:#ef5350;opacity:0.5;"></div>' +
+            '</div>';
+
+        // Подпись "Вход заблокирован" — только когда a.blocked и тумблер on
+        if (a.blocked && _state.atrFilterEnabled) {
+            container.innerHTML += '<div style="margin-top:5px;font-size:10px;color:#636B76;line-height:1.3;">Вход заблокирован — ждём успокоения</div>';
+        }
 
         section.style.display = '';
     }
@@ -997,11 +1148,32 @@
         var footer = document.getElementById('botModalFooter');
         if (!body || !footer) return;
 
-        var pairOptions = ['BTC/USDT','ETH/USDT','SOL/USDT','BNB/USDT','XRP/USDT','DOGE/USDT','ADA/USDT','AVAX/USDT','LINK/USDT','DOT/USDT','MATIC/USDT','ARB/USDT','OP/USDT','APT/USDT','SUI/USDT','NEAR/USDT','FIL/USDT','ATOM/USDT','UNI/USDT','LTC/USDT'];
-        var pairSelectHtml = pairOptions.map(function(p) {
-            return '<option value="' + p + '"' + (p === _state.pair ? ' selected' : '') + '>' + p + '</option>';
-        }).join('');
-
+        var pairOptions = [
+            // Топ-10 по капе
+            'BTC/USDT','ETH/USDT','BNB/USDT','SOL/USDT','XRP/USDT',
+            'DOGE/USDT','ADA/USDT','TRX/USDT','AVAX/USDT','LINK/USDT',
+            // 11-30
+            'DOT/USDT','MATIC/USDT','TON/USDT','SHIB/USDT','LTC/USDT',
+            'BCH/USDT','NEAR/USDT','UNI/USDT','APT/USDT','ICP/USDT',
+            'HBAR/USDT','FIL/USDT','ATOM/USDT','XLM/USDT','VET/USDT',
+            'INJ/USDT','ARB/USDT','OP/USDT','SUI/USDT','IMX/USDT',
+            // 31-60
+            'AAVE/USDT','RUNE/USDT','STX/USDT','MKR/USDT','FTM/USDT',
+            'GRT/USDT','SEI/USDT','TIA/USDT','RNDR/USDT','ALGO/USDT',
+            'SAND/USDT','MANA/USDT','AXS/USDT','EGLD/USDT','FLOW/USDT',
+            'THETA/USDT','XTZ/USDT','CHZ/USDT','EOS/USDT','NEO/USDT',
+            'KAVA/USDT','LDO/USDT','QNT/USDT','CRV/USDT','SNX/USDT',
+            'COMP/USDT','ENJ/USDT','ZEC/USDT','DASH/USDT','GMT/USDT',
+            // 61-100
+            'APE/USDT','LRC/USDT','GALA/USDT','ENS/USDT','1INCH/USDT',
+            'DYDX/USDT','SUSHI/USDT','WLD/USDT','JTO/USDT','JUP/USDT',
+            'PYTH/USDT','STRK/USDT','W/USDT','ENA/USDT','ONDO/USDT',
+            'ETHFI/USDT','BOME/USDT','PEPE/USDT','WIF/USDT','FLOKI/USDT',
+            'BONK/USDT','ORDI/USDT','1000SATS/USDT','FET/USDT','AGIX/USDT',
+            'OCEAN/USDT','ROSE/USDT','MINA/USDT','CFX/USDT','IOTA/USDT',
+            'RVN/USDT','ZIL/USDT','WAVES/USDT','IOTX/USDT','BAT/USDT',
+            'ANKR/USDT','CELO/USDT','SKL/USDT','YFI/USDT','BAND/USDT'
+        ];
         var rsiOB = parseInt(_state.rsiOverbought) || 65;
         var rsiOS = parseInt(_state.rsiOversold) || 35;
 
@@ -1026,7 +1198,17 @@
                 <div class="bst-row bst-row-2">\
                     <div class="bst-col">\
                         <div class="bst-lbl">Пара</div>\
-                        <select class="bst-select" id="bstPair">' + pairSelectHtml + '</select>\
+                        <div class="bst-pair-select" id="bstPairSelect">\
+                            <div class="bst-pair-trigger" id="bstPairTrigger">\
+                                <span id="bstPairTriggerLabel">' + _state.pair + '</span>\
+                                <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor" style="opacity:0.5;"><polygon points="0,0 8,0 4,5"/></svg>\
+                            </div>\
+                            <div class="bst-pair-dropdown" id="bstPairDropdown" style="display:none;">\
+                                <input type="text" class="bst-pair-search" id="bstPairSearch" placeholder="Поиск пары..." autocomplete="off">\
+                                <div class="bst-pair-list" id="bstPairList"></div>\
+                            </div>\
+                            <input type="hidden" id="bstPair" value="' + _state.pair + '">\
+                        </div>\
                     </div>\
                     <div class="bst-col">\
                         <div class="bst-lbl">Таймфрейм</div>\
@@ -1162,7 +1344,7 @@
                         </label>\
                     </div>\
                     <div class="bst-trail-body" id="bstBbExitBody" style="' + (_state.bbExitEnabled ? '' : 'opacity:0.55;pointer-events:none;') + '">\
-                        <div class="bst-row bst-row-2">\
+                        <div class="bst-row bst-row-1">\
                             <div class="bst-col">\
                                 <div class="bst-lbl">Толеранс касания BB (% канала)</div>\
                                 <div class="bst-stepper">\
@@ -1171,16 +1353,32 @@
                                     <div class="bst-step-btn bst-step-inc" data-target="bstBbTol" data-step="1" data-max="20">▶</div>\
                                 </div>\
                             </div>\
+                        </div>\
+                        <div style="font-size:10px;color:#636B76;margin-top:6px;line-height:1.4;">При включении — цель выхода = противоположная BB, минимальный тейк-профит и трейлинг отключаются автоматически.</div>\
+                    </div>\
+                </div>\
+                \
+                <!-- 6c. ВЫХОД ПО ВОЗВРАТУ К SMA (MR) — независимая секция -->\
+                <div class="bst-section" id="bstSmaReturnSection">\
+                    <div class="bst-trail-header">\
+                        <span class="bst-section-label">Выход по возврату к SMA</span>\
+                        <label class="bst-switch">\
+                            <input type="checkbox" id="bstSmaReturnToggle" ' + (_state.smaReturnEnabled ? 'checked' : '') + '>\
+                            <span class="bst-switch-slider"></span>\
+                        </label>\
+                    </div>\
+                    <div class="bst-trail-body" id="bstSmaReturnBody" style="' + (_state.smaReturnEnabled ? '' : 'opacity:0.55;pointer-events:none;') + '">\
+                        <div class="bst-row bst-row-1">\
                             <div class="bst-col">\
                                 <div class="bst-lbl">Толеранс захода за SMA (% канала)</div>\
                                 <div class="bst-stepper">\
-                                    <div class="bst-step-btn bst-step-dec" data-target="bstSmaTol" data-step="1" data-min="0"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
-                                    <input class="bst-step-input" id="bstSmaTol" type="number" min="0" max="20" step="1" value="' + (_state.smaReturnTolerance != null ? _state.smaReturnTolerance : 5) + '">\
-                                    <div class="bst-step-btn bst-step-inc" data-target="bstSmaTol" data-step="1" data-max="20">▶</div>\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstSmaTol2" data-step="1" data-min="0"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstSmaTol2" type="number" min="0" max="20" step="1" value="' + (_state.smaReturnTolerance != null ? _state.smaReturnTolerance : 5) + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstSmaTol2" data-step="1" data-max="20">▶</div>\
                                 </div>\
                             </div>\
                         </div>\
-                        <div style="font-size:10px;color:#636B76;margin-top:6px;line-height:1.4;">При включении — цель выхода = противоположная BB, минимальный тейк-профит и трейлинг отключаются автоматически.</div>\
+                        <div style="font-size:10px;color:#636B76;margin-top:6px;line-height:1.4;">Закрываем позицию при возврате цены к SMA после глубокого захода за неё. Работает независимо от трейлинга и выхода по BB.</div>\
                     </div>\
                 </div>\
                 \
@@ -1279,9 +1477,81 @@
         bindToggleGroup('bstEntrySeg', 'entryMode');
         bindToggleGroup('bstModeSeg', 'mode', function(v) { setMode(v); });
 
-        // Pair select
-        var pairSel = body.querySelector('#bstPair');
-        if (pairSel) pairSel.onchange = function() { _state.pair = pairSel.value; updateSummary(); };
+        // Pair select (кастомный с поиском)
+        (function initPairSelect() {
+            var trigger = body.querySelector('#bstPairTrigger');
+            var dropdown = body.querySelector('#bstPairDropdown');
+            var searchInput = body.querySelector('#bstPairSearch');
+            var list = body.querySelector('#bstPairList');
+            var hiddenInput = body.querySelector('#bstPair');
+            var triggerLabel = body.querySelector('#bstPairTriggerLabel');
+            if (!trigger || !dropdown || !searchInput || !list || !hiddenInput) return;
+
+            function renderList(filter) {
+                filter = (filter || '').toUpperCase();
+                var html = '';
+                for (var i = 0; i < pairOptions.length; i++) {
+                    var p = pairOptions[i];
+                    if (filter && p.toUpperCase().indexOf(filter) === -1) continue;
+                    var isSelected = p === hiddenInput.value;
+                    html += '<div class="bst-pair-item' + (isSelected ? ' bst-pair-item-active' : '') + '" data-pair="' + p + '">' + p + '</div>';
+                }
+                if (!html) html = '<div class="bst-pair-empty">Ничего не найдено</div>';
+                list.innerHTML = html;
+            }
+
+            function openDropdown() {
+                dropdown.style.display = '';
+                searchInput.value = '';
+                renderList('');
+                setTimeout(function() { searchInput.focus(); }, 10);
+            }
+
+            function closeDropdown() {
+                dropdown.style.display = 'none';
+            }
+
+            function selectPair(p) {
+                hiddenInput.value = p;
+                triggerLabel.textContent = p;
+                _state.pair = p;
+                closeDropdown();
+                updateSummary();
+            }
+
+            trigger.onclick = function(e) {
+                e.stopPropagation();
+                if (dropdown.style.display === 'none') openDropdown();
+                else closeDropdown();
+            };
+
+            searchInput.oninput = function() { renderList(searchInput.value); };
+            searchInput.onclick = function(e) { e.stopPropagation(); };
+
+            // Клик по пункту списка (через делегирование)
+            list.onclick = function(e) {
+                var item = e.target.closest('.bst-pair-item');
+                if (item) selectPair(item.getAttribute('data-pair'));
+            };
+
+            // Enter в поиске — выбрать первый подходящий
+            searchInput.onkeydown = function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    var first = list.querySelector('.bst-pair-item');
+                    if (first) selectPair(first.getAttribute('data-pair'));
+                } else if (e.key === 'Escape') {
+                    closeDropdown();
+                }
+            };
+
+            // Клик вне дропдауна — закрыть
+            document.addEventListener('click', function outsideClickHandler(e) {
+                var root = body.querySelector('#bstPairSelect');
+                if (!root) { document.removeEventListener('click', outsideClickHandler); return; }
+                if (!root.contains(e.target)) closeDropdown();
+            });
+        })();
 
         // RSI slider (single thumb — value = overbought, 100-value = oversold)
         var rsiSlider = body.querySelector('#bstRsiSlider');
@@ -1354,6 +1624,21 @@
             updateSummary();
         };
 
+        // SMA-Return toggle: включение активирует поле толеранса
+        var smaReturnToggle = body.querySelector('#bstSmaReturnToggle');
+        if (smaReturnToggle) smaReturnToggle.onchange = function() {
+            var on = smaReturnToggle.checked;
+            _state.smaReturnEnabled = on;
+
+            var smaBody = body.querySelector('#bstSmaReturnBody');
+            if (smaBody) {
+                smaBody.style.opacity = on ? '1' : '0.55';
+                smaBody.style.pointerEvents = on ? 'auto' : 'none';
+            }
+
+            updateSummary();
+        };
+
         // Steppers (generic)
         body.querySelectorAll('.bst-step-btn').forEach(function(btn) {
             btn.onclick = function() {
@@ -1399,7 +1684,7 @@
             bstRiskPct: 'riskPct', bstDayLimit: 'dayLimitPct', bstMaxLosses: 'maxLosses',
             bstBalance: 'virtualBalance', bstTrailOffset: 'trailingOffset', bstTrailAct: 'trailingActivation',
             bstLeverage: 'maxLeverage',
-            bstBbTol: 'bbExitTolerance', bstSmaTol: 'smaReturnTolerance'
+            bstBbTol: 'bbExitTolerance', bstSmaTol2: 'smaReturnTolerance'
         };
         Object.keys(inputMap).forEach(function(id) {
             var inp = body.querySelector('#' + id);
@@ -1557,7 +1842,10 @@
                 rsiOversold: _state.rsiOversold,
                 bbExitEnabled: !!_state.bbExitEnabled,
                 bbExitTolerance: _state.bbExitTolerance,
+                smaReturnEnabled: !!_state.smaReturnEnabled,
                 smaReturnTolerance: _state.smaReturnTolerance,
+                atrFilterEnabled: !!_state.atrFilterEnabled,
+                atrFilterThreshold: _state.atrFilterThreshold,
                 notifyEnabled: _state.notifyEnabled !== false,
             })
         })
@@ -2288,11 +2576,13 @@
         var trail = bot.trailingEnabled ? ' ' + s + ' TR' : '';
         var bbExit = bot.bbExitEnabled ? ' ' + s + ' BB' : '';
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
+        var regime = bot.regimeFilterEnabled ? ' ' + s + ' R' : '';
+        var atr = bot.atrFilterEnabled ? ' ' + s + ' A' : '';
         var rsiStr = '';
         if (bot.rsiOversold || bot.rsiOverbought) {
             rsiStr = ' ' + s + ' ' + (bot.rsiOversold || 35) + '/' + (bot.rsiOverbought || 65);
         }
-        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + bbExit + cluster + rsiStr;
+        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + bbExit + cluster + regime + atr + rsiStr;
     }
 
     function updateBotSelector() {
@@ -2593,6 +2883,10 @@
                 trailingEnabled: _state.trailingEnabled,
                 trailingOffset: _state.trailingOffset,
                 trailingActivation: _state.trailingActivation,
+                smaReturnEnabled: !!_state.smaReturnEnabled,
+                smaReturnTolerance: _state.smaReturnTolerance,
+                atrFilterEnabled: !!_state.atrFilterEnabled,
+                atrFilterThreshold: _state.atrFilterThreshold,
                 clusterEnabled: _state.clusterEnabled,
                 clusterThreshold: _state.clusterThreshold,
                 clusterExitConfirm: _state.clusterExitConfirm,

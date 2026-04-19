@@ -1303,6 +1303,87 @@
     border-color: #26a69a;
 }
 
+/* ── Кастомный селект пары с поиском ── */
+.bst-pair-select {
+    position: relative;
+    width: 100%;
+}
+.bst-pair-trigger {
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    border: 0.5px solid rgba(255,255,255,0.08);
+    font-size: 13px;
+    color: #E2E8F0;
+    cursor: pointer;
+    font-family: -apple-system, sans-serif;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    transition: border-color 0.15s;
+    user-select: none;
+}
+.bst-pair-trigger:hover {
+    border-color: rgba(255,255,255,0.15);
+}
+.bst-pair-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background: #1a1d26;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 280px;
+}
+.bst-pair-search {
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.03);
+    border: none;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-size: 12px;
+    color: #E2E8F0;
+    outline: none;
+    font-family: -apple-system, sans-serif;
+}
+.bst-pair-search::placeholder {
+    color: #636B76;
+}
+.bst-pair-list {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+.bst-pair-item {
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #CBD5E1;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-weight: 500;
+}
+.bst-pair-item:hover {
+    background: rgba(38,166,154,0.08);
+    color: #26a69a;
+}
+.bst-pair-item-active {
+    background: rgba(38,166,154,0.12);
+    color: #26a69a;
+}
+.bst-pair-empty {
+    padding: 12px 10px;
+    font-size: 11px;
+    color: #636B76;
+    text-align: center;
+}
+
 /* ── Input fields ── */
 .bst-input {
     padding: 5px 8px;

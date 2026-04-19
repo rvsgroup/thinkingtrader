@@ -1,5 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#0B1525"/>
-  <polyline points="4,24 10,18 15,20 22,10 28,6" fill="none" stroke="#00D4AA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="28" cy="6" r="2.5" fill="#00D4AA"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="45%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#0e1018"></stop>
+      <stop offset="100%" stop-color="#07080e"></stop>
+    </radialGradient>
+    <linearGradient id="metal" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%" stop-color="#f0f2f5"></stop>
+      <stop offset="28%" stop-color="#b8bec8"></stop>
+      <stop offset="50%" stop-color="#e4e8ef"></stop>
+      <stop offset="72%" stop-color="#8892a0"></stop>
+      <stop offset="100%" stop-color="#dde2eb"></stop>
+    </linearGradient>
+    <linearGradient id="shimmer" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0"></stop>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.18"></stop>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0.07"></stop>
+      <stop offset="100%" stop-color="#9aa2b0" stop-opacity="0"></stop>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="45%">
+      <stop offset="0%" stop-color="#e4e8ef" stop-opacity="0.07"></stop>
+      <stop offset="100%" stop-color="#e4e8ef" stop-opacity="0"></stop>
+    </radialGradient>
+    <clipPath id="rrect">
+      <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228"></rect>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"></rect>
+  <g clip-path="url(#rrect)">
+    <rect width="1024" height="1024" fill="url(#glow)"></rect>
+    <rect width="1024" height="1024" fill="url(#shimmer)"></rect>
+    <line x1="154" y1="600" x2="870" y2="600" stroke="#f0f2f5" stroke-width="2.9" opacity="0.22"></line>
+    <line x1="154" y1="611" x2="870" y2="611" stroke="#e4e8ef" stroke-width="1.5" opacity="0.10"></line>
+    <text x="512" y="578" text-anchor="middle" font-family="&#39;Playfair Display&#39;,Georgia,serif" font-weight="900" font-size="417" fill="url(#metal)" letter-spacing="-18">TT</text>
+    <text x="512" y="578" text-anchor="middle" font-family="&#39;Playfair Display&#39;,Georgia,serif" font-weight="900" font-size="417" fill="url(#shimmer)" letter-spacing="-18">TT</text>
+    <text x="512" y="695" text-anchor="middle" font-family="&#39;DM Sans&#39;,system-ui,sans-serif" font-weight="300" font-size="49.5" fill="#b0b8c8" letter-spacing="18" opacity="0.88">THINKING TRADER</text>
+  </g>
 </svg>
