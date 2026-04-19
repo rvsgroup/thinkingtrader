@@ -19,6 +19,7 @@
         apiSecret: '',
         apiConnected: false,
         pair: 'BTC/USDT',
+        pairs: ['BTC/USDT'],
         riskPct: '2',
         dayLimitPct: '5',
         maxLosses: '3',
@@ -152,6 +153,9 @@
                     <div id="botSelectorList"></div>\
                     <div id="botSelectorAdd" style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.06);cursor:pointer;color:#26a69a;font-size:11px;transition:background 0.15s;">\
                         <span style="font-size:14px;">+</span> Создать нового\
+                    </div>\
+                    <div id="botSelectorDeleteAll" style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.06);cursor:pointer;color:#EF5350;font-size:11px;transition:background 0.15s;">\
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;"><path d="M2 3h8M4.5 3V2a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M3 3v7a1 1 0 001 1h4a1 1 0 001-1V3" stroke="currentColor" stroke-width="1"/></svg> Удалить всех ботов\
                     </div>\
                 </div>\
             </div>\
@@ -325,6 +329,12 @@
         widget.querySelector('#botSelectorAdd').onclick = function() { closeBotDropdown(); createNewBot(); };
         widget.querySelector('#botSelectorAdd').onmouseover = function() { this.style.background = 'rgba(38,166,154,0.1)'; };
         widget.querySelector('#botSelectorAdd').onmouseout = function() { this.style.background = 'transparent'; };
+        var delAllBtn = widget.querySelector('#botSelectorDeleteAll');
+        if (delAllBtn) {
+            delAllBtn.onclick = function() { closeBotDropdown(); confirmDeleteAllBots(); };
+            delAllBtn.onmouseover = function() { this.style.background = 'rgba(239,83,80,0.1)'; };
+            delAllBtn.onmouseout = function() { this.style.background = 'transparent'; };
+        }
         widget.querySelector('#botLevelsToggle').onclick = function() {
             var list = document.getElementById('botWidgetLevelsList');
             var arrow = document.getElementById('botLevelsArrow');
@@ -1199,9 +1209,9 @@
                     <div class="bst-col">\
                         <div class="bst-lbl">Пара</div>\
                         <div class="bst-pair-select" id="bstPairSelect">\
-                            <div class="bst-pair-trigger" id="bstPairTrigger">\
-                                <span id="bstPairTriggerLabel">' + _state.pair + '</span>\
-                                <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor" style="opacity:0.5;"><polygon points="0,0 8,0 4,5"/></svg>\
+                            <div class="bst-pair-trigger" id="bstPairTrigger" style="min-height:36px;padding:4px 8px;align-items:center;flex-wrap:wrap;gap:4px;">\
+                                <div id="bstPairChips" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:0;"></div>\
+                                <svg width="8" height="5" viewBox="0 0 8 5" fill="currentColor" style="opacity:0.5;flex-shrink:0;margin-left:4px;"><polygon points="0,0 8,0 4,5"/></svg>\
                             </div>\
                             <div class="bst-pair-dropdown" id="bstPairDropdown" style="display:none;">\
                                 <input type="text" class="bst-pair-search" id="bstPairSearch" placeholder="Поиск пары..." autocomplete="off">\
@@ -1477,15 +1487,64 @@
         bindToggleGroup('bstEntrySeg', 'entryMode');
         bindToggleGroup('bstModeSeg', 'mode', function(v) { setMode(v); });
 
-        // Pair select (кастомный с поиском)
+        // Pair select (кастомный с поиском, МУЛЬТИ-ВЫБОР)
         (function initPairSelect() {
             var trigger = body.querySelector('#bstPairTrigger');
             var dropdown = body.querySelector('#bstPairDropdown');
             var searchInput = body.querySelector('#bstPairSearch');
             var list = body.querySelector('#bstPairList');
             var hiddenInput = body.querySelector('#bstPair');
-            var triggerLabel = body.querySelector('#bstPairTriggerLabel');
-            if (!trigger || !dropdown || !searchInput || !list || !hiddenInput) return;
+            var chipsContainer = body.querySelector('#bstPairChips');
+            if (!trigger || !dropdown || !searchInput || !list || !hiddenInput || !chipsContainer) return;
+
+            // Инициализация: _state.pairs — массив всех выбранных пар.
+            // Если пусто — заполняем из старого _state.pair (обратная совместимость).
+            if (!Array.isArray(_state.pairs) || _state.pairs.length === 0) {
+                _state.pairs = _state.pair ? [_state.pair] : ['BTC/USDT'];
+            }
+            // Синхронизируем _state.pair с первой парой — чтобы остальной код работал.
+            _state.pair = _state.pairs[0];
+
+            function renderChips() {
+                if (_state.pairs.length === 0) {
+                    chipsContainer.innerHTML = '<span style="font-size:13px;color:#636B76;">— пара не выбрана —</span>';
+                } else {
+                    var html = '';
+                    for (var i = 0; i < _state.pairs.length; i++) {
+                        var p = _state.pairs[i];
+                        // Чип: фон рамкой teal, маленький крестик справа.
+                        // Крестик прячется у единственной пары — удалять её нельзя.
+                        var canRemove = _state.pairs.length > 1;
+                        var removeBtn = canRemove
+                            ? '<span class="bst-chip-remove" data-pair="' + p + '" style="margin-left:4px;padding:0 2px;cursor:pointer;opacity:0.6;font-size:11px;line-height:1;">×</span>'
+                            : '';
+                        html += '<span class="bst-pair-chip" style="display:inline-flex;align-items:center;padding:3px 6px 3px 8px;background:rgba(38,166,154,0.12);border:1px solid rgba(38,166,154,0.35);border-radius:6px;font-size:11px;color:#26a69a;font-weight:500;white-space:nowrap;">' + p + removeBtn + '</span>';
+                    }
+                    chipsContainer.innerHTML = html;
+                }
+                hiddenInput.value = _state.pairs.join(',');
+                updateLaunchBtnLabel();
+            }
+
+            // Делегирование клика по крестикам чипов — удаляют пару
+            chipsContainer.onclick = function(e) {
+                var rm = e.target.closest('.bst-chip-remove');
+                if (!rm) return;
+                e.stopPropagation();   // не раскрываем dropdown при клике на крестик
+                var p = rm.getAttribute('data-pair');
+                var idx = _state.pairs.indexOf(p);
+                if (idx !== -1 && _state.pairs.length > 1) {
+                    _state.pairs.splice(idx, 1);
+                    _state.pair = _state.pairs[0];
+                    renderChips();
+                    renderList(searchInput.value);
+                    updateSummary();
+                }
+            };
+
+            function updateTriggerLabel() {
+                renderChips();
+            }
 
             function renderList(filter) {
                 filter = (filter || '').toUpperCase();
@@ -1493,8 +1552,11 @@
                 for (var i = 0; i < pairOptions.length; i++) {
                     var p = pairOptions[i];
                     if (filter && p.toUpperCase().indexOf(filter) === -1) continue;
-                    var isSelected = p === hiddenInput.value;
-                    html += '<div class="bst-pair-item' + (isSelected ? ' bst-pair-item-active' : '') + '" data-pair="' + p + '">' + p + '</div>';
+                    var isSelected = _state.pairs.indexOf(p) !== -1;
+                    var checkSvg = isSelected
+                        ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;"><rect x="0.5" y="0.5" width="11" height="11" rx="2" fill="#26a69a" stroke="#26a69a"/><path d="M3 6l2 2 4-4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+                        : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;"><rect x="0.5" y="0.5" width="11" height="11" rx="2" fill="transparent" stroke="rgba(255,255,255,0.25)"/></svg>';
+                    html += '<div class="bst-pair-item' + (isSelected ? ' bst-pair-item-active' : '') + '" data-pair="' + p + '" style="display:flex;align-items:center;gap:8px;">' + checkSvg + '<span>' + p + '</span></div>';
                 }
                 if (!html) html = '<div class="bst-pair-empty">Ничего не найдено</div>';
                 list.innerHTML = html;
@@ -1511,11 +1573,18 @@
                 dropdown.style.display = 'none';
             }
 
-            function selectPair(p) {
-                hiddenInput.value = p;
-                triggerLabel.textContent = p;
-                _state.pair = p;
-                closeDropdown();
+            function togglePair(p) {
+                var idx = _state.pairs.indexOf(p);
+                if (idx === -1) {
+                    _state.pairs.push(p);
+                } else {
+                    // Не даём убрать последнюю пару — нужна хотя бы одна
+                    if (_state.pairs.length <= 1) return;
+                    _state.pairs.splice(idx, 1);
+                }
+                _state.pair = _state.pairs[0]; // синхронизация
+                updateTriggerLabel();
+                renderList(searchInput.value);  // перерендерим чтобы чекбокс обновился
                 updateSummary();
             }
 
@@ -1528,18 +1597,25 @@
             searchInput.oninput = function() { renderList(searchInput.value); };
             searchInput.onclick = function(e) { e.stopPropagation(); };
 
-            // Клик по пункту списка (через делегирование)
+            // Клик по пункту списка — toggle (не закрываем dropdown!)
             list.onclick = function(e) {
                 var item = e.target.closest('.bst-pair-item');
-                if (item) selectPair(item.getAttribute('data-pair'));
+                if (item) {
+                    // stopPropagation КРИТИЧНО — иначе document.click считает
+                    // клик "снаружи" и закрывает dropdown, потому что после
+                    // togglePair() элемент уже перерендерен и e.target — это
+                    // удалённая нода, которой нет в root.contains().
+                    e.stopPropagation();
+                    togglePair(item.getAttribute('data-pair'));
+                }
             };
 
-            // Enter в поиске — выбрать первый подходящий
+            // Enter в поиске — добавить/убрать первый подходящий
             searchInput.onkeydown = function(e) {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     var first = list.querySelector('.bst-pair-item');
-                    if (first) selectPair(first.getAttribute('data-pair'));
+                    if (first) togglePair(first.getAttribute('data-pair'));
                 } else if (e.key === 'Escape') {
                     closeDropdown();
                 }
@@ -1551,7 +1627,23 @@
                 if (!root) { document.removeEventListener('click', outsideClickHandler); return; }
                 if (!root.contains(e.target)) closeDropdown();
             });
+
+            // Начальная отрисовка
+            updateTriggerLabel();
         })();
+
+        // Обновлятор текста кнопки запуска — меняется при каждом изменении _state.pairs
+        function updateLaunchBtnLabel() {
+            var btn = document.getElementById('bstLaunchBtn');
+            if (!btn) return;
+            var n = (_state.pairs && _state.pairs.length) || 1;
+            var arrowSvg = '<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style="vertical-align:-1px;"><polygon points="1,0 10,5 1,10"/></svg>';
+            if (n <= 1) {
+                btn.innerHTML = arrowSvg + ' Запустить бота';
+            } else {
+                btn.innerHTML = arrowSvg + ' Запустить ботов (' + n + ')';
+            }
+        }
 
         // RSI slider (single thumb — value = overbought, 100-value = oversold)
         var rsiSlider = body.querySelector('#bstRsiSlider');
@@ -1755,9 +1847,108 @@
         footer.querySelector('#bstLaunchBtn').onclick = function() {
             // Ensure mode is set
             if (!_state.mode) _state.mode = 'paper';
-            startBot();
-            closeModal();
+            // Защита от двойного клика
+            var btn = this;
+            if (btn._busy) return;
+            btn._busy = true;
+
+            var pairs = (_state.pairs && _state.pairs.length) ? _state.pairs.slice() : [_state.pair || 'BTC/USDT'];
+
+            if (pairs.length === 1) {
+                // Одна пара — обычный путь: стартуем текущую сессию
+                _state.pair = pairs[0];
+                startBot();
+                closeModal();
+                btn._busy = false;
+                return;
+            }
+
+            // Несколько пар — создаём и запускаем по очереди.
+            // Первая пара использует текущую сессию (это тот бот что мы настраивали).
+            // Для остальных создаём НОВЫЕ сессии через /api/bot/create, потом запускаем.
+            btn.innerHTML = '...';
+            var uid = getUid();
+
+            // 1) Первый бот — стартуем текущую сессию с первой парой
+            _state.pair = pairs[0];
+            startBotSilent(uid, pairs[0]).then(function() {
+                // 2) Остальные боты — создаём новые и стартуем
+                var rest = pairs.slice(1);
+                function next(i) {
+                    if (i >= rest.length) {
+                        btn._busy = false;
+                        closeModal();
+                        loadBotList();
+                        return;
+                    }
+                    var pair = rest[i];
+                    fetch('/api/bot/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ uid: uid })
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.ok || !data.botId) { next(i + 1); return; }
+                        return startBotSilent(uid, pair, data.botId);
+                    })
+                    .then(function() { next(i + 1); })
+                    .catch(function() { next(i + 1); });
+                }
+                next(0);
+            }).catch(function() {
+                btn._busy = false;
+                closeModal();
+            });
         };
+
+        // Внутренний помощник — старт бота без изменения UI текущего виджета.
+        // Используется для batch-запуска нескольких пар.
+        function startBotSilent(uid, pair, botId) {
+            var targetBotId = botId || _state.botId;
+            return fetch('/api/bot/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    uid: uid,
+                    botId: targetBotId,
+                    pair: pair,
+                    strategy: _state.strategy,
+                    timeframe: _state.timeframe,
+                    direction: _state.direction,
+                    entryMode: _state.entryMode,
+                    mode: _state.mode || 'paper',
+                    virtualBalance: parseFloat(_state.virtualBalance) || 10000,
+                    riskPct: parseFloat(_state.riskPct) || 2,
+                    dayLimitPct: parseFloat(_state.dayLimitPct) || 50,
+                    maxLosses: parseInt(_state.maxLosses) || 30,
+                    maxLeverage: parseInt(_state.maxLeverage) || 3,
+                    volumeMultiplier: parseFloat(_state.volumeMultiplier) || 1.0,
+                    positionTimeout: parseInt(_state.positionTimeout) || 30,
+                    maxProfitPct: parseFloat(_state.maxProfitPct) || 1.0,
+                    cooldownCandles: parseInt(_state.cooldownCandles) || 5,
+                    stopAtrMultiplier: parseFloat(_state.stopAtrMultiplier) || 1.5,
+                    trailingEnabled: !!_state.trailingEnabled,
+                    trailingOffset: _state.trailingOffset,
+                    trailingActivation: _state.trailingActivation,
+                    clusterEnabled: _state.clusterEnabled,
+                    clusterThreshold: _state.clusterThreshold,
+                    clusterExitConfirm: _state.clusterExitConfirm,
+                    bbPeriod: _state.bbPeriod,
+                    bbMultiplier: _state.bbMultiplier,
+                    rsiPeriod: _state.rsiPeriod,
+                    rsiOverbought: _state.rsiOverbought,
+                    rsiOversold: _state.rsiOversold,
+                    bbExitEnabled: !!_state.bbExitEnabled,
+                    bbExitTolerance: _state.bbExitTolerance,
+                    smaReturnEnabled: !!_state.smaReturnEnabled,
+                    smaReturnTolerance: _state.smaReturnTolerance,
+                    atrFilterEnabled: !!_state.atrFilterEnabled,
+                    atrFilterThreshold: _state.atrFilterThreshold,
+                    notifyEnabled: _state.notifyEnabled !== false,
+                })
+            }).then(function(r) { return r.json(); });
+        }
 
         // Initial summary
         updateSummary();
@@ -1779,9 +1970,21 @@
         var rsiOS = 100 - (parseInt(_state.rsiOverbought) || 65);
         var rsiOB = parseInt(_state.rsiOverbought) || 65;
 
+        var pairsLabel;
+        if (_state.pairs && _state.pairs.length > 1) {
+            // До 3 пар — перечисляем через запятую, больше — укорачиваем до "N пар"
+            if (_state.pairs.length <= 3) {
+                pairsLabel = _state.pairs.join(', ');
+            } else {
+                pairsLabel = _state.pairs.length + ' пар';
+            }
+        } else {
+            pairsLabel = _state.pair;
+        }
+
         el.innerHTML = '\
             <div class="bst-sum-row"><span class="bst-sum-key">Стратегия</span><span class="bst-sum-val bst-sum-accent">' + stratLabel + '</span></div>\
-            <div class="bst-sum-row"><span class="bst-sum-key">Пара / ТФ</span><span class="bst-sum-val">' + _state.pair + ' · ' + _state.timeframe + '</span></div>\
+            <div class="bst-sum-row"><span class="bst-sum-key">Пара / ТФ</span><span class="bst-sum-val">' + pairsLabel + ' · ' + _state.timeframe + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Направление / Вход</span><span class="bst-sum-val">' + dirLabel + ' · ' + entryLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">RSI</span><span class="bst-sum-val"><span class="bst-rsi-os">' + rsiOS + '</span><span class="bst-rsi-dash"> / </span><span class="bst-rsi-ob">' + rsiOB + '</span></span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Стоп / Тейк</span><span class="bst-sum-val">' + _state.stopAtrMultiplier + '× ATR / ' + _state.maxProfitPct + '%</span></div>\
@@ -2039,6 +2242,100 @@
             });
         }
         stopNext();
+    }
+
+    /* ══════════════════════════════════════════
+       УДАЛЕНИЕ ВСЕХ БОТОВ ПОЛЬЗОВАТЕЛЯ
+       - confirmDeleteAllBots: модалка подтверждения
+       - doDeleteAllBots: последовательное удаление с прогрессом
+    ══════════════════════════════════════════ */
+    function confirmDeleteAllBots() {
+        var old = document.getElementById('botDeleteAllModal');
+        if (old) old.remove();
+
+        var bots = _state.bots || [];
+        var count = bots.length;
+        if (count === 0) return;
+
+        var runningCount = bots.filter(function(b) { return b.running; }).length;
+        var word = pluralBotsRu(count);
+
+        var modal = document.createElement('div');
+        modal.id = 'botDeleteAllModal';
+        modal.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        modal.innerHTML = '\
+            <div style="background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:90%;max-width:380px;padding:20px;">\
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">\
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none">\
+                        <path d="M2 4h12M5.5 4V2.5a1 1 0 011-1h3a1 1 0 011 1V4M4 4v9a1 1 0 001 1h6a1 1 0 001-1V4" stroke="#EF4444" stroke-width="1.2" fill="none"/>\
+                    </svg>\
+                    <span style="font-size:14px;font-weight:700;color:#E2E8F0;">Удалить всех ботов?</span>\
+                </div>\
+                <div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:18px;">\
+                    Будет удалено <span style="color:#E2E8F0;font-weight:600;">' + count + ' ' + word + '</span>' + (runningCount > 0 ? ' (из них ' + runningCount + ' запущено)' : '') + '.<br>\
+                    <span style="color:#EF4444;">Это действие нельзя отменить.</span>\
+                </div>\
+                <div id="botDeleteAllProgress" style="display:none;margin-bottom:14px;">\
+                    <div style="font-size:12px;color:#94A3B8;margin-bottom:6px;">Удаляю: <span id="botDeleteAllCounter">0 / ' + count + '</span></div>\
+                    <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">\
+                        <div id="botDeleteAllBar" style="height:100%;width:0%;background:#EF4444;transition:width 0.2s;"></div>\
+                    </div>\
+                </div>\
+                <div style="display:flex;gap:8px;justify-content:flex-end;" id="botDeleteAllActions">\
+                    <button id="botDeleteAllCancel" style="padding:8px 14px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:#94A3B8;font-size:12px;cursor:pointer;">Отмена</button>\
+                    <button id="botDeleteAllConfirm" style="padding:8px 14px;background:#EF4444;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Удалить все</button>\
+                </div>\
+            </div>';
+
+        var leftCol = document.querySelector('.left-col') || document.body;
+        if (leftCol) { leftCol.style.position = 'relative'; leftCol.appendChild(modal); }
+
+        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+        modal.querySelector('#botDeleteAllCancel').onclick = function() { modal.remove(); };
+        modal.querySelector('#botDeleteAllConfirm').onclick = function() {
+            doDeleteAllBots(bots.slice(), modal);
+        };
+    }
+
+    function doDeleteAllBots(bots, modal) {
+        var uid = getUid();
+        var total = bots.length;
+        var done = 0;
+
+        // Скрываем actions, показываем прогресс
+        var actions = modal.querySelector('#botDeleteAllActions');
+        var progress = modal.querySelector('#botDeleteAllProgress');
+        if (actions) actions.style.display = 'none';
+        if (progress) progress.style.display = 'block';
+        var counter = modal.querySelector('#botDeleteAllCounter');
+        var bar = modal.querySelector('#botDeleteAllBar');
+
+        function deleteNext() {
+            if (done >= total) {
+                // Всё удалено — чистим UI, закрываем модалку
+                _state.bots = [];
+                _state.botId = 'default';
+                resetBotLocalState();
+                updateBotSelector();
+                setTimeout(function() { modal.remove(); }, 400);
+                return;
+            }
+            var b = bots[done];
+            fetch('/api/bot/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid, botId: b.botId })
+            })
+            .then(function(r) { return r.json(); })
+            .catch(function() {})
+            .then(function() {
+                done++;
+                if (counter) counter.textContent = done + ' / ' + total;
+                if (bar) bar.style.width = (done / total * 100).toFixed(0) + '%';
+                deleteNext();
+            });
+        }
+        deleteNext();
     }
 
     function resumeBot() {
@@ -2754,6 +3051,7 @@
                 // НЕ сбрасываем настройки — они наследуются от предыдущего бота.
                 // Только меняем пару на BTC/USDT (дефолт нового бота), пользователь сменит в модалке.
                 _state.pair = 'BTC/USDT';
+                _state.pairs = ['BTC/USDT'];
                 updateBotSelector();
                 openModal(0);
             }
@@ -2826,6 +3124,7 @@
         var bot = _state.bots.find(function(b) { return b.botId === botId; });
         if (bot) {
             _state.pair = bot.pair;
+            _state.pairs = [bot.pair];  // у существующего бота всегда одна пара
             _state.running = bot.running;
             _state.strategy = bot.strategy || 'scalper';
             var pairLabel = document.getElementById('botWidgetPairLabel');
@@ -3005,6 +3304,7 @@
                         _state.mode = data.mode || 'paper';
                         _state.market = data.market || 'futures';
                         _state.pair = data.pair || 'BTC/USDT';
+                        _state.pairs = [_state.pair];
 
                         // Обновляем виджет данными (включая точки-индикаторы в шапке и у селектора бота).
                         updateWidgetFromStatus(data);
