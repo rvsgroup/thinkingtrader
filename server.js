@@ -1890,7 +1890,11 @@ async function sendPushToUser(userId, title, body, opts) {
                     .delete().catch(() => {});
             }
         });
-    } catch(e) {}
+    } catch(e) {
+        // Логируем ошибки — раньше молчали, и при исчерпании квоты Firestore
+        // пуши просто тихо не отправлялись. Теперь видно причину.
+        console.error('[PUSH] sendPushToUser failed:', e.message, '· uid:', userId);
+    }
 }
 
 // Экспонируем для bot-server.js — он вызывает push при закрытии сделок
@@ -2302,11 +2306,13 @@ app.listen(PORT, () => {
     checkPriceAlerts(); // сразу при старте
     console.log(`🤖 Telegram bot активен · алерты каждые 5 мин`);
 
-    // Серверная проверка пользовательских алертов каждые 30 сек
+    // Серверная проверка пользовательских алертов каждые 60 сек
+    // Было 10 сек — выжигало квоту Firestore за несколько часов
+    // (collectionGroup читает ВСЕ алерты всех пользователей целиком).
     if (adminDb) {
-        setInterval(checkUserAlerts, 10 * 1000);
+        setInterval(checkUserAlerts, 60 * 1000);
         checkUserAlerts();
-        console.log('🔔 Серверные алерты активны · каждые 30 сек');
+        console.log('🔔 Серверные алерты активны · каждые 60 сек');
     }
 });
 

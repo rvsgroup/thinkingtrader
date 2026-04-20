@@ -1045,6 +1045,13 @@ module.exports = function(app) {
         } else if (channelPct <= 5 && rsi <= rsiOversold) {
             side = 'LONG';
         }
+
+        // ВРЕМЕННАЯ ДИАГНОСТИКА — логируем когда близко к сигналу (потом убрать)
+        if (channelPct <= 10 || channelPct >= 90 || rsi <= rsiOversold + 5 || rsi >= rsiOverbought - 5) {
+            const sig = side || 'none';
+            console.log(`[BOT-DIAG ${ts()}] ${session.pair} tick: price=${price}, ch%=${channelPct.toFixed(1)}, rsi=${rsi.toFixed(1)}, os=${rsiOversold}, ob=${rsiOverbought} → signal=${sig}, cooldown=${session.cooldownUntil}, pos=${!!session.position}, pause=${session.paused}`);
+        }
+
         if (!side) return;
 
         if (market === 'spot' && side === 'SHORT') return;
@@ -2594,6 +2601,13 @@ module.exports = function(app) {
                 levels:      session.levels,
                 levelsCount: session.levels.length,
                 consecutiveLosses: session.consecutiveLosses,
+                maxLosses: session.maxLosses,
+                cooldownUntil: session.cooldownUntil || 0,
+                entryMode: session.entryMode || 'candle',
+                direction: session.direction || 'both',
+                rsiOversold: session.rsiOversold || 35,
+                rsiOverbought: session.rsiOverbought || 65,
+                dayLimitPct: session.dayLimitPct,
                 tradeCount:  session.trades.length,
                 winRate:     calcWinRate(session.trades),
                 wsConnected: session.ws && session.ws.readyState === WebSocket.OPEN,
