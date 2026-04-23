@@ -1850,7 +1850,10 @@ app.get('/api/admin/status', (req, res) => {
 // ══════════════════════════════════════════════════════════════
 
 async function sendPushToUser(userId, title, body, opts) {
-    if (!adminDb || !adminMsg) return;
+    if (!adminDb || !adminMsg) {
+        console.warn('[PUSH] skipped — Firebase Admin не инициализирован');
+        return;
+    }
     opts = opts || {};
     const subtitle = opts.subtitle || null;  // вторая строка на iOS PWA
     const tag      = opts.tag      || null;  // если задан — новое уведомление заменяет старое с тем же тегом
@@ -1861,7 +1864,10 @@ async function sendPushToUser(userId, title, body, opts) {
             .collection('users').doc(userId)
             .collection('fcmTokens').get();
         const tokens = tokensSnap.docs.map(d => d.data().token).filter(Boolean);
-        if (!tokens.length) return;
+        if (!tokens.length) {
+            console.warn(`[PUSH] skipped — у uid=${userId} нет FCM токенов в Firestore (users/${userId}/fcmTokens пуст)`);
+            return;
+        }
 
         // notification: title + body + опционально tag (группировка)
         // iOS PWA дополнительно читает subtitle из data — отрисует его между title и body
@@ -1882,14 +1888,26 @@ async function sendPushToUser(userId, title, body, opts) {
             })
         ));
 
-        // Удаляем невалидные токены
+        // Считаем успех/неудачу, чтобы видеть в логах реальное состояние
+        let ok = 0, failed = 0;
+        const errors = [];
         results.forEach((r, i) => {
-            if (r.status === 'rejected') {
+            if (r.status === 'fulfilled') {
+                ok++;
+            } else {
+                failed++;
+                errors.push(r.reason && r.reason.code ? r.reason.code : (r.reason && r.reason.message) || 'unknown');
+                // Удаляем невалидные токены
                 adminDb.collection('users').doc(userId)
                     .collection('fcmTokens').doc(tokensSnap.docs[i].id)
                     .delete().catch(() => {});
             }
         });
+        if (failed > 0) {
+            console.warn(`[PUSH] uid=${userId} · tokens=${tokens.length} · ok=${ok} · failed=${failed} · errors=${errors.join(',')}`);
+        } else {
+            console.log(`[PUSH] ✅ uid=${userId} · ${ok} устройств(а) · "${title}"`);
+        }
     } catch(e) {
         // Логируем ошибки — раньше молчали, и при исчерпании квоты Firestore
         // пуши просто тихо не отправлялись. Теперь видно причину.
@@ -1978,6 +1996,52 @@ app.post('/api/customtoken', async (req, res) => {
         res.json({ customToken });
     } catch (e) {
         res.status(401).json({ error: e.message });
+    }
+});
+
+// ── Диагностика push-уведомлений ──────────────────────────────
+// GET /api/push/debug?uid=XXX — проверяет есть ли токены у пользователя
+// Возвращает: количество токенов + их превью (первые 20 символов каждого)
+// POST /api/push/test { uid } — отправляет тестовый push на все токены пользователя
+app.get('/api/push/debug', async (req, res) => {
+    try {
+        const uid = req.query.uid;
+        if (!uid) return res.status(400).json({ error: 'uid required' });
+        if (!adminDb || !adminMsg) return res.status(503).json({ error: 'Firebase Admin not initialized' });
+        const snap = await adminDb.collection('users').doc(uid).collection('fcmTokens').get();
+        const tokens = snap.docs.map(d => {
+            const data = d.data() || {};
+            return {
+                id: d.id,
+                tokenPreview: (data.token || '').slice(0, 30) + '...',
+                createdAt: data.createdAt || data.timestamp || null,
+                userAgent: data.userAgent || null,
+            };
+        });
+        res.json({
+            uid,
+            tokenCount: tokens.length,
+            tokens,
+            firebaseAdminReady: !!(adminDb && adminMsg),
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/push/test', async (req, res) => {
+    try {
+        const uid = (req.body && req.body.uid) || req.query.uid;
+        if (!uid) return res.status(400).json({ error: 'uid required' });
+        if (typeof sendPushToUser !== 'function') return res.status(503).json({ error: 'sendPushToUser unavailable' });
+        await sendPushToUser(uid, '🧪 Тестовый push', 'Если ты видишь это уведомление — push работает', {
+            subtitle: 'Thinking Trader',
+            link: '/app',
+            tag: 'push-test-' + Date.now(),
+        });
+        res.json({ ok: true, note: 'смотри логи сервера: [PUSH] ...' });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
     }
 });
 

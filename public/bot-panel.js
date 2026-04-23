@@ -39,7 +39,7 @@
         cooldownCandles: '5',
         stopAtrMultiplier: '1.5',
         clusterExitConfirm: '1',
-        strategy: 'scalper',        // 'scalper' | 'mean_reversion'
+        strategy: 'scalper',        // 'scalper' | 'mean_reversion' | 'manual'
         direction: 'both',          // 'both' | 'long' | 'short'
         entryMode: 'candle',        // 'candle' | 'tick'
         bbPeriod: '20',
@@ -47,6 +47,14 @@
         rsiPeriod: '14',
         rsiOverbought: '65',
         rsiOversold: '35',
+        // ── Manual-стратегия ──
+        manualStopPct: '0.5',          // стоп в % от цены входа
+        manualSizeMode: 'risk',        // 'risk' (riskPct от стопа) | 'fixed' (фикс % баланса)
+        manualFixedSizePct: '10',      // % баланса при manualSizeMode='fixed'
+        manualTimeoutEnabled: false,   // опциональный таймаут позиции в manual
+        manualOrderType: 'market',     // 'market' | 'limit' — выбирается прямо в виджете
+        pendingLimit: null,            // ожидающая лимитка с сервера {side, price, createdAt}
+        pendingExit: null,             // ожидающий лимитный выход {price, createdAt}
         virtualBalance: 10000,
         trades: [],
         // Данные с сервера
@@ -176,6 +184,7 @@
                 <div id="botWidgetLevelsList" class="bot-w-levels-list">\
                     <div class="bot-w-log-empty">Бот не запущен</div>\
                 </div>\
+                <div id="botWidgetStatusLine" class="bot-w-status-line" style="margin-top:8px;display:none;">—</div>\
             </div>\
             \
             <div class="bot-w-section" id="botBBSection" style="display:none;">\
@@ -185,7 +194,6 @@
                 </div>\
                 <div id="botBBCollapsible">\
                     <div id="botBBContainer" style="font-size:11px;color:#94A3B8;line-height:1.8;"></div>\
-                    <div id="botWidgetStatusLine" class="bot-w-status-line" style="margin-top:8px;">—</div>\
                 </div>\
             </div>\
             \
@@ -215,7 +223,7 @@
             \
             <div class="bot-w-section" id="botClusterSection" style="display:none;">\
                 <div id="botClusterContainer"></div>\
-                <div id="botClusterToggleWrap" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
+                <div id="botClusterToggleWrap" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
                     <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
                     <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
                         <input type="checkbox" id="botClusterEntryToggle" style="opacity:0;width:0;height:0;">\
@@ -404,6 +412,8 @@
         _state.bbData       = data.bbData        || null;
         _state.regime       = data.regime        || null;
         _state.atrRegime    = data.atrRegime     || null;
+        _state.pendingLimit = data.pendingLimit  || null;
+        _state.pendingExit  = data.pendingExit   || null;
 
         // Параметры которые пользователь может менять в модалке настроек —
         // НЕ перезаписываем из polling пока модалка открыта, иначе затрём его выбор.
@@ -417,6 +427,11 @@
             if (data.bbExitTolerance !== undefined) _state.bbExitTolerance = data.bbExitTolerance;
             if (data.smaReturnEnabled !== undefined) _state.smaReturnEnabled = !!data.smaReturnEnabled;
             if (data.smaReturnTolerance !== undefined) _state.smaReturnTolerance = data.smaReturnTolerance;
+            // Manual-стратегия
+            if (data.manualStopPct !== undefined) _state.manualStopPct = String(data.manualStopPct);
+            if (data.manualSizeMode !== undefined) _state.manualSizeMode = data.manualSizeMode === 'fixed' ? 'fixed' : 'risk';
+            if (data.manualFixedSizePct !== undefined) _state.manualFixedSizePct = String(data.manualFixedSizePct);
+            if (data.manualTimeoutEnabled !== undefined) _state.manualTimeoutEnabled = !!data.manualTimeoutEnabled;
         } else {
             // Модалка открыта — обновляем ТОЛЬКО то, что нужно для отрисовки позиции на шкале
             // (trailingActivation читается в renderPosition для метки TR).
@@ -498,13 +513,15 @@
         if (pairLabel && _state.pair) pairLabel.textContent = _state.pair;
 
         // ── Переключение секций по стратегии ──
+        // Scalper → показываем микроуровни S/R (они нужны как подсказка/сигнал).
+        // MR      → показываем BB/RSI блок (основная аналитика для контртренда).
+        // Manual  → скрываем и то, и другое. Трейдер сам решает по графику.
+        // Тумблер кластеров управляется отдельно в renderClusterPanel().
         var levelsSection = document.getElementById('botWidgetLevelsSection');
         var bbSection = document.getElementById('botBBSection');
-        var clusterToggleWrap = document.getElementById('botClusterToggleWrap');
         if (_state.strategy === 'mean_reversion') {
             if (levelsSection) levelsSection.style.display = 'none';
             if (bbSection) bbSection.style.display = '';
-            if (clusterToggleWrap) clusterToggleWrap.style.display = 'flex';
             // Рисуем BB/RSI данные
             var bbContainer = document.getElementById('botBBContainer');
             if (bbContainer && _state.bbData) {
@@ -525,11 +542,26 @@
             } else if (bbContainer) {
                 bbContainer.innerHTML = '<span style="color:#475569;font-style:italic;">Ожидание данных...</span>';
             }
+        } else if (_state.strategy === 'manual') {
+            if (levelsSection) levelsSection.style.display = 'none';
+            if (bbSection) bbSection.style.display = 'none';
         } else {
+            // scalper
             if (levelsSection) levelsSection.style.display = '';
             if (bbSection) bbSection.style.display = 'none';
-            if (clusterToggleWrap) clusterToggleWrap.style.display = 'none';
         }
+
+        // ── Тумблеры "Учитывать при входе" (ATR / Режим рынка / Кластеры) ──
+        // В manual-стратегии эти фильтры бессмысленны: они фильтруют автосигналы,
+        // а автосигналов нет. Скрываем тумблеры, оставляем сами секции-индикаторы.
+        // Все три wrap-элемента имеют display:flex в инлайн-стиле — восстанавливаем именно его.
+        var isManual = _state.strategy === 'manual';
+        var atrToggleWrap = document.getElementById('botAtrToggleWrap');
+        var regimeToggleWrap = document.getElementById('botRegimeToggleWrap');
+        var clusterToggleWrap = document.getElementById('botClusterToggleWrap');
+        if (atrToggleWrap) atrToggleWrap.style.display = isManual ? 'none' : 'flex';
+        if (regimeToggleWrap) regimeToggleWrap.style.display = isManual ? 'none' : 'flex';
+        if (clusterToggleWrap) clusterToggleWrap.style.display = isManual ? 'none' : 'flex';
 
         // ── Баланс ──
         var balEl = document.getElementById('wBalance');
@@ -592,6 +624,13 @@
 
         // ── Кнопки ──
         updateButtons();
+
+        // ── Линии позиции на графике (entry/stop/pending) ──
+        // Хук определён в app.html. Вызываем каждый раз на поллинге — библиотека
+        // сама кэширует priceLine'ы, а наша clear+redraw дешевле логики diff'ов.
+        if (typeof window._drawBotPosition === 'function') {
+            window._drawBotPosition(_state.position, _state.pendingExit, _state.pendingLimit);
+        }
     }
 
     function renderLevels() {
@@ -675,17 +714,137 @@
             return;
         }
 
+        // ── Снимок пользовательского ввода перед перерисовкой ──
+        // Функция зовётся на каждом поллинге (~1 сек), и innerHTML-reassign сносит
+        // DOM вместе с введёнными значениями и фокусом. Сохраняем то, что юзер
+        // печатает прямо сейчас, и после перерисовки возвращаем обратно.
+        //
+        // ВАЖНО: для <input type="number"> обращение к selectionStart/selectionEnd
+        // в Chrome выбрасывает DOMException (InvalidStateError), поэтому оборачиваем
+        // каждое чтение в try/catch. Без этого snapshot-объект не создавался и ввод
+        // терялся при каждом тике цены.
+        var inputSnapshot = {};
+        ['botLimitEntryPrice', 'botLimitExitPrice'].forEach(function(id) {
+            var el = container.querySelector('#' + id);
+            if (!el) return;
+            var snap = {
+                value: el.value,
+                focused: document.activeElement === el,
+                selStart: null,
+                selEnd: null,
+            };
+            try { snap.selStart = el.selectionStart; } catch (e) { /* type=number в Chrome */ }
+            try { snap.selEnd   = el.selectionEnd;   } catch (e) { /* type=number в Chrome */ }
+            inputSnapshot[id] = snap;
+        });
+        // Также запоминаем, был ли развёрнут блок "Установить лимитный выход"
+        var exitFormWasOpen = false;
+        var exitFormEl = container.querySelector('#botLimitExitForm');
+        if (exitFormEl && exitFormEl.style.display !== 'none') {
+            exitFormWasOpen = true;
+        }
+
         section.style.display = '';
+        var isSpotMode = _state.market === 'spot';
+        var isManualStrategy = _state.strategy === 'manual';
         var html = '';
 
+        // ═══════════════ СОСТОЯНИЕ 1: открытая позиция ═══════════════
         if (_state.position) {
-            html = '<div style="display:flex;gap:6px;">' +
+            // Кнопка CLOSE + (только в manual) блок для лимитного выхода
+            html += '<div style="display:flex;gap:6px;">' +
                 '<div id="botManualClose" style="flex:1;padding:8px;text-align:center;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;' +
                 'background:rgba(239,83,80,0.15);color:#EF5350;border:1px solid rgba(239,83,80,0.3);">' +
                 '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="vertical-align:-1px;"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> CLOSE ' + _state.position.side + '</div></div>';
-        } else {
-            var isSpotMode = _state.market === 'spot';
-            html = '<div style="display:flex;gap:6px;">' +
+
+            // Блок лимитного выхода — только для manual
+            if (isManualStrategy) {
+                if (_state.pendingExit) {
+                    // Уже стоит лимитный выход — показываем его с кнопкой отмены.
+                    // Дополнительно считаем, сколько это даст в процентах при срабатывании.
+                    var exitPrice = _state.pendingExit.price;
+                    var entryPriceForPct = _state.position.entryPrice;
+                    var isLongPos = _state.position.side === 'LONG';
+                    var pctRaw = isLongPos
+                        ? (exitPrice - entryPriceForPct) / entryPriceForPct * 100
+                        : (entryPriceForPct - exitPrice) / entryPriceForPct * 100;
+                    var pctStr = (pctRaw >= 0 ? '+' : '') + pctRaw.toFixed(2) + '%';
+                    var pctColor = pctRaw >= 0 ? '#26a69a' : '#EF5350';
+
+                    html += '<div style="margin-top:6px;padding:6px 8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:5px;display:flex;align-items:center;justify-content:space-between;gap:6px;">' +
+                        '<div style="font-size:11px;color:#FBBF24;">' +
+                            '<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style="vertical-align:-1px;margin-right:3px;"><circle cx="5" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="5" cy="5" r="0.8"/></svg>' +
+                            'Лимитный выход: <span style="color:#FCD34D;font-weight:700;">' + exitPrice.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</span>' +
+                            ' <span style="color:' + pctColor + ';font-weight:700;margin-left:4px;">' + pctStr + '</span>' +
+                        '</div>' +
+                        '<div id="botCancelExitLimit" style="padding:3px 8px;font-size:10px;font-weight:600;cursor:pointer;color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:4px;">Отменить</div>' +
+                    '</div>';
+                } else {
+                    // Нет лимитного выхода — кнопка "Установить" + коллапсируемое поле цены
+                    var pos = _state.position;
+
+                    html += '<div id="botLimitExitWrap" style="margin-top:6px;">' +
+                        '<div id="botLimitExitToggle" style="padding:6px 8px;font-size:11px;text-align:center;border:1px dashed rgba(251,191,36,0.3);border-radius:5px;color:#FBBF24;cursor:pointer;">' +
+                            '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="vertical-align:-1px;margin-right:3px;"><circle cx="5" cy="5" r="3" stroke="currentColor" stroke-width="1"/></svg>' +
+                            'Установить лимитный выход' +
+                        '</div>' +
+                        '<div id="botLimitExitForm" style="display:none;margin-top:6px;padding:8px;background:rgba(251,191,36,0.05);border:1px solid rgba(251,191,36,0.2);border-radius:5px;">' +
+                            '<div style="font-size:10px;color:#94A3B8;margin-bottom:4px;">Закрыть ' + pos.side + ' по цене (' + (pos.side === 'LONG' ? 'выше' : 'ниже') + ' текущей):</div>' +
+                            '<div style="display:flex;gap:6px;">' +
+                                '<input id="botLimitExitPrice" type="number" step="0.01" placeholder="Цена выхода" style="flex:1;padding:6px 8px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#E2E8F0;font-size:12px;font-family:inherit;">' +
+                                '<div id="botLimitExitSet" style="padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;background:rgba(251,191,36,0.2);color:#FBBF24;border:1px solid rgba(251,191,36,0.4);border-radius:4px;">OK</div>' +
+                                '<div id="botLimitExitCancelForm" style="padding:6px 10px;font-size:11px;cursor:pointer;color:#94A3B8;border:1px solid rgba(255,255,255,0.1);border-radius:4px;">×</div>' +
+                            '</div>' +
+                            // Live P&L preview — обновляется по oninput. По умолчанию пусто.
+                            '<div id="botLimitExitPreview" style="margin-top:5px;font-size:10px;color:#94A3B8;min-height:12px;"></div>' +
+                        '</div>' +
+                    '</div>';
+                }
+            }
+        }
+        // ═══════════════ СОСТОЯНИЕ 2: ожидающая лимитка на ВХОД ═══════════════
+        else if (_state.pendingLimit && isManualStrategy) {
+            var pl = _state.pendingLimit;
+            var plColor = pl.side === 'LONG' ? '#26a69a' : '#EF5350';
+            var plBg = pl.side === 'LONG' ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)';
+            var plBorder = pl.side === 'LONG' ? 'rgba(38,166,154,0.25)' : 'rgba(239,83,80,0.25)';
+            var arrow = pl.side === 'LONG'
+                ? '<polygon points="0,7 8,7 4,1"/>'
+                : '<polygon points="0,1 8,1 4,7"/>';
+            html += '<div style="padding:8px 10px;background:' + plBg + ';border:1px solid ' + plBorder + ';border-radius:6px;">' +
+                '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">' +
+                    '<div style="font-size:11px;color:' + plColor + ';font-weight:700;">' +
+                        '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;margin-right:4px;">' + arrow + '</svg>' +
+                        'Ожидание ' + pl.side + ' LIMIT' +
+                    '</div>' +
+                    '<div style="font-size:12px;color:#E2E8F0;font-weight:700;">' + pl.price.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>' +
+                '</div>' +
+                '<div id="botCancelPendingLimit" style="text-align:center;padding:4px;font-size:10px;cursor:pointer;color:#94A3B8;border:1px solid rgba(255,255,255,0.08);border-radius:4px;">Отменить лимитку</div>' +
+            '</div>';
+        }
+        // ═══════════════ СОСТОЯНИЕ 3: не в позиции — Market/Limit входы ═══════════════
+        else {
+            // Market/Limit toggle — только для manual. Для авто-стратегий остаётся старая логика (только Market).
+            if (isManualStrategy) {
+                var orderType = _state.manualOrderType || 'market';
+                html += '<div style="display:flex;gap:4px;margin-bottom:6px;padding:3px;background:rgba(255,255,255,0.04);border-radius:5px;">' +
+                    '<div id="botOrderTypeMarket" style="flex:1;padding:4px;text-align:center;font-size:10px;font-weight:600;border-radius:3px;cursor:pointer;' +
+                        (orderType === 'market' ? 'background:rgba(38,166,154,0.2);color:#26a69a;' : 'color:#94A3B8;') + '">Market</div>' +
+                    '<div id="botOrderTypeLimit" style="flex:1;padding:4px;text-align:center;font-size:10px;font-weight:600;border-radius:3px;cursor:pointer;' +
+                        (orderType === 'limit' ? 'background:rgba(251,191,36,0.2);color:#FBBF24;' : 'color:#94A3B8;') + '">Limit</div>' +
+                '</div>';
+
+                // Для Limit — поле цены. Placeholder статичный (без текущей цены, чтобы не обновлялся).
+                if (orderType === 'limit') {
+                    html += '<div style="margin-bottom:6px;">' +
+                        '<input id="botLimitEntryPrice" type="number" step="0.01" placeholder="Цена лимитки" style="width:100%;padding:7px 10px;background:rgba(0,0,0,0.3);border:1px solid rgba(251,191,36,0.2);border-radius:4px;color:#E2E8F0;font-size:12px;font-family:inherit;box-sizing:border-box;">' +
+                        '<div style="font-size:9px;color:#636B76;margin-top:3px;line-height:1.3;">LONG limit — ниже текущей цены (ждём отката). SHORT limit — выше (ждём отскока).</div>' +
+                    '</div>';
+                }
+            }
+
+            // Кнопки LONG/SHORT (общие для всех стратегий)
+            html += '<div style="display:flex;gap:6px;">' +
                 '<div id="botManualLong" style="flex:1;padding:8px;text-align:center;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;' +
                 'background:rgba(38,166,154,0.15);color:#26a69a;border:1px solid rgba(38,166,154,0.3);"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;"><polygon points="0,7 8,7 4,1"/></svg> LONG</div>' +
                 (isSpotMode ? '' :
@@ -696,13 +855,108 @@
 
         container.innerHTML = html;
 
+        // ── Биндинги ──
         var longBtn = container.querySelector('#botManualLong');
         var shortBtn = container.querySelector('#botManualShort');
         var closeBtn = container.querySelector('#botManualClose');
-
         if (longBtn) longBtn.onclick = function() { manualTrade('LONG'); };
         if (shortBtn) shortBtn.onclick = function() { manualTrade('SHORT'); };
         if (closeBtn) closeBtn.onclick = function() { manualClose(); };
+
+        // Market/Limit toggle (только в manual, state 3)
+        var marketTog = container.querySelector('#botOrderTypeMarket');
+        var limitTog  = container.querySelector('#botOrderTypeLimit');
+        if (marketTog) marketTog.onclick = function() {
+            _state.manualOrderType = 'market';
+            renderManualButtons();
+        };
+        if (limitTog) limitTog.onclick = function() {
+            _state.manualOrderType = 'limit';
+            renderManualButtons();
+        };
+
+        // Cancel pending limit (state 2)
+        var cancelPendingLimit = container.querySelector('#botCancelPendingLimit');
+        if (cancelPendingLimit) cancelPendingLimit.onclick = function() { cancelPendingLimitOrder(); };
+
+        // Limit exit toggle + форма (state 1, manual, нет pendingExit)
+        var exitToggle = container.querySelector('#botLimitExitToggle');
+        var exitForm = container.querySelector('#botLimitExitForm');
+        if (exitToggle && exitForm) exitToggle.onclick = function() {
+            exitToggle.style.display = 'none';
+            exitForm.style.display = '';
+            var inp = container.querySelector('#botLimitExitPrice');
+            if (inp) inp.focus();
+        };
+        var exitCancelForm = container.querySelector('#botLimitExitCancelForm');
+        if (exitCancelForm) exitCancelForm.onclick = function() {
+            if (exitForm) exitForm.style.display = 'none';
+            if (exitToggle) exitToggle.style.display = '';
+        };
+        var exitSet = container.querySelector('#botLimitExitSet');
+        if (exitSet) exitSet.onclick = function() {
+            var inp = container.querySelector('#botLimitExitPrice');
+            var price = inp ? parseFloat(inp.value) : NaN;
+            if (!Number.isFinite(price) || price <= 0) { alert('Введите корректную цену'); return; }
+            setExitLimit(price);
+        };
+
+        // Live-превью P&L под полем ввода. Считаем относительно entry-цены
+        // и стороны позиции: для LONG профит при exit > entry, для SHORT — при exit < entry.
+        var exitInp = container.querySelector('#botLimitExitPrice');
+        var exitPreview = container.querySelector('#botLimitExitPreview');
+        function updateExitPreview() {
+            if (!exitInp || !exitPreview) return;
+            var v = parseFloat(exitInp.value);
+            if (!Number.isFinite(v) || v <= 0 || !_state.position) {
+                exitPreview.textContent = '';
+                return;
+            }
+            var entry = _state.position.entryPrice;
+            var isLong = _state.position.side === 'LONG';
+            var pct = isLong ? (v - entry) / entry * 100 : (entry - v) / entry * 100;
+            var sign = pct >= 0 ? '+' : '';
+            var color = pct >= 0 ? '#26a69a' : '#EF5350';
+            var label = pct >= 0 ? 'прибыль' : 'убыток';
+            exitPreview.innerHTML = '<span style="color:' + color + ';font-weight:700;">' +
+                sign + pct.toFixed(2) + '%</span> <span style="color:#636B76;">' + label + '</span>';
+        }
+        if (exitInp) {
+            exitInp.addEventListener('input', updateExitPreview);
+            // Если пользователь уже печатал (snapshot-восстановление сработало) — сразу рассчитываем
+            updateExitPreview();
+        }
+
+        // Cancel exit limit (state 1, manual, есть pendingExit)
+        var cancelExit = container.querySelector('#botCancelExitLimit');
+        if (cancelExit) cancelExit.onclick = function() { cancelExitLimit(); };
+
+        // ── Восстановление снимка пользовательского ввода ──
+        // ВАЖЕН ПОРЯДОК: сначала раскрываем форму лимитного выхода (если была открыта),
+        // и только ПОТОМ восстанавливаем value + focus. Иначе el.focus() на скрытом
+        // элементе (display:none) молча не сработает, и фокус останется потерян.
+        if (exitFormWasOpen) {
+            var newForm = container.querySelector('#botLimitExitForm');
+            var newToggle = container.querySelector('#botLimitExitToggle');
+            if (newForm) newForm.style.display = '';
+            if (newToggle) newToggle.style.display = 'none';
+        }
+
+        // Теперь inputs видимы — восстанавливаем их содержимое и фокус.
+        // setSelectionRange на type=number кидает exception, поэтому обёрнуто
+        // в try/catch и вызывается только если selStart/selEnd — числа.
+        Object.keys(inputSnapshot).forEach(function(id) {
+            var snap = inputSnapshot[id];
+            var el = container.querySelector('#' + id);
+            if (!el) return;
+            el.value = snap.value;
+            if (snap.focused) {
+                el.focus();
+                if (typeof snap.selStart === 'number' && typeof snap.selEnd === 'number') {
+                    try { el.setSelectionRange(snap.selStart, snap.selEnd); } catch (e) {}
+                }
+            }
+        });
     }
 
     function renderClusterPanel() {
@@ -987,6 +1241,13 @@
         var line = document.getElementById('botWidgetStatusLine');
         if (!line) return;
 
+        // Строка статуса релевантна только Scalper-стратегии (там есть S/R уровни).
+        // В MR её скрываем — там вместо неё есть свой индикатор "Позиция в канале".
+        if (_state.strategy !== 'scalper') {
+            line.style.display = 'none';
+            return;
+        }
+
         if (!_state.running && !_state.paused) {
             line.style.display = 'none';
             return;
@@ -1199,9 +1460,10 @@
             <div class="bst-scroll">\
                 \
                 <!-- 1. СТРАТЕГИЯ -->\
-                <div class="bst-row bst-row-2" id="bstStrategySeg">' +
-                    togBtn('mean_reversion', _state.strategy, 'Mean Reversion', 'BB + RSI') +
+                <div class="bst-row bst-row-3" id="bstStrategySeg">' +
                     togBtn('scalper', _state.strategy, 'Скальпер', 'Кластеры + объём') +
+                    togBtn('mean_reversion', _state.strategy, 'Mean Reversion', 'BB + RSI') +
+                    togBtn('manual', _state.strategy, 'Ручной', 'Без автосигналов') +
                 '</div>\
                 \
                 <!-- 2. ПАРА + ТАЙМФРЕЙМ -->\
@@ -1277,8 +1539,59 @@
                     </div>\
                 </div>\
                 \
+                <!-- 4б. ПАРАМЕТРЫ РУЧНОЙ ТОРГОВЛИ (только для strategy=manual) -->\
+                <div class="bst-section" id="bstManualSection" style="' + (_state.strategy === 'manual' ? '' : 'display:none;') + '">\
+                    <div class="bst-section-title">Параметры ручной торговли</div>\
+                    <div class="bst-row bst-row-2">\
+                        <div class="bst-col">\
+                            <div class="bst-lbl">Стоп-лосс, %</div>\
+                            <input class="bst-input" id="bstManualStopPct" type="number" min="0.05" max="10" step="0.05" value="' + _state.manualStopPct + '">\
+                        </div>\
+                        <div class="bst-col">\
+                            <div class="bst-lbl">Размер позиции</div>\
+                            <div class="bst-row bst-row-2" style="gap:4px;">\
+                                <div class="bst-tog' + (_state.manualSizeMode === 'risk' ? ' bst-tog-on' : '') + '" data-msize="risk" style="cursor:pointer;padding:6px;font-size:11px;"><div class="bst-tog-label">По риску</div></div>\
+                                <div class="bst-tog' + (_state.manualSizeMode === 'fixed' ? ' bst-tog-on' : '') + '" data-msize="fixed" style="cursor:pointer;padding:6px;font-size:11px;"><div class="bst-tog-label">Фикс %</div></div>\
+                            </div>\
+                        </div>\
+                    </div>\
+                    <div class="bst-row bst-row-2" id="bstManualFixedRow" style="' + (_state.manualSizeMode === 'fixed' ? '' : 'display:none;') + '">\
+                        <div class="bst-col">\
+                            <div class="bst-lbl">Фикс. размер, % баланса</div>\
+                            <input class="bst-input" id="bstManualFixedSizePct" type="number" min="1" max="100" step="1" value="' + _state.manualFixedSizePct + '">\
+                        </div>\
+                        <div class="bst-col">\
+                            <div class="bst-lbl" style="opacity:0.5;">&nbsp;</div>\
+                            <div style="font-size:10px;color:#636B76;padding:8px 0;line-height:1.4;">При фиксе размер не зависит от стопа — риск на сделку плавает</div>\
+                        </div>\
+                    </div>\
+                    <div class="bst-row" style="margin-top:8px;">\
+                        <label class="bst-switch-row" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">\
+                            <span class="bst-lbl" style="margin-bottom:0;">Автозакрытие по таймауту</span>\
+                            <label class="bst-switch">\
+                                <input type="checkbox" id="bstManualTimeoutToggle" ' + (_state.manualTimeoutEnabled ? 'checked' : '') + '>\
+                                <span class="bst-switch-slider"></span>\
+                            </label>\
+                        </label>\
+                    </div>\
+                    <div class="bst-row bst-row-2" id="bstManualTimeoutRow" style="margin-top:8px;' + (_state.manualTimeoutEnabled ? '' : 'display:none;') + '">\
+                        <div class="bst-col">\
+                            <div class="bst-lbl">Таймаут (свечей)</div>\
+                            <div class="bst-stepper">\
+                                <div class="bst-step-btn bst-step-dec"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                <input class="bst-step-input" id="bstManualTimeoutInput" type="number" min="1" max="60" step="1" value="' + _state.positionTimeout + '">\
+                                <div class="bst-step-btn bst-step-inc"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="2,0 8,4 2,8"/></svg></div>\
+                            </div>\
+                        </div>\
+                        <div class="bst-col">\
+                            <div class="bst-lbl" style="opacity:0.5;">&nbsp;</div>\
+                            <div style="font-size:10px;color:#636B76;padding:8px 0;line-height:1.4;">Позиция автоматически закроется через указанное число свечей</div>\
+                        </div>\
+                    </div>\
+                </div>\
+                \
                 <!-- 5. УПРАВЛЕНИЕ ПОЗИЦИЕЙ -->\
-                <div class="bst-section">\
+                <div class="bst-section" id="bstPosMgmtSection">\
                     <div class="bst-section-title">Управление позицией</div>\
                     <div class="bst-row bst-row-2">\
                         <div class="bst-col">\
@@ -1481,7 +1794,34 @@
             });
         }
 
-        bindToggleGroup('bstStrategySeg', 'strategy');
+        // Скрывает секции, которые бессмысленны в manual-стратегии:
+        // — Управление позицией (фильтр объёма, таймаут-инпут, TP, cooldown, стоп×ATR)
+        // — Трейлинг-стоп (использует pos.target, которого в manual нет)
+        // — Выход по противоположной BB (MR-механика)
+        // — Выход по возврату к SMA (MR-механика)
+        // Параметры стратегии (BB/RSI) оставляем — виджет их рисует как подсказки.
+        function applyManualVisibility(strategyValue) {
+            var hideInManual = [
+                'bstPosMgmtSection',
+                'bstTrailSection',
+                'bstBbExitSection',
+                'bstSmaReturnSection',
+            ];
+            var isManual = strategyValue === 'manual';
+            hideInManual.forEach(function(id) {
+                var el = body.querySelector('#' + id);
+                if (el) el.style.display = isManual ? 'none' : '';
+            });
+            var manualSection = body.querySelector('#bstManualSection');
+            if (manualSection) manualSection.style.display = isManual ? '' : 'none';
+        }
+
+        bindToggleGroup('bstStrategySeg', 'strategy', function(v) {
+            applyManualVisibility(v);
+        });
+        // Применяем один раз сразу — на случай, если модалка открыта с уже выбранной 'manual'
+        applyManualVisibility(_state.strategy);
+
         bindToggleGroup('bstTfSeg', 'timeframe');
         bindToggleGroup('bstDirSeg', 'direction');
         bindToggleGroup('bstEntrySeg', 'entryMode');
@@ -1731,6 +2071,49 @@
             updateSummary();
         };
 
+        // ── Manual-стратегия: биндинги ──
+        // Inputs: стоп % и фикс-размер %
+        var manualStopInp = body.querySelector('#bstManualStopPct');
+        if (manualStopInp) manualStopInp.onchange = function() {
+            _state.manualStopPct = manualStopInp.value;
+            updateSummary();
+        };
+        var manualFixedInp = body.querySelector('#bstManualFixedSizePct');
+        if (manualFixedInp) manualFixedInp.onchange = function() {
+            _state.manualFixedSizePct = manualFixedInp.value;
+            updateSummary();
+        };
+
+        // Size mode segmented: By risk / Fixed %
+        // Используем data-msize вместо data-v, чтобы не конфликтовать с bindToggleGroup.
+        body.querySelectorAll('[data-msize]').forEach(function(el) {
+            el.onclick = function() {
+                body.querySelectorAll('[data-msize]').forEach(function(o) { o.classList.remove('bst-tog-on'); });
+                el.classList.add('bst-tog-on');
+                _state.manualSizeMode = el.dataset.msize;
+                var fixedRow = body.querySelector('#bstManualFixedRow');
+                if (fixedRow) fixedRow.style.display = (_state.manualSizeMode === 'fixed') ? '' : 'none';
+                updateSummary();
+            };
+        });
+
+        // Manual timeout toggle — переиспользует positionTimeout из секции "Управление позицией"
+        var manualTimeoutToggle = body.querySelector('#bstManualTimeoutToggle');
+        if (manualTimeoutToggle) manualTimeoutToggle.onchange = function() {
+            _state.manualTimeoutEnabled = manualTimeoutToggle.checked;
+            var row = body.querySelector('#bstManualTimeoutRow');
+            if (row) row.style.display = manualTimeoutToggle.checked ? '' : 'none';
+            updateSummary();
+        };
+
+        // Manual timeout input — пишем в то же поле positionTimeout,
+        // что и в авто-стратегиях, чтобы бэкенд получил значение тем же путём.
+        var manualTimeoutInput = body.querySelector('#bstManualTimeoutInput');
+        if (manualTimeoutInput) manualTimeoutInput.onchange = function() {
+            _state.positionTimeout = manualTimeoutInput.value;
+            updateSummary();
+        };
+
         // Steppers (generic)
         body.querySelectorAll('.bst-step-btn').forEach(function(btn) {
             btn.onclick = function() {
@@ -1946,6 +2329,11 @@
                     atrFilterEnabled: !!_state.atrFilterEnabled,
                     atrFilterThreshold: _state.atrFilterThreshold,
                     notifyEnabled: _state.notifyEnabled !== false,
+                    // Manual-стратегия
+                    manualStopPct: parseFloat(_state.manualStopPct) || 0.5,
+                    manualSizeMode: _state.manualSizeMode === 'fixed' ? 'fixed' : 'risk',
+                    manualFixedSizePct: parseFloat(_state.manualFixedSizePct) || 10,
+                    manualTimeoutEnabled: !!_state.manualTimeoutEnabled,
                 })
             }).then(function(r) { return r.json(); });
         }
@@ -1959,7 +2347,9 @@
         var el = document.getElementById('bstSummary');
         if (!el) return;
 
-        var stratLabel = _state.strategy === 'mean_reversion' ? 'Mean Reversion (BB+RSI)' : 'Скальпер (Кластеры)';
+        var stratLabel = _state.strategy === 'mean_reversion' ? 'Mean Reversion (BB+RSI)'
+                      : _state.strategy === 'manual' ? 'Ручной (без автосигналов)'
+                      : 'Скальпер (Кластеры)';
         var dirLabel = _state.direction === 'both' ? 'Оба' : (_state.direction === 'long' ? 'Long' : 'Short');
         var entryLabel = _state.entryMode === 'tick' ? 'По тику' : 'По свече';
         var trailLabel = _state.trailingEnabled
@@ -2001,6 +2391,18 @@
     function getUid() {
         return (window.firebase && window.firebase.auth && window.firebase.auth().currentUser)
             ? window.firebase.auth().currentUser.uid : 'anonymous';
+    }
+
+    // Синхронизирует отрисовку S/R-уровней бота на графике с текущей стратегией.
+    // В manual-стратегии уровни не нужны — трейдер ориентируется по графику сам.
+    // В scalper/MR — уровни показываем (они отражают логику бота).
+    // Вызывается из всех точек, где раньше звались _startBotLevels/_stopBotLevels напрямую.
+    function syncBotLevelsVisibility() {
+        if (_state.strategy === 'manual') {
+            if (typeof window._stopBotLevels === 'function') window._stopBotLevels();
+        } else {
+            if (typeof window._startBotLevels === 'function') window._startBotLevels();
+        }
     }
 
     function startBot() {
@@ -2050,6 +2452,11 @@
                 atrFilterEnabled: !!_state.atrFilterEnabled,
                 atrFilterThreshold: _state.atrFilterThreshold,
                 notifyEnabled: _state.notifyEnabled !== false,
+                // Manual-стратегия
+                manualStopPct: parseFloat(_state.manualStopPct) || 0.5,
+                manualSizeMode: _state.manualSizeMode === 'fixed' ? 'fixed' : 'risk',
+                manualFixedSizePct: parseFloat(_state.manualFixedSizePct) || 10,
+                manualTimeoutEnabled: !!_state.manualTimeoutEnabled,
             })
         })
         .then(function(r) { return r.json(); })
@@ -2065,9 +2472,9 @@
                 updateButtons();
                 startStatusPolling(uid);
                 loadBotList();
-                // Начинаем рисовать уровни бота на графике
+                // Начинаем рисовать уровни бота на графике (только если стратегия не manual)
                 window._botCurrentBotId = _state.botId;
-                if (typeof window._startBotLevels === 'function') window._startBotLevels();
+                syncBotLevelsVisibility();
             } else {
                 alert('Ошибка запуска: ' + (data.error || 'unknown'));
             }
@@ -2338,6 +2745,86 @@
         deleteNext();
     }
 
+    // ── Очистка журнала сделок (одного бота или всех) ──
+    // Открывает модалку подтверждения, после подтверждения шлёт запрос на сервер.
+    // isAllBots: true — чистим у всех ботов пользователя, false — только у текущего.
+    function confirmClearTrades(isAllBots) {
+        var old = document.getElementById('botClearTradesModal');
+        if (old) old.remove();
+
+        var title   = isAllBots ? 'Очистить журналы всех ботов?' : 'Очистить журнал этого бота?';
+        var subtext = isAllBots
+            ? 'Будут удалены сделки у <span style="color:#E2E8F0;font-weight:600;">всех ботов</span>. Открытые позиции не затрагиваются.'
+            : 'Будут удалены сделки у <span style="color:#E2E8F0;font-weight:600;">текущего бота</span>. Открытая позиция не затрагивается.';
+
+        var isMobile = window.innerWidth < 768;
+
+        var modal = document.createElement('div');
+        modal.id = 'botClearTradesModal';
+        modal.style.cssText = 'position:' + (isMobile ? 'fixed' : 'absolute') + ';top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);z-index:10001;display:flex;align-items:center;justify-content:center;';
+        modal.innerHTML = '\
+            <div style="background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:90%;max-width:380px;padding:20px;">\
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">\
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none">\
+                        <path d="M2 4h12M5.5 4V2.5a1 1 0 011-1h3a1 1 0 011 1V4M4 4v9a1 1 0 001 1h6a1 1 0 001-1V4" stroke="#EF4444" stroke-width="1.2" fill="none"/>\
+                    </svg>\
+                    <span style="font-size:14px;font-weight:700;color:#E2E8F0;">' + title + '</span>\
+                </div>\
+                <div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:18px;">' + subtext + '<br>\
+                    <span style="color:#EF4444;">Это действие нельзя отменить.</span>\
+                </div>\
+                <div style="display:flex;gap:8px;justify-content:flex-end;">\
+                    <button id="botClearTradesCancel" style="padding:8px 14px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:#94A3B8;font-size:12px;cursor:pointer;">Отмена</button>\
+                    <button id="botClearTradesConfirm" style="padding:8px 14px;background:#EF4444;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Очистить</button>\
+                </div>\
+            </div>';
+
+        // На мобилке вешаем на body (журнал там fullscreen), на десктопе — на .left-col
+        if (isMobile) {
+            document.body.appendChild(modal);
+        } else {
+            var leftCol = document.querySelector('.left-col') || document.body;
+            if (leftCol) { leftCol.style.position = 'relative'; leftCol.appendChild(modal); }
+        }
+
+        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+        modal.querySelector('#botClearTradesCancel').onclick = function() { modal.remove(); };
+        modal.querySelector('#botClearTradesConfirm').onclick = function() {
+            doClearTrades(isAllBots, modal);
+        };
+    }
+
+    function doClearTrades(isAllBots, modal) {
+        var uid = getUid();
+        var body = { uid: uid };
+        if (!isAllBots) body.botId = _state.botId || 'default';
+
+        // Показываем "Очищаю..." вместо кнопок
+        var btn = modal.querySelector('#botClearTradesConfirm');
+        var cancelBtn = modal.querySelector('#botClearTradesCancel');
+        if (btn) { btn.textContent = 'Очищаю...'; btn.disabled = true; btn.style.opacity = '0.6'; }
+        if (cancelBtn) { cancelBtn.disabled = true; cancelBtn.style.opacity = '0.5'; }
+
+        fetch('/api/bot/clear-trades', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            modal.remove();
+            // Закрываем и заново открываем журнал, чтобы показать обновлённые данные
+            var jModal = document.getElementById('botJournalModal');
+            if (jModal) jModal.remove();
+            openJournal(isAllBots);
+        })
+        .catch(function(err) {
+            if (btn) { btn.textContent = 'Ошибка'; btn.style.background = '#6b1a1a'; }
+            console.error('[clearTrades] error:', err);
+            setTimeout(function() { modal.remove(); }, 1500);
+        });
+    }
+
     function resumeBot() {
         var uid = getUid();
 
@@ -2360,20 +2847,100 @@
 
     function manualTrade(side) {
         var uid = getUid();
+        // В manual + Limit режиме берём цену из поля ввода, шлём orderType=limit.
+        // В остальных случаях — market (как было).
+        var orderType = 'market';
+        var limitPrice = null;
+        if (_state.strategy === 'manual' && _state.manualOrderType === 'limit') {
+            var inp = document.getElementById('botLimitEntryPrice');
+            limitPrice = inp ? parseFloat(inp.value) : NaN;
+            if (!Number.isFinite(limitPrice) || limitPrice <= 0) {
+                alert('Введите цену лимитки');
+                return;
+            }
+            orderType = 'limit';
+        }
+
+        var payload = { uid: uid, botId: _state.botId, side: side, orderType: orderType };
+        if (orderType === 'limit') payload.limitPrice = limitPrice;
+
         fetch('/api/bot/manual-trade', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: uid, botId: _state.botId, side: side })
+            body: JSON.stringify(payload)
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.ok) {
+                // Если вернулась pendingLimit — сразу подставим в state, чтобы UI перерисовался
+                if (data.pendingLimit) _state.pendingLimit = data.pendingLimit;
+                renderManualButtons();
                 pollStatus(uid);
             } else {
-                console.warn('[BOT] manual trade error:', data.error);
+                alert('Ошибка: ' + (data.error || 'unknown'));
             }
         })
         .catch(function(e) { console.warn('[BOT] manual trade error', e); });
+    }
+
+    function cancelPendingLimitOrder() {
+        var uid = getUid();
+        fetch('/api/bot/cancel-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: uid, botId: _state.botId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                _state.pendingLimit = null;
+                renderManualButtons();
+                pollStatus(uid);
+            } else {
+                alert('Ошибка: ' + (data.error || 'unknown'));
+            }
+        })
+        .catch(function(e) { console.warn('[BOT] cancel limit error', e); });
+    }
+
+    function setExitLimit(price) {
+        var uid = getUid();
+        fetch('/api/bot/set-exit-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: uid, botId: _state.botId, price: price })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                if (data.pendingExit) _state.pendingExit = data.pendingExit;
+                renderManualButtons();
+                pollStatus(uid);
+            } else {
+                alert('Ошибка: ' + (data.error || 'unknown'));
+            }
+        })
+        .catch(function(e) { console.warn('[BOT] set exit limit error', e); });
+    }
+
+    function cancelExitLimit() {
+        var uid = getUid();
+        fetch('/api/bot/cancel-exit-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: uid, botId: _state.botId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                _state.pendingExit = null;
+                renderManualButtons();
+                pollStatus(uid);
+            } else {
+                alert('Ошибка: ' + (data.error || 'unknown'));
+            }
+        })
+        .catch(function(e) { console.warn('[BOT] cancel exit limit error', e); });
     }
 
     function manualClose() {
@@ -2405,8 +2972,8 @@
     function openJournal(showAll) {
         var uid = getUid();
         var url = showAll
-            ? '/api/bot/trades-all?uid=' + uid + '&limit=200'
-            : '/api/bot/trades?uid=' + uid + '&botId=' + _state.botId + '&limit=200';
+            ? '/api/bot/trades-all?uid=' + uid + '&limit=1000'
+            : '/api/bot/trades?uid=' + uid + '&botId=' + _state.botId + '&limit=1000';
         fetch(url)
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -2438,6 +3005,30 @@
             'manual_close': 'Ручной', 'bb_touch': 'BB', 'sma_return': 'SMA'
         };
 
+        // ── Хелперы для форматирования новых полей ──
+        // Дельта времени от входа до события: "↑12 мин" или "↑3ч 15м"
+        function deltaMin(fromTs, toTs) {
+            if (!fromTs || !toTs) return null;
+            var min = Math.round((toTs - fromTs) / 60000);
+            if (min < 60) return min + ' мин';
+            var h = Math.floor(min / 60);
+            var m = min % 60;
+            return h + 'ч' + (m ? ' ' + m + 'м' : '');
+        }
+        // Стрелка направления первого движения
+        function firstMoveIcon(fm) {
+            if (fm === 'favor') return '<span style="color:#10B981;">↑</span>';
+            if (fm === 'adverse') return '<span style="color:#EF4444;">↓</span>';
+            return '<span style="color:#636B76;">–</span>';
+        }
+        // Процент взятия от пика: pnl / maxFav × 100, только если пик был значимый
+        function tookPctStr(t) {
+            if (!t.maxUnrealized || t.maxUnrealized < 0.5) return null;
+            var pct = Math.round((t.pnl / t.maxUnrealized) * 100);
+            var col = pct >= 70 ? '#10B981' : pct >= 40 ? '#FBBF24' : '#EF4444';
+            return '<span style="color:' + col + ';">' + pct + '%</span>';
+        }
+
         // Определяем мобильный режим
         var isMobile = window.innerWidth < 768;
 
@@ -2468,27 +3059,81 @@
                 var botLabel = t.botLabel || '—';
                 var pnlStr = (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2);
 
+                // ── Время достижения пиков (относительно входа) ──
+                var maxFavDelta = deltaMin(t.openedAt, t.maxUnrealizedAt);
+                var maxAdvDelta = deltaMin(t.openedAt, t.maxDrawdownAt);
+                var trailActDelta = deltaMin(t.openedAt, t.trailingActivatedAt);
+
                 // ── DESKTOP: таблица (как раньше) ──
-                var botCol = '<td style="padding:6px 4px;font-size:9px;color:#94A3B8;vertical-align:top;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + botLabel + '">' + botLabel + '</td>';
-                var details = [];
-                if (t.entryRsi != null) details.push('RSI: ' + t.entryRsi);
-                if (t.entryClusterBuy != null) details.push('Класт.вх: B' + t.entryClusterBuy + '%');
-                if (t.exitClusterBuy != null) details.push('Класт.вых: B' + t.exitClusterBuy + '%');
-                if (t.entryAtr != null) details.push('ATR: ' + t.entryAtr);
-                if (t.maxUnrealized) details.push('Макс.+$' + t.maxUnrealized.toFixed(2));
-                if (t.maxDrawdown) details.push('Макс.-$' + Math.abs(t.maxDrawdown).toFixed(2));
-                if (t.durationMin != null) details.push(t.durationMin + ' мин');
-                if (t.strategy) details.push(t.strategy === 'mean_reversion' ? 'MR' : 'Scalp');
-                if (t.clusterEntryUsed) details.push('Класт.фильтр');
+                var botCol = '<td style="padding:6px 4px;font-size:9px;color:#94A3B8;vertical-align:top;white-space:nowrap;" title="' + botLabel + '">' + botLabel + '</td>';
+
+                // Группа 1 — "Вход": индикаторы при открытии
+                var g1 = [];
+                if (t.entryRsi != null) g1.push('RSI ' + t.entryRsi);
+                if (t.entryClusterBuy != null) g1.push('Кл.вх B' + t.entryClusterBuy + '%');
+                if (t.entryAtr != null) g1.push('ATR ' + t.entryAtr);
+                if (t.strategy) g1.push(t.strategy === 'mean_reversion' ? 'MR' : 'Scalp');
+                if (t.clusterEntryUsed) g1.push('Кл.фильтр');
                 if (t.entryRegime && t.entryRegime.allowed) {
-                    // Компактный формат: "Режим: 1h↓ 15m↓ →SHORT"
                     var reg = t.entryRegime;
                     function regArrow(v){ return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
-                    var regStr = (reg.tfHigher || '1h') + regArrow(reg.higher) + ' ' +
-                                 (reg.tfMain || '15m') + regArrow(reg.main) + ' →' + reg.allowed;
-                    details.push('Режим: ' + regStr);
+                    g1.push('Режим ' + (reg.tfHigher || '1h') + regArrow(reg.higher) + ' ' +
+                           (reg.tfMain || '15m') + regArrow(reg.main) + ' →' + reg.allowed);
                 }
-                var detailsHtml = details.length ? '<div style="font-size:8px;color:#475569;margin-top:2px;">' + details.join(' · ') + '</div>' : '';
+
+                // Группа 2 — "Путь": как развивалась сделка
+                var g2 = [];
+                // Первое движение (стрелка)
+                if (t.firstMoveSide) {
+                    var fmTxt = t.firstMoveSide === 'favor' ? '<span style="color:#10B981;">↑в плюс</span>' : '<span style="color:#EF4444;">↓в минус</span>';
+                    g2.push('Первое ' + fmTxt);
+                }
+                // Пик в плюс с таймингом и ценой
+                if (t.maxUnrealized && t.maxUnrealized > 0.01) {
+                    var mfTxt = '<span style="color:#10B981;">Макс+$' + t.maxUnrealized.toFixed(2) + '</span>';
+                    if (maxFavDelta) mfTxt += ' <span style="color:#636B76;">(' + maxFavDelta;
+                    if (t.maxUnrealizedPrice) mfTxt += ' @ ' + t.maxUnrealizedPrice.toFixed(2);
+                    if (maxFavDelta) mfTxt += ')</span>';
+                    g2.push(mfTxt);
+                }
+                // Пик в минус
+                if (t.maxDrawdown && t.maxDrawdown < -0.01) {
+                    var mdTxt = '<span style="color:#EF4444;">Макс−$' + Math.abs(t.maxDrawdown).toFixed(2) + '</span>';
+                    if (maxAdvDelta) mdTxt += ' <span style="color:#636B76;">(' + maxAdvDelta;
+                    if (t.maxDrawdownPrice) mdTxt += ' @ ' + t.maxDrawdownPrice.toFixed(2);
+                    if (maxAdvDelta) mdTxt += ')</span>';
+                    g2.push(mdTxt);
+                }
+                // Длительность
+                if (t.durationMin != null) g2.push(t.durationMin + ' мин');
+                // Взяли N% от пика
+                var took = tookPctStr(t);
+                if (took) g2.push('Взяли ' + took);
+
+                // Группа 3 — "Выход": индикаторы на момент закрытия + трейлинг
+                var g3 = [];
+                if (t.exitClusterBuy != null) g3.push('Кл.вых B' + t.exitClusterBuy + '%');
+                if (t.exitRsi != null) g3.push('RSI ' + t.exitRsi);
+                if (t.exitAtr != null) g3.push('ATR ' + t.exitAtr);
+                // Трейлинг: активировался и на каком уровне
+                if (t.trailingActivated) {
+                    var trTxt = 'TR акт.';
+                    if (t.trailingActivatedPnl != null) trTxt += ' на +$' + t.trailingActivatedPnl.toFixed(2);
+                    if (trailActDelta) trTxt += ' (' + trailActDelta + ')';
+                    g3.push('<span style="color:#FBBF24;">' + trTxt + '</span>');
+                } else if (t.reason === 'stop_loss' && t.maxUnrealized > 1) {
+                    // Был пик но трейлинг не активировался — полезно знать
+                    g3.push('<span style="color:#636B76;">TR не акт.</span>');
+                }
+
+                // Собираем серую строку: три блока через " │ "
+                var detailBlocks = [];
+                if (g1.length) detailBlocks.push(g1.join(' · '));
+                if (g2.length) detailBlocks.push(g2.join(' · '));
+                if (g3.length) detailBlocks.push(g3.join(' · '));
+                var detailsHtml = detailBlocks.length
+                    ? '<div style="font-size:9px;color:#475569;margin-top:3px;line-height:1.5;">' + detailBlocks.join(' <span style="color:#2a2e39;">│</span> ') + '</div>'
+                    : '';
 
                 rowsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">' +
                     '<td style="padding:6px 4px;color:#636B76;font-size:10px;vertical-align:top;">' + (i + 1) + '</td>' +
@@ -2501,19 +3146,56 @@
                     '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;">' + entryP + ' → ' + exitP + '</td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:' + pnlColor + ';font-weight:600;vertical-align:top;">' + pnlStr + ' <span style="font-weight:400;font-size:9px;">' + pnlPct + '</span></td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:#636B76;vertical-align:top;">$' + (t.fee || 0).toFixed(2) + '</td>' +
-                    '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;">' + reason + detailsHtml + '</td>' +
+                    '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;max-width:260px;white-space:normal;word-break:break-word;">' + reason + detailsHtml + '</td>' +
                     '</tr>';
 
                 // ── MOBILE: карточка, раскрывается по тапу ──
                 // Скрытая часть — все технические детали
                 var expandedRows = '';
                 if (t.fee != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Комиссия</span><span style="color:#CBD5E1;">$' + t.fee.toFixed(2) + '</span></div>';
+                // ── Блок "Вход" ──
+                if (t.strategy) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Стратегия</span><span style="color:#CBD5E1;">' + (t.strategy === 'mean_reversion' ? 'Mean Reversion' : t.strategy === 'scalper' ? 'Scalper' : t.strategy) + '</span></div>';
                 if (t.entryRsi != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">RSI на входе</span><span style="color:#CBD5E1;">' + t.entryRsi + '</span></div>';
                 if (t.entryClusterBuy != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Кластер вход</span><span style="color:#CBD5E1;">B' + t.entryClusterBuy + '%</span></div>';
+                if (t.entryAtr != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">ATR вход</span><span style="color:#CBD5E1;">' + t.entryAtr + '</span></div>';
+
+                // ── Блок "Путь": пики с таймингом и первое движение ──
+                if (t.firstMoveSide) {
+                    var fmCol = t.firstMoveSide === 'favor' ? '#10B981' : '#EF4444';
+                    var fmLbl = t.firstMoveSide === 'favor' ? '↑ в плюс' : '↓ в минус';
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Первое движение</span><span style="color:' + fmCol + ';">' + fmLbl + '</span></div>';
+                }
+                if (t.maxUnrealized) {
+                    var mfVal = '+$' + t.maxUnrealized.toFixed(2);
+                    if (maxFavDelta) mfVal += ' <span style="color:#64748B;font-size:10px;">· ' + maxFavDelta + '</span>';
+                    if (t.maxUnrealizedPrice) mfVal += ' <span style="color:#64748B;font-size:10px;">@ ' + t.maxUnrealizedPrice.toFixed(2) + '</span>';
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс +</span><span style="color:#10B981;">' + mfVal + '</span></div>';
+                }
+                if (t.maxDrawdown) {
+                    var mdVal = '−$' + Math.abs(t.maxDrawdown).toFixed(2);
+                    if (maxAdvDelta) mdVal += ' <span style="color:#64748B;font-size:10px;">· ' + maxAdvDelta + '</span>';
+                    if (t.maxDrawdownPrice) mdVal += ' <span style="color:#64748B;font-size:10px;">@ ' + t.maxDrawdownPrice.toFixed(2) + '</span>';
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс −</span><span style="color:#EF4444;">' + mdVal + '</span></div>';
+                }
+                // Взяли N% от пика — отдельной строкой
+                var tookM = tookPctStr(t);
+                if (tookM) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Взяли от пика</span><span>' + tookM + '</span></div>';
+
+                // ── Блок "Выход" ──
                 if (t.exitClusterBuy != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Кластер выход</span><span style="color:#CBD5E1;">B' + t.exitClusterBuy + '%</span></div>';
-                if (t.entryAtr != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">ATR</span><span style="color:#CBD5E1;">' + t.entryAtr + '</span></div>';
-                if (t.maxUnrealized) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс +</span><span style="color:#10B981;">+$' + t.maxUnrealized.toFixed(2) + '</span></div>';
-                if (t.maxDrawdown) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс −</span><span style="color:#EF4444;">−$' + Math.abs(t.maxDrawdown).toFixed(2) + '</span></div>';
+                if (t.exitRsi != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">RSI выход</span><span style="color:#CBD5E1;">' + t.exitRsi + '</span></div>';
+                if (t.exitAtr != null) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">ATR выход</span><span style="color:#CBD5E1;">' + t.exitAtr + '</span></div>';
+
+                // ── Трейлинг: активировался или нет ──
+                if (t.trailingActivated) {
+                    var trVal = 'активирован';
+                    if (t.trailingActivatedPnl != null) trVal += ' на +$' + t.trailingActivatedPnl.toFixed(2);
+                    if (trailActDelta) trVal += ' <span style="color:#64748B;font-size:10px;">· ' + trailActDelta + '</span>';
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Трейлинг</span><span style="color:#FBBF24;">' + trVal + '</span></div>';
+                } else if (t.reason === 'stop_loss' && t.maxUnrealized > 1) {
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Трейлинг</span><span style="color:#636B76;">не активировался</span></div>';
+                }
+
                 expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Тип входа</span><span style="color:' + entryColor + ';">' + entryLabel + '</span></div>';
                 if (t.clusterEntryUsed) expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Кластер-фильтр</span><span style="color:#FBBF24;">вкл</span></div>';
                 if (t.entryRegime && t.entryRegime.allowed) {
@@ -2568,7 +3250,7 @@
             closeSize = 'width:40px;height:40px;';
         } else {
             modalOuterStyle = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
-            modalInnerStyle = 'background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:90%;max-width:900px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;';
+            modalInnerStyle = 'background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:95%;max-width:1400px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;';
             headerPadding = 'padding:14px 18px;';
             statsPadding = 'padding:12px 18px;';
             contentPadding = 'padding:0 18px;';
@@ -2607,6 +3289,7 @@
                     <svg width="' + (isMobile ? 20 : 16) + '" height="' + (isMobile ? 20 : 16) + '" viewBox="0 0 16 16" fill="none"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="#26a69a" stroke-width="1.2" fill="none"/><line x1="5" y1="4.5" x2="11" y2="4.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="7" x2="11" y2="7" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="9.5" x2="9" y2="9.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/></svg>\
                     <span style="font-size:' + (isMobile ? '15px' : '13px') + ';font-weight:700;color:#E2E8F0;flex:1;">Журнал сделок</span>\
                     <div id="botJournalCsv" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:#94A3B8;transition:all 0.2s;display:flex;align-items:center;gap:4px;" title="Скачать CSV"><svg width="' + (isMobile ? 12 : 10) + '" height="' + (isMobile ? 12 : 10) + '" viewBox="0 0 10 10" fill="none"><path d="M5 1v6M2.5 4.5L5 7l2.5-2.5M1 8.5h8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>CSV</div>\
+                    <div id="botJournalClear" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(239,68,68,0.25);color:#EF4444;transition:all 0.2s;display:flex;align-items:center;gap:4px;" title="Очистить журнал"><svg width="' + (isMobile ? 12 : 10) + '" height="' + (isMobile ? 12 : 10) + '" viewBox="0 0 10 10" fill="none"><path d="M2 3h6M3.5 3V2a0.5 0.5 0 0 1 0.5 -0.5h2a0.5 0.5 0 0 1 0.5 0.5v1M2.5 3l0.5 5.5a0.5 0.5 0 0 0 0.5 0.5h3a0.5 0.5 0 0 0 0.5 -0.5L7.5 3" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg>Очистить</div>\
                     <div id="botJournalToggle" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:' + toggleBtnColor + ';transition:all 0.2s;">' + toggleBtnLabel + '</div>\
                     <div id="botJournalClose" style="cursor:pointer;color:#94A3B8;' + closeSize + 'display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;"><svg width="' + closeIconSize + '" height="' + closeIconSize + '" viewBox="0 0 12 12" fill="none"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>\
                 </div>\
@@ -2633,6 +3316,7 @@
         modal.querySelector('#botJournalClose').onclick = function() { modal.remove(); };
         modal.querySelector('#botJournalToggle').onclick = function() { openJournal(!isAllBots); };
         modal.querySelector('#botJournalCsv').onclick = function() { exportTradesToCSV(trades, isAllBots); };
+        modal.querySelector('#botJournalClear').onclick = function() { confirmClearTrades(isAllBots); };
         // Закрытие по клику в тёмный фон — только на десктопе (на мобиле фона нет, это fullscreen)
         if (!isMobile) {
             modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
@@ -2662,13 +3346,15 @@
 
     // ── CSV-экспорт журнала сделок ──
     // Выгружает список сделок в .csv-файл с UTF-8 BOM (для корректного открытия в Excel).
+    // Полный набор колонок — все поля trade, включая тайминги пиков и индикаторы выхода.
     function exportTradesToCSV(trades, isAllBots) {
         if (!trades || !trades.length) return;
 
         var reasonMap = {
             'stop_loss': 'Стоп', 'take_profit': 'Тейк', 'timeout': 'Таймаут',
             'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'cluster_exit': 'Кластер',
-            'manual_close': 'Ручной', 'bb_touch': 'BB', 'sma_return': 'SMA'
+            'manual_close': 'Ручной', 'bb_touch': 'BB', 'sma_return': 'SMA',
+            'manual_limit_exit': 'Лимит'
         };
 
         // Экранирование для CSV (RFC 4180): поле в кавычках, внутренние кавычки удваиваются
@@ -2681,28 +3367,118 @@
             return s;
         }
 
-        var headers = ['#','Бот','Пара','Вход','Выход','Направление','Тип входа','Цена входа','Цена выхода','P&L','Комиссия','Выход по'];
+        function fmtDate(ts) {
+            if (!ts) return '';
+            // ISO до секунд, с "T" заменённой на пробел — лучше читается в Excel/Numbers
+            return new Date(ts).toISOString().slice(0, 19).replace('T', ' ') + 'Z';
+        }
+        function n(v, d) {
+            if (d == null) d = 2;
+            if (v == null || isNaN(v)) return '';
+            return Number(v).toFixed(d);
+        }
+        function regimeStr(r) {
+            if (!r) return '';
+            function arr(v) { return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
+            return (r.tfHigher || '1h') + arr(r.higher) + ' ' + (r.tfMain || '15m') + arr(r.main) + ' →' + (r.allowed || 'BOTH');
+        }
+        // Дельта в минутах от входа до события
+        function deltaMinN(fromTs, toTs) {
+            if (!fromTs || !toTs) return '';
+            return Math.round((toTs - fromTs) / 60000);
+        }
+
+        var headers = [
+            '#','Бот','Пара','Стратегия','Режим входа','Фильтр направления',
+            'Тип входа','Сторона',
+            'Вход время','Выход время','Длительность (мин)','Свечей удержано',
+            'Цена входа','Цена выхода','Стоп','Таргет','Размер ($)',
+            'R:R','P&L Gross','P&L Net','P&L %','Комиссия',
+            'Макс.+','Макс.+ через (мин)','Макс.+ цена',
+            'Макс.−','Макс.− через (мин)','Макс.− цена',
+            'Первое движение','Взяли от пика (%)',
+            'RSI вход','BB upper вх','BB middle вх','BB lower вх','ATR вход',
+            'RSI выход','BB upper вых','BB middle вых','BB lower вых','ATR выход',
+            'Кластер вход %','Кластер выход %','Δ Кластер','Кластерный фильтр',
+            'Трейлинг активирован','Трейлинг активирован через (мин)','Трейлинг активирован на ($)','Трейлинг активирован @ цене',
+            'Режим рынка','Касаний уровня','Выход по'
+        ];
         var lines = [headers.map(csvCell).join(',')];
 
         trades.forEach(function(t, i) {
-            var pnlStr = (t.pnl >= 0 ? '+' : '') + t.pnl.toFixed(2);
-            if (t.pnlPct !== undefined && t.pnlPct !== null) {
-                pnlStr += ' (' + (t.pnlPct >= 0 ? '+' : '') + t.pnlPct + '%)';
-            }
+            var pnlStr = (t.pnl >= 0 ? '+' : '') + (t.pnl != null ? t.pnl.toFixed(2) : '0.00');
+            if (t.pnlPct != null) pnlStr += ' (' + (t.pnlPct >= 0 ? '+' : '') + t.pnlPct + '%)';
             var entryLabel = t.entryType === 'manual' ? 'Ручной' : (t.entryType === 'bot_tick' ? 'Бот (тик)' : 'Бот');
             var reason = reasonMap[t.reason] || t.reason || '';
+
+            // Первое движение
+            var firstMove = t.firstMoveSide === 'favor' ? '↑ в плюс'
+                          : t.firstMoveSide === 'adverse' ? '↓ в минус'
+                          : '';
+
+            // Взяли от пика %
+            var tookPct = '';
+            if (t.maxUnrealized && t.maxUnrealized > 0.01 && t.pnl != null) {
+                tookPct = Math.round((t.pnl / t.maxUnrealized) * 100);
+            }
+
+            // Δ кластер
+            var deltaCl = '';
+            if (t.entryClusterBuy != null && t.exitClusterBuy != null) {
+                deltaCl = t.exitClusterBuy - t.entryClusterBuy;
+            }
+
             var row = [
                 i + 1,
                 t.botLabel || '',
                 t.pair || '',
-                t.openedAt ? new Date(t.openedAt).toISOString().slice(0, 16) + 'Z' : '',
-                t.closedAt ? new Date(t.closedAt).toISOString().slice(0, 16) + 'Z' : '',
-                t.side || '',
+                t.strategy || '',
+                t.entryMode || '',
+                t.direction || '',
                 entryLabel,
-                t.entryPrice != null ? t.entryPrice.toFixed(2) : '',
-                t.closePrice != null ? t.closePrice.toFixed(2) : '',
-                pnlStr,
-                t.fee != null ? t.fee.toFixed(2) : '',
+                t.side || '',
+                fmtDate(t.openedAt),
+                fmtDate(t.closedAt),
+                t.durationMin != null ? t.durationMin : '',
+                t.candlesHeld != null ? t.candlesHeld : '',
+                n(t.entryPrice),
+                n(t.closePrice),
+                n(t.stop),
+                n(t.target),
+                n(t.size),
+                t.riskReward != null ? t.riskReward : '',
+                n(t.grossPnl),
+                n(t.pnl),
+                t.pnlPct != null ? t.pnlPct : '',
+                n(t.fee),
+                n(t.maxUnrealized),
+                deltaMinN(t.openedAt, t.maxUnrealizedAt),
+                n(t.maxUnrealizedPrice),
+                n(t.maxDrawdown),
+                deltaMinN(t.openedAt, t.maxDrawdownAt),
+                n(t.maxDrawdownPrice),
+                firstMove,
+                tookPct,
+                t.entryRsi != null ? t.entryRsi : '',
+                n(t.entryBbUpper),
+                n(t.entryBbMiddle),
+                n(t.entryBbLower),
+                n(t.entryAtr),
+                t.exitRsi != null ? t.exitRsi : '',
+                n(t.exitBbUpper),
+                n(t.exitBbMiddle),
+                n(t.exitBbLower),
+                n(t.exitAtr),
+                t.entryClusterBuy != null ? t.entryClusterBuy : '',
+                t.exitClusterBuy != null ? t.exitClusterBuy : '',
+                deltaCl,
+                t.clusterEntryUsed ? 'да' : 'нет',
+                t.trailingActivated ? 'да' : 'нет',
+                deltaMinN(t.openedAt, t.trailingActivatedAt),
+                n(t.trailingActivatedPnl),
+                n(t.trailingActivatedPrice),
+                regimeStr(t.entryRegime),
+                t.levelTouches != null ? t.levelTouches : '',
                 reason
             ];
             lines.push(row.map(csvCell).join(','));
@@ -2781,6 +3557,7 @@
                             _state.bots[i].position = _state.position || null;
                             _state.bots[i].running = nowRunning;
                             _state.bots[i].dayPnl = _state.dayPnl;
+                            _state.bots[i].totalPnl = _state.totalPnl;
                             break;
                         }
                     }
@@ -2807,6 +3584,20 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (requestedBotId !== _state.botId) return; // бота уже переключили
+
+                // Рисуем маркеры истории сделок на графике только при изменениях,
+                // чтобы не дёргать setMarkers() каждую секунду поллинга.
+                var newCount = (data.trades || []).length;
+                var lastClosedAt = newCount > 0 ? (data.trades[0].closedAt || 0) : 0;
+                var prevKey = _state._lastTradeMarkersKey || '';
+                var nextKey = requestedBotId + '|' + newCount + '|' + lastClosedAt;
+                if (nextKey !== prevKey) {
+                    _state._lastTradeMarkersKey = nextKey;
+                    if (typeof window._drawBotTrades === 'function') {
+                        window._drawBotTrades(data.trades || []);
+                    }
+                }
+
                 var log = document.getElementById('botWidgetLog');
                 if (!log) return;
                 if (!data.trades || !data.trades.length) {
@@ -2867,7 +3658,9 @@
     function getBotLabel(bot) {
         if (bot.botName) return bot.botName;
         var s = '\u00b7'; // ·
-        var strat = bot.strategy === 'mean_reversion' ? 'MR' : 'SC';
+        var strat = bot.strategy === 'mean_reversion' ? 'MR'
+                  : bot.strategy === 'manual' ? 'MN'
+                  : 'SC';
         var mode = (bot.entryMode === 'tick') ? 'T' : 'C';
         var dir = bot.direction === 'long' ? 'L' : bot.direction === 'short' ? 'S' : 'L+S';
         var trail = bot.trailingEnabled ? ' ' + s + ' TR' : '';
@@ -2992,9 +3785,11 @@
             else if (hasPos)  dotClass = 'bot-dot-in-position';
             else              dotClass = 'bot-dot-idle';
 
-            var dayPnl = (typeof bot.dayPnl === 'number' && !isNaN(bot.dayPnl)) ? bot.dayPnl : 0;
-            var pnlStr = dayPnl >= 0 ? '+$' + dayPnl.toFixed(2) : '-$' + Math.abs(dayPnl).toFixed(2);
-            var pnlColor = dayPnl >= 0 ? '#26a69a' : '#EF5350';
+            // Общий P&L бота за всё время (сумма всех закрытых сделок).
+            // Сервер должен возвращать bot.totalPnl из /api/bot/list.
+            var totalPnl = (typeof bot.totalPnl === 'number' && !isNaN(bot.totalPnl)) ? bot.totalPnl : 0;
+            var pnlStr = totalPnl >= 0 ? '+$' + totalPnl.toFixed(2) : '-$' + Math.abs(totalPnl).toFixed(2);
+            var pnlColor = totalPnl >= 0 ? '#26a69a' : '#EF5350';
 
             row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:7px 10px;cursor:pointer;transition:background 0.15s;' +
                 (isActive ? 'background:rgba(38,166,154,0.08);' : '');
@@ -3074,6 +3869,12 @@
         _state.bbData = null;
         _state.volumeInfo = null;
         _state.clusterInfo = null;
+        _state._lastTradeMarkersKey = '';  // сброс ключа — маркеры перерисуются
+
+        // Очищаем маркеры сделок на графике
+        if (typeof window._clearBotTrades === 'function') {
+            window._clearBotTrades();
+        }
 
         var log = document.getElementById('botWidgetLog');
         if (log) log.innerHTML = '<div class="bot-w-log-empty">Сделок пока нет</div>';
@@ -3141,9 +3942,9 @@
                 window._botCurrentBotId = botId;
             }
 
-            // Перерисовываем уровни для нового бота
-            if (bot.running && typeof window._startBotLevels === 'function') {
-                window._startBotLevels();
+            // Перерисовываем уровни для нового бота (с учётом стратегии — manual не рисует)
+            if (bot.running) {
+                syncBotLevelsVisibility();
             }
         }
 
@@ -3194,6 +3995,11 @@
                 rsiPeriod: _state.rsiPeriod,
                 rsiOverbought: _state.rsiOverbought,
                 rsiOversold: _state.rsiOversold,
+                // Manual-стратегия
+                manualStopPct: _state.manualStopPct,
+                manualSizeMode: _state.manualSizeMode,
+                manualFixedSizePct: _state.manualFixedSizePct,
+                manualTimeoutEnabled: !!_state.manualTimeoutEnabled,
             })
         })
         .then(function(r) { return r.json(); })
@@ -3313,9 +4119,9 @@
                         // Запускаем поллинг
                         startStatusPolling(uid);
 
-                        // Рисуем уровни бота на графике
+                        // Рисуем уровни бота на графике (только для scalper/MR)
                         window._botCurrentBotId = _state.botId;
-                        if (typeof window._startBotLevels === 'function') window._startBotLevels();
+                        syncBotLevelsVisibility();
 
                         // Подгружаем историю сделок
                         if (data.tradeCount > 0) fetchTrades(uid);

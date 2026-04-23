@@ -5958,6 +5958,7 @@
         .fs-chart-area[data-ann-tool="card"]   { cursor:crosshair; }
         .fs-chart-area[data-ann-tool="rect"]   { cursor:crosshair; }
         .fs-chart-area[data-ann-tool="hline"]  { cursor:ns-resize; }
+        .fs-chart-area[data-ann-tool="hray"]   { cursor:crosshair; }
         .fs-chart-area[data-ann-tool="long"]   { cursor:crosshair; }
         .fs-chart-area[data-ann-tool="short"]  { cursor:crosshair; }
         .fs-chart-area[data-ann-tool="delete"] { cursor:not-allowed; }
@@ -6424,6 +6425,9 @@
                                 
                             </div>
                             <!-- Инструменты аннотаций (admin only) -->
+                            <!-- АКТУАЛЬНЫЙ тулбар аннотаций (тот, что реально видит пользователь
+                                 в UI). Кнопки проксируют клики на скрытый #ann-bar по id
+                                 `ann-tool-{name}` — см. регистрацию в ~line 16193. -->
                             <div class="small-ann-tools admin-only" id="smallAnnTools" style="display:none;">
                                 <button class="small-ann-btn" data-tool="text" title="Текст">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="3" x2="15" y2="3"/><line x1="9" y1="3" x2="9" y2="15"/><line x1="6" y1="15" x2="12" y2="15"/></svg>
@@ -6442,6 +6446,9 @@
                                 </button>
                                 <button class="small-ann-btn" data-tool="hline" title="Горизонтальная линия">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="9" x2="16" y2="9"/><circle cx="2" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="9" r="1.3" fill="currentColor" stroke="none"/></svg>
+                                </button>
+                                <button class="small-ann-btn" data-tool="hray" title="Горизонтальный луч">
+                                    <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="5" y1="9" x2="16" y2="9"/><circle cx="5" cy="9" r="1.8" fill="currentColor" stroke="none"/></svg>
                                 </button>
                                 <button class="small-ann-btn" data-tool="trendline" title="Trend line">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="14" x2="16" y2="4"/><circle cx="2" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="4" r="1.3" fill="currentColor" stroke="none"/></svg>
@@ -8456,6 +8463,7 @@
         let lwVolumeSeries = null; // серия объёмов
         let lwLevelLines = [];     // массив priceLine объектов
         let lwBotLevelLines = [];  // массив priceLine объектов уровней бота
+        let lwBotPositionLines = []; // массив priceLine: entry/stop/exit-limit/pending-limit текущей позиции бота
         let lwBBSeries = [];       // LineSeries для Bollinger Bands (верх, средняя, низ)
         let _botLevelsActive = false; // бот рисует уровни на графике
         let _botLevelsPollTimer = null;
@@ -8531,6 +8539,11 @@
             window._ema90closes = null;
             _indCache = null;
             updateCurrentPrice();
+
+            // Загружаем сохранённые аннотации этой пары (и сохраняем старые)
+            if (typeof window._annOnSymbolChange === 'function') {
+                window._annOnSymbolChange(coin.symbol);
+            }
 
             // Если бот рисует уровни — проверяем совпадение пары
             if (_botLevelsActive && window._botCurrentBotId) {
@@ -9420,6 +9433,177 @@
             });
         }
 
+        // ── Линии текущей позиции бота (entry / stop / exit-limit / pending-limit) ──
+        function clearBotPositionLines() {
+            lwBotPositionLines.forEach(l => { try { lwSeries.removePriceLine(l); } catch {} });
+            lwBotPositionLines = [];
+        }
+
+        // Рисует линии для открытой позиции и ожидающих лимиток.
+        // Вызывается из bot-panel.js через window._drawBotPosition().
+        // position: { side, entryPrice, stop, ... } или null
+        // pendingExit: { price } или null — лимитный выход (manual)
+        // pendingLimit: { side, price } или null — лимит на вход (manual, позиции ещё нет)
+        function drawBotPositionLines(position, pendingExit, pendingLimit) {
+            if (!lwSeries || !lwChart) return;
+
+            // Не рисуем если пара графика не совпадает с парой бота
+            const botSymbol = typeof window._getBotPairSymbol === 'function' ? window._getBotPairSymbol() : null;
+            if (botSymbol && selectedCoin && botSymbol !== selectedCoin.symbol) {
+                clearBotPositionLines();
+                return;
+            }
+
+            clearBotPositionLines();
+
+            try {
+                // ── Открытая позиция: entry + stop ──
+                if (position && position.entryPrice) {
+                    const isLong = position.side === 'LONG';
+                    const entryColor = isLong ? '#10B981' : '#EF4444';
+                    const entryLabel = `${position.side} @ ${position.entryPrice}`;
+                    const entryLineObj = lwSeries.createPriceLine({
+                        price:              position.entryPrice,
+                        color:              entryColor,
+                        lineWidth:          2,
+                        lineStyle:          0,  // сплошная
+                        axisLabelVisible:   true,
+                        title:              entryLabel,
+                        axisLabelColor:     entryColor,
+                        axisLabelTextColor: '#fff',
+                    });
+                    lwBotPositionLines.push(entryLineObj);
+
+                    // Стоп-лосс — красный пунктир
+                    if (position.stop) {
+                        const stopLineObj = lwSeries.createPriceLine({
+                            price:              position.stop,
+                            color:              '#EF4444',
+                            lineWidth:          1,
+                            lineStyle:          2,  // пунктир
+                            axisLabelVisible:   true,
+                            title:              'SL',
+                            axisLabelColor:     '#EF4444',
+                            axisLabelTextColor: '#fff',
+                        });
+                        lwBotPositionLines.push(stopLineObj);
+                    }
+
+                    // Лимитный выход (TP) — жёлтый пунктир
+                    if (pendingExit && pendingExit.price) {
+                        const tpLineObj = lwSeries.createPriceLine({
+                            price:              pendingExit.price,
+                            color:              '#FBBF24',
+                            lineWidth:          1,
+                            lineStyle:          2,  // пунктир
+                            axisLabelVisible:   true,
+                            title:              'TP',
+                            axisLabelColor:     '#FBBF24',
+                            axisLabelTextColor: '#000',
+                        });
+                        lwBotPositionLines.push(tpLineObj);
+                    }
+                }
+
+                // ── Pending limit на вход (позиции ещё нет) ──
+                // Пунктирная линия цвета стороны + иконка "ждём"
+                if (!position && pendingLimit && pendingLimit.price) {
+                    const plIsLong = pendingLimit.side === 'LONG';
+                    const plColor = plIsLong ? '#10B981' : '#EF4444';
+                    const plLabel = `⏳ ${pendingLimit.side} LIMIT`;
+                    const plLineObj = lwSeries.createPriceLine({
+                        price:              pendingLimit.price,
+                        color:              plColor,
+                        lineWidth:          1,
+                        lineStyle:          1,  // точечный
+                        axisLabelVisible:   true,
+                        title:              plLabel,
+                        axisLabelColor:     plColor,
+                        axisLabelTextColor: '#fff',
+                    });
+                    lwBotPositionLines.push(plLineObj);
+                }
+            } catch(e) {
+                console.warn('[BOT] position priceLine error:', e);
+            }
+        }
+
+        // Глобальный хук для bot-panel.js
+        window._drawBotPosition = drawBotPositionLines;
+        window._clearBotPosition = clearBotPositionLines;
+
+        // ── Маркеры истории сделок бота ──
+        // Хранилище — массив маркеров в формате lightweight-charts:
+        // { time, position: 'belowBar'|'aboveBar', shape, color, text }.
+        // Рендер отдельный от паттерн-маркеров (_lastScanMarkers) — при каждом обновлении
+        // объединяем оба набора и зовём setMarkers один раз.
+        window._botTradeMarkers = [];
+
+        function _applyCombinedMarkers() {
+            if (!lwSeries) return;
+            try {
+                const scan = Array.isArray(window._lastScanMarkers) ? window._lastScanMarkers : [];
+                const trades = window._botTradeMarkers || [];
+                // lightweight-charts требует сортировку маркеров по time.
+                const combined = scan.concat(trades).slice().sort((a, b) => a.time - b.time);
+                lwSeries.setMarkers(combined);
+            } catch(e) {
+                console.warn('[BOT] combined markers error:', e);
+            }
+        }
+
+        function clearBotTradeMarkers() {
+            window._botTradeMarkers = [];
+            _applyCombinedMarkers();
+        }
+
+        // trades: массив сделок с полями {side, entryPrice, closePrice, openedAt, closedAt, pnl}.
+        // openedAt/closedAt в миллисекундах — lightweight-charts требует секунды (Unix time).
+        function drawBotTradeMarkers(trades) {
+            if (!lwSeries || !lwChart) return;
+
+            // Не рисуем если пара графика не совпадает с парой бота
+            const botSymbol = typeof window._getBotPairSymbol === 'function' ? window._getBotPairSymbol() : null;
+            if (botSymbol && selectedCoin && botSymbol !== selectedCoin.symbol) {
+                clearBotTradeMarkers();
+                return;
+            }
+
+            if (!Array.isArray(trades) || trades.length === 0) {
+                clearBotTradeMarkers();
+                return;
+            }
+
+            const markers = [];
+            trades.forEach(t => {
+                if (!t || !t.openedAt || !t.closedAt) return;
+                const isLong = t.side === 'LONG';
+                // Для LONG: стрелка вверх снизу свечи (зелёная) на входе, стрелка вниз сверху (серая) на выходе.
+                // Для SHORT: симметрично.
+                // Цвет стрелки ВЫХОДА — серый, чтобы не путать с pnl (не зелёный/красный).
+                markers.push({
+                    time: Math.floor(t.openedAt / 1000),
+                    position: isLong ? 'belowBar' : 'aboveBar',
+                    shape: isLong ? 'arrowUp' : 'arrowDown',
+                    color: isLong ? '#10B981' : '#EF4444',
+                    text: t.side,
+                });
+                markers.push({
+                    time: Math.floor(t.closedAt / 1000),
+                    position: isLong ? 'aboveBar' : 'belowBar',
+                    shape: isLong ? 'arrowDown' : 'arrowUp',
+                    color: '#94A3B8',  // серый — выход
+                    text: '',
+                });
+            });
+
+            window._botTradeMarkers = markers;
+            _applyCombinedMarkers();
+        }
+
+        window._drawBotTrades = drawBotTradeMarkers;
+        window._clearBotTrades = clearBotTradeMarkers;
+
         function fetchAndDrawBotLevels() {
             // Не рисуем если пара графика не совпадает с парой бота
             var botSymbol = typeof window._getBotPairSymbol === 'function' ? window._getBotPairSymbol() : null;
@@ -9469,6 +9653,7 @@
                 _botLevelsPollTimer = null;
             }
             clearBotLevelLines();
+            clearBotPositionLines();
             clearBBSeries();
         }
 
@@ -13567,7 +13752,15 @@
 
         // Устанавливаем маркеры на свечную серию
         window._lastScanMarkers = [...allMarkers];
-        try { lwSeries.setMarkers(allMarkers); } catch (e) {}
+        try {
+            // Если есть trade-маркеры бота, применяем объединённый набор (scan + trades).
+            // Иначе сохраняем старое поведение напрямую.
+            if (typeof _applyCombinedMarkers === 'function' && window._botTradeMarkers && window._botTradeMarkers.length) {
+                _applyCombinedMarkers();
+            } else {
+                lwSeries.setMarkers(allMarkers);
+            }
+        } catch (e) {}
 
         // --- Панель паттернов маленького графика ---
         {
@@ -15329,7 +15522,14 @@
         </button>
     </div>
 
-    <!-- Annotation toolbar (admin only) -->
+    <!-- ══════════════════════════════════════════════════════════════════
+         LEGACY: большой тулбар аннотаций (display:none, НЕ используется в UI).
+         Оставлен потому, что кнопки маленького тулбара (#smallAnnTools) проксируют
+         клики сюда по id `ann-tool-{name}` — см. code ~line 16193.
+         Если будешь удалять — сначала перенеси логику биндинга setTool
+         в маленький тулбар напрямую.
+         Актуальный тулбар, который видит пользователь — #smallAnnTools (~line 6428).
+         ═══════════════════════════════════════════════════════════════════ -->
     <div id="ann-bar" class="admin-only" style="display:none">
         <span class="ann-bar-label">Аннотации</span>
         <button class="ann-tool-btn" id="ann-tool-text" data-ann-tooltip="Текст">
@@ -15349,6 +15549,9 @@
         </button>
         <button class="ann-tool-btn" id="ann-tool-hline" data-ann-tooltip="Горизонтальная линия">
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="9" x2="16" y2="9"/><circle cx="2" cy="9" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="9" r="1.3" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button class="ann-tool-btn" id="ann-tool-hray" data-ann-tooltip="Горизонтальный луч">
+            <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="5" y1="9" x2="16" y2="9"/><circle cx="5" cy="9" r="1.8" fill="currentColor" stroke="none"/></svg>
         </button>
         <button class="ann-tool-btn" id="ann-tool-trendline" data-ann-tooltip="Trend line">
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2" y1="14" x2="16" y2="4"/><circle cx="2" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="16" cy="4" r="1.3" fill="currentColor" stroke="none"/></svg>
@@ -15526,9 +15729,90 @@
 
 
         let fsRangeChangeTimer = null;
+        // ── Синхронизация SVG-overlay аннотаций с canvas графика ──
+        // Lightweight Charts перерисовывает свой canvas мгновенно при pan/zoom.
+        // Наши инструменты (hline/hray/trendline/rect/arrow и т.д.) живут в отдельном
+        // SVG-слое поверх графика, поэтому их нужно перерисовывать в том же кадре.
+        // Используем rAF-throttle, чтобы при быстром скролле не было лишних вызовов.
+        let _annRafPending = false;
+        function _scheduleAnnRepaint() {
+            if (_annRafPending) return;
+            _annRafPending = true;
+            requestAnimationFrame(() => {
+                _annRafPending = false;
+                // Быстрый путь: обновляем только координаты, без пересоздания DOM.
+                // Это убирает моргание при pan/zoom — структура <g> остаётся, браузер
+                // просто двигает существующие элементы.
+                if (typeof updateAnnotationsPositions === 'function') {
+                    try { updateAnnotationsPositions(); } catch(e) {}
+                } else if (typeof renderAnnotations === 'function') {
+                    try { renderAnnotations(); } catch(e) {}
+                }
+            });
+        }
         fsChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-            // Паттерны фиксированы — не пересканируем при скролле/зуме
+            // Паттерны фиксированы — не пересканируем при скролле/зуме.
+            // Но перерисовываем SVG-overlay аннотаций, чтобы линии инструментов
+            // двигались синхронно со свечами (без визуального отставания).
+            _scheduleAnnRepaint();
         });
+        // Ресайз контейнера графика: ширина/высота канваса меняется —
+        // пиксельные координаты SVG тоже устаревают.
+        if (typeof fsChart.timeScale().subscribeSizeChange === 'function') {
+            fsChart.timeScale().subscribeSizeChange(_scheduleAnnRepaint);
+        }
+
+        // ── rAF-цикл при драге самого графика ──
+        // Проблема: Lightweight Charts НЕ предоставляет событие изменения
+        // видимого диапазона ЦЕНЫ (только времени через subscribeVisibleLogicalRangeChange).
+        // Поэтому при вертикальном pan (юзер зажал ЛКМ и тянет график вверх/вниз)
+        // наш SVG-overlay не получает никаких уведомлений и остаётся на старых координатах
+        // до следующего mousemove. Отсюда ощущение «моргания» и рассинхрона со свечами.
+        //
+        // Решение: пока ЛКМ зажата над контейнером графика — крутим rAF-цикл,
+        // в каждом кадре вызывая updateAnnotationsPositions(). Это те же ~60fps,
+        // что рисует сам движок графика — получается идеальная синхронность.
+        // При mouseup цикл останавливается (не жрёт CPU впустую).
+        (function() {
+            let dragActive = false;
+            let rafId = null;
+            function tick() {
+                if (!dragActive) { rafId = null; return; }
+                try { updateAnnotationsPositions(); } catch(e) {}
+                rafId = requestAnimationFrame(tick);
+            }
+            // Привязываемся к самому контейнеру графика, а НЕ к документу:
+            // иначе любой клик на странице запустит цикл.
+            fsChartEl.addEventListener('mousedown', function(e) {
+                // Игнорируем драг самих аннотаций — он уже обрабатывается отдельно
+                // через dragState и переотрисовку renderAnnotations (полный rebuild
+                // там нужен, т.к. обновляется сам ann). Но на всякий случай
+                // запускаем тоже — лишнего апдейта overlay это не стоит ничего.
+                if (dragActive) return;
+                dragActive = true;
+                if (rafId == null) rafId = requestAnimationFrame(tick);
+            });
+            // mouseup ловим на окне — юзер может отпустить ЛКМ где угодно.
+            window.addEventListener('mouseup', function() {
+                dragActive = false;
+                // Дополнительный финальный апдейт, чтобы позиции точно встали
+                // на место после отпускания (даже если rAF уже успел выйти).
+                _scheduleAnnRepaint();
+            });
+            // Touch-события для мобилы/планшета
+            fsChartEl.addEventListener('touchstart', function() {
+                if (dragActive) return;
+                dragActive = true;
+                if (rafId == null) rafId = requestAnimationFrame(tick);
+            }, { passive: true });
+            window.addEventListener('touchend', function() {
+                dragActive = false;
+                _scheduleAnnRepaint();
+            });
+            window.addEventListener('touchcancel', function() {
+                dragActive = false;
+            });
+        })();
 
         // OHLC legend on crosshair move
         const ohlcLegend = document.getElementById('fsOhlcLegend');
@@ -16183,6 +16467,10 @@
             const name2 = document.getElementById('selectedCoinName2');
             if (icon2) icon2.src = icons[coin.id] || '';
             if (name2) name2.textContent = `${coin.name} (${coin.symbol})`;
+            // Загружаем сохранённые аннотации этой пары
+            if (typeof window._annOnSymbolChange === 'function') {
+                window._annOnSymbolChange(coin.symbol);
+            }
             // Update main chart
             if (typeof updateCurrentPrice === 'function') updateCurrentPrice();
         }
@@ -16279,6 +16567,11 @@
     window.addEventListener('resize', () => {
         if (fsChart && fsOverlay.classList.contains('active') && fsChartEl.offsetWidth > 0) {
             fsChart.applyOptions({ width: fsChartEl.offsetWidth, height: fsChartEl.offsetHeight });
+            // SVG-слой инструментов тоже нуждается в пересчёте пиксельных координат.
+            if (typeof _scheduleAnnRepaint === 'function') _scheduleAnnRepaint();
+            else if (typeof renderAnnotations === 'function') {
+                requestAnimationFrame(() => { try { renderAnnotations(); } catch(e) {} });
+            }
         }
     });
 
@@ -16348,6 +16641,100 @@ let currentHlineWidth  = 2;
 let currentHlineStyle  = 'solid';
 let currentCardFont    = "'Chakra Petch', sans-serif";
 let drawingState = null;
+
+// ── Персистентность аннотаций ──
+// Каждая торговая пара имеет свой набор аннотаций, общий на все таймфреймы.
+// Сохраняем в localStorage с ключом tt_annotations_{SYMBOL} (например tt_annotations_BTC).
+// Сохранение идёт по debounce 300мс + safety на beforeunload,
+// чтобы drag-операции не били в localStorage на каждый pointermove.
+let _annSaveTimer = null;
+let _annCurrentSymbol = null;  // какая пара сейчас загружена — чтобы не сохранить чужие линии
+
+function _annStorageKey(symbol) {
+    return 'tt_annotations_' + (symbol || 'BTC');
+}
+
+function _annCurrentPairSymbol() {
+    // selectedCoin может ещё не быть определён в момент первой загрузки скриптов
+    return (typeof selectedCoin !== 'undefined' && selectedCoin && selectedCoin.symbol)
+        ? selectedCoin.symbol : 'BTC';
+}
+
+function saveAnnotationsToLocal() {
+    try {
+        const symbol = _annCurrentSymbol || _annCurrentPairSymbol();
+        const key = _annStorageKey(symbol);
+        // Сохраняем массив целиком (без selectedAnnId — это UI-состояние, не данные).
+        // ID'ы и annIdCounter восстановим при загрузке, чтобы новые ID не конфликтовали.
+        localStorage.setItem(key, JSON.stringify({
+            annotations: annotations,
+            annIdCounter: annIdCounter,
+        }));
+    } catch(e) {
+        console.warn('[ann] save error:', e);
+    }
+}
+
+function scheduleSaveAnnotations() {
+    if (_annSaveTimer) clearTimeout(_annSaveTimer);
+    _annSaveTimer = setTimeout(function() {
+        _annSaveTimer = null;
+        saveAnnotationsToLocal();
+    }, 300);
+}
+
+function loadAnnotationsFromLocal(symbol) {
+    try {
+        const sym = symbol || _annCurrentPairSymbol();
+        const key = _annStorageKey(sym);
+        const raw = localStorage.getItem(key);
+        if (!raw) {
+            annotations = [];
+            annIdCounter = 0;
+        } else {
+            const data = JSON.parse(raw);
+            annotations = Array.isArray(data.annotations) ? data.annotations : [];
+            annIdCounter = Number.isFinite(data.annIdCounter) ? data.annIdCounter : 0;
+        }
+        _annCurrentSymbol = sym;
+        selectedAnnId = null;
+        if (typeof renderAnnotations === 'function') renderAnnotations();
+    } catch(e) {
+        console.warn('[ann] load error:', e);
+        annotations = [];
+        annIdCounter = 0;
+    }
+}
+
+// Переключение набора при смене пары. Вызывается из selectCoin() и аналогичных.
+// Сохраняет текущий набор под старый symbol, загружает новый.
+window._annOnSymbolChange = function(newSymbol) {
+    if (!newSymbol) return;
+    if (_annCurrentSymbol && _annCurrentSymbol === newSymbol) return; // та же пара
+    // Сохраняем текущий набор под старым ключом (если был)
+    if (_annCurrentSymbol !== null) {
+        if (_annSaveTimer) { clearTimeout(_annSaveTimer); _annSaveTimer = null; }
+        saveAnnotationsToLocal();
+    }
+    loadAnnotationsFromLocal(newSymbol);
+};
+
+// При закрытии страницы — спасаем отложенный save
+window.addEventListener('beforeunload', function() {
+    if (_annSaveTimer) {
+        clearTimeout(_annSaveTimer);
+        _annSaveTimer = null;
+        saveAnnotationsToLocal();
+    }
+});
+
+// При первом открытии страницы — загружаем аннотации для текущей пары.
+// Delay: даём времени selectedCoin/ICONS и chart инициализации завершиться.
+window.addEventListener('load', function() {
+    setTimeout(function() {
+        loadAnnotationsFromLocal();
+    }, 500);
+});
 
 // Drag state
 let dragState = null;
@@ -16535,7 +16922,7 @@ function renderAnnotations() {
     overlay.appendChild(defs);
 
     // ── Pass 1: background layer (hlines, rects) ──
-    const BG_TYPES = new Set(['hline', 'trendline', 'rect', 'position']);
+    const BG_TYPES = new Set(['hline', 'hray', 'trendline', 'rect', 'position']);
     // ── Pass 2: foreground layer (signals, cards, text, arrows) ──
     const FG_TYPES = new Set(['text', 'arrow', 'signal', 'card']);
 
@@ -16549,6 +16936,7 @@ function renderAnnotations() {
         else if (ann.type === 'card')   renderCard(g, ann, sel);
         else if (ann.type === 'rect')     renderRect(g, ann, sel);
         else if (ann.type === 'hline')     renderHline(g, ann, sel);
+        else if (ann.type === 'hray')      renderHray(g, ann, sel);
         else if (ann.type === 'trendline') renderTrendline(g, ann, sel);
         else if (ann.type === 'position')   renderPosition(g, ann, sel);
 
@@ -16589,6 +16977,195 @@ function renderAnnotations() {
     // Render background types first, then foreground on top
     annotations.filter(a => BG_TYPES.has(a.type)).forEach(renderGroup);
     annotations.filter(a => !BG_TYPES.has(a.type)).forEach(renderGroup);
+}
+
+// ══════════════════════════════════════════════════════════
+// FAST POSITION UPDATE — без пересоздания DOM
+// ══════════════════════════════════════════════════════════
+// Вызывается на pan/zoom/resize/drag-chart: обновляет только координаты
+// существующих SVG-элементов через setAttribute, не трогая структуру <g>.
+// Это убирает моргание (между кадрами не бывает пустого overlay) и синхронизирует
+// SVG-слой инструментов с canvas графика так же чётко, как priceLine в виджете.
+//
+// Поддерживаемые типы (этап 1): hline, hray, trendline, rect.
+// Для остальных типов (text, arrow, signal, card, position) в этом кадре
+// делается полный renderAnnotations как fallback — они работают как раньше.
+function updateAnnotationsPositions() {
+    if (!annChart() || !annSeries() || !overlay) return;
+    const FAST_TYPES = new Set(['hline', 'hray', 'trendline', 'rect']);
+    let needFullRerender = false;
+
+    for (let i = 0; i < annotations.length; i++) {
+        const ann = annotations[i];
+        if (!FAST_TYPES.has(ann.type)) { needFullRerender = true; continue; }
+
+        const g = overlay.querySelector('g[data-id="' + ann.id + '"]');
+        if (!g) { needFullRerender = true; continue; }
+
+        const sel = ann.id === selectedAnnId;
+        try {
+            if (ann.type === 'hline')          updateHline(g, ann, sel);
+            else if (ann.type === 'hray')      updateHray(g, ann, sel);
+            else if (ann.type === 'trendline') updateTrendline(g, ann, sel);
+            else if (ann.type === 'rect')      updateRect(g, ann, sel);
+        } catch (e) {
+            // Если структура группы не совпадает (например, selection изменился
+            // между рендером и этим апдейтом) — делаем полный rebuild.
+            needFullRerender = true;
+        }
+    }
+
+    if (needFullRerender) {
+        // Для неподдерживаемых типов или при рассинхроне — честный rebuild.
+        // Это не частый путь: при простом pan/zoom все popular-типы
+        // обновятся по быстрому пути выше.
+        renderAnnotations();
+    }
+}
+
+// Вспомогательный селектор детей <g> по типу и порядковому индексу.
+// Порядок стабилен — мы сами контролируем его в render*-функциях.
+function _gLines(g)   { return g.querySelectorAll('line'); }
+function _gRects(g)   { return g.querySelectorAll('rect'); }
+function _gTexts(g)   { return g.querySelectorAll('text'); }
+function _gCircles(g) { return g.querySelectorAll('circle'); }
+
+// ── Update: Horizontal line ──
+// Структура в renderHline: [0]=hit(line), [1]=main(line), [2]=label-bg(rect),
+// [3]=label(text), [4]=sel-border(line, только если sel).
+function updateHline(g, ann, sel) {
+    const y = annSeries().priceToCoordinate(ann.price);
+    if (y == null) return;
+    const W = annChartArea.offsetWidth;
+    const lines = _gLines(g);
+    const rects = _gRects(g);
+    const texts = _gTexts(g);
+    // Структурная проверка: если количество не соответствует режиму sel — fallback
+    const expectedLines = sel ? 3 : 2;
+    if (lines.length !== expectedLines || rects.length < 1 || texts.length < 1) {
+        throw new Error('hline structure mismatch');
+    }
+    // hit
+    lines[0].setAttribute('x1', 0); lines[0].setAttribute('y1', y);
+    lines[0].setAttribute('x2', W); lines[0].setAttribute('y2', y);
+    // main
+    lines[1].setAttribute('x1', 0); lines[1].setAttribute('y1', y);
+    lines[1].setAttribute('x2', W); lines[1].setAttribute('y2', y);
+    // label bg + text — при вертикальном pan их Y тоже меняется
+    const label = ann.label || formatPrice(ann.price);
+    const lx = W - 4;
+    const lw = label.length * 6.5 + 10, lh = 16;
+    rects[0].setAttribute('x', lx - lw);
+    rects[0].setAttribute('y', y - lh/2);
+    rects[0].setAttribute('width', lw);
+    texts[0].setAttribute('x', lx - lw/2);
+    texts[0].setAttribute('y', y + 1);
+    // sel border (если есть)
+    if (sel && lines[2]) {
+        lines[2].setAttribute('x1', 0); lines[2].setAttribute('y1', y);
+        lines[2].setAttribute('x2', W); lines[2].setAttribute('y2', y);
+    }
+}
+
+// ── Update: Horizontal ray ──
+// Структура в renderHray: [0]=hit(line), [1]=main(line), [circle]=marker,
+// [rect]=label-bg, [text]=label, [2]=sel-border(line, только если sel).
+function updateHray(g, ann, sel) {
+    const y = annSeries().priceToCoordinate(ann.price);
+    if (y == null) return;
+    const xStart = annChart().timeScale().timeToCoordinate(ann.time);
+    if (xStart == null) return;
+    const W = annChartArea.offsetWidth;
+    const lines = _gLines(g);
+    const circles = _gCircles(g);
+    const rects = _gRects(g);
+    const texts = _gTexts(g);
+    const expectedLines = sel ? 3 : 2;
+    if (lines.length !== expectedLines || circles.length < 1 || rects.length < 1 || texts.length < 1) {
+        throw new Error('hray structure mismatch');
+    }
+    // hit
+    lines[0].setAttribute('x1', xStart); lines[0].setAttribute('y1', y);
+    lines[0].setAttribute('x2', W);      lines[0].setAttribute('y2', y);
+    // main
+    lines[1].setAttribute('x1', xStart); lines[1].setAttribute('y1', y);
+    lines[1].setAttribute('x2', W);      lines[1].setAttribute('y2', y);
+    // start marker
+    circles[0].setAttribute('cx', xStart);
+    circles[0].setAttribute('cy', y);
+    // label bg + text
+    const label = ann.label || formatPrice(ann.price);
+    const lx = W - 4;
+    const lw = label.length * 6.5 + 10, lh = 16;
+    rects[0].setAttribute('x', lx - lw);
+    rects[0].setAttribute('y', y - lh/2);
+    rects[0].setAttribute('width', lw);
+    texts[0].setAttribute('x', lx - lw/2);
+    texts[0].setAttribute('y', y + 1);
+    if (sel && lines[2]) {
+        lines[2].setAttribute('x1', xStart); lines[2].setAttribute('y1', y);
+        lines[2].setAttribute('x2', W);      lines[2].setAttribute('y2', y);
+    }
+}
+
+// ── Update: Trendline ──
+// Структура в renderTrendline: [0]=bodyHit(line), [1]=main(line),
+// [2]=sel-glow(line, только если sel), [circles]=2 ручки (только если sel).
+function updateTrendline(g, ann, sel) {
+    const p1 = toPixel(ann.time1, ann.price1);
+    const p2 = toPixel(ann.time2, ann.price2);
+    if (!p1 || !p2) return;
+    const lines = _gLines(g);
+    const circles = _gCircles(g);
+    const expectedLines = sel ? 3 : 2;
+    const expectedCircles = sel ? 2 : 0;
+    if (lines.length !== expectedLines || circles.length !== expectedCircles) {
+        throw new Error('trendline structure mismatch');
+    }
+    // bodyHit
+    lines[0].setAttribute('x1', p1.x); lines[0].setAttribute('y1', p1.y);
+    lines[0].setAttribute('x2', p2.x); lines[0].setAttribute('y2', p2.y);
+    // main
+    lines[1].setAttribute('x1', p1.x); lines[1].setAttribute('y1', p1.y);
+    lines[1].setAttribute('x2', p2.x); lines[1].setAttribute('y2', p2.y);
+    if (sel) {
+        // sel glow
+        lines[2].setAttribute('x1', p1.x); lines[2].setAttribute('y1', p1.y);
+        lines[2].setAttribute('x2', p2.x); lines[2].setAttribute('y2', p2.y);
+        // handles
+        circles[0].setAttribute('cx', p1.x); circles[0].setAttribute('cy', p1.y);
+        circles[1].setAttribute('cx', p2.x); circles[1].setAttribute('cy', p2.y);
+    }
+}
+
+// ── Update: Rect ──
+// Структура в renderRect: [0]=fill(rect), [1]=border(rect),
+// + если sel: 4 corner handles (circles). Никаких доп. rect'ов при sel.
+function updateRect(g, ann, sel) {
+    const p1 = toPixel(ann.x1Time, ann.x1Price);
+    const p2 = toPixel(ann.x2Time, ann.x2Price);
+    if (!p1 || !p2) return;
+    const rects = _gRects(g);
+    const circles = _gCircles(g);
+    const expectedCircles = sel ? 4 : 0;
+    if (rects.length !== 2 || circles.length !== expectedCircles) {
+        throw new Error('rect structure mismatch');
+    }
+    const rx = Math.min(p1.x, p2.x), ry = Math.min(p1.y, p2.y);
+    const rw = Math.abs(p2.x - p1.x), rh = Math.abs(p2.y - p1.y);
+    // fill
+    rects[0].setAttribute('x', rx); rects[0].setAttribute('y', ry);
+    rects[0].setAttribute('width', rw); rects[0].setAttribute('height', rh);
+    // border
+    rects[1].setAttribute('x', rx); rects[1].setAttribute('y', ry);
+    rects[1].setAttribute('width', rw); rects[1].setAttribute('height', rh);
+    if (sel) {
+        // Угловые ручки в порядке: tl, tr, bl, br (как в renderRect).
+        circles[0].setAttribute('cx', rx);      circles[0].setAttribute('cy', ry);
+        circles[1].setAttribute('cx', rx + rw); circles[1].setAttribute('cy', ry);
+        circles[2].setAttribute('cx', rx);      circles[2].setAttribute('cy', ry + rh);
+        circles[3].setAttribute('cx', rx + rw); circles[3].setAttribute('cy', ry + rh);
+    }
 }
 
 // ── Text ──
@@ -17013,6 +17590,58 @@ function renderHline(g, ann, sel) {
     g.style.cursor = 'ns-resize';
 }
 
+// ── Horizontal ray ──
+// Работает как hline, но стартует из конкретной точки time и уходит вправо
+// до края графика. Имеет маркер-кружок в точке старта. Drag по вертикали
+// меняет price (как у hline), точка старта (time) не двигается.
+function renderHray(g, ann, sel) {
+    const y = annSeries().priceToCoordinate(ann.price);
+    if (y == null) return;
+    // x точки старта — проецируем time в пиксели
+    const xStart = annChart().timeScale().timeToCoordinate(ann.time);
+    if (xStart == null) return;
+
+    const W = annChartArea.offsetWidth;
+    const sc  = ann.strokeColor || '#F59E0B';
+    const sw  = ann.strokeWidth || 2;
+    const sop = ann.strokeOpacity !== undefined ? ann.strokeOpacity : 1;
+    const dash = ann.strokeStyle === 'dashed' ? '8 5'
+               : ann.strokeStyle === 'dotted' ? '2 4'
+               : null;
+
+    // Широкая невидимая зона для клика — только от xStart до правого края
+    const hit = mk('line', { x1:xStart, y1:y, x2:W, y2:y, stroke:'transparent', 'stroke-width':'12' });
+    g.appendChild(hit);
+
+    // Сам луч
+    const attrs = { x1:xStart, y1:y, x2:W, y2:y, stroke:sc, 'stroke-width': sel ? sw+0.5 : sw, opacity: sop };
+    if (dash) attrs['stroke-dasharray'] = dash;
+    g.appendChild(mk('line', attrs));
+
+    // Маркер точки старта
+    g.appendChild(mk('circle', {
+        cx:xStart, cy:y, r: sel ? 4.5 : 3.5,
+        fill:sc, opacity:sop, stroke:'#fff', 'stroke-width':'0.8'
+    }));
+
+    // Подпись цены справа (как у hline)
+    const label = ann.label || formatPrice(ann.price);
+    const lx = W - 4;
+    const lw = label.length * 6.5 + 10, lh = 16;
+    g.appendChild(mk('rect', { x:lx-lw, y:y-lh/2, width:lw, height:lh, rx:3, fill:'rgba(11,21,37,0.85)', stroke: sc, 'stroke-width':'0.8' }));
+    const lt = mk('text', { x:lx-lw/2, y:y+1, fill:sc, 'font-size':'10', 'font-weight':'600', 'text-anchor':'middle', 'dominant-baseline':'middle', 'font-family':'Inter,-apple-system,sans-serif' });
+    lt.textContent = label;
+    g.appendChild(lt);
+
+    if (sel) {
+        // Подсветка выделения — только по длине луча (от точки старта до края)
+        const selAttrs = { x1:xStart, y1:y, x2:W, y2:y, stroke:'#818CF8', 'stroke-width': sw+2, 'stroke-dasharray':'6 4', opacity:'.35' };
+        g.appendChild(mk('line', selAttrs));
+    }
+
+    g.style.cursor = 'ns-resize';
+}
+
 // ── Trend line ──
 function renderTrendline(g, ann, sel) {
     const p1 = toPixel(ann.time1, ann.price1);
@@ -17340,9 +17969,10 @@ function addAnnotation(ann) {
     ann.id = ++annIdCounter;
     annotations.push(ann);
     renderAnnotations();
+    scheduleSaveAnnotations();
 }
-function removeAnnotation(id) { annotations = annotations.filter(a=>a.id!==id); if(selectedAnnId===id) selectedAnnId=null; renderAnnotations(); }
-function clearAllAnnotations() { annotations=[]; selectedAnnId=null; renderAnnotations(); }
+function removeAnnotation(id) { annotations = annotations.filter(a=>a.id!==id); if(selectedAnnId===id) selectedAnnId=null; renderAnnotations(); scheduleSaveAnnotations(); }
+function clearAllAnnotations() { annotations=[]; selectedAnnId=null; renderAnnotations(); scheduleSaveAnnotations(); }
 window.removeAnnotation = removeAnnotation;
 window.clearAllAnnotations = clearAllAnnotations;
 window._annGetById = function(id) { return annotations.find(a => a.id === id) || null; };
@@ -17351,6 +17981,7 @@ window._annPatch = function(id, props) {
     if (!ann) return;
     Object.assign(ann, props);
     renderAnnotations();
+    scheduleSaveAnnotations();
 };
 
 // ══════════════════════════════════════════════════════════
@@ -17358,7 +17989,7 @@ window._annPatch = function(id, props) {
 // ══════════════════════════════════════════════════════════
 function setTool(name) {
     currentTool = name;
-    ['text','arrow','signal','card','rect','hline','trendline','long','short'].forEach(t => {
+    ['text','arrow','signal','card','rect','hline','hray','trendline','long','short'].forEach(t => {
         const el = document.getElementById(`ann-tool-${t}`);
         if (el) el.classList.toggle('active', t===name);
     });
@@ -17374,6 +18005,7 @@ function setTool(name) {
         card:   'Кликните на график → заполните карточку',
         rect:   'Зажмите и тяните для рисования прямоугольника',
         hline:  'Кликните на график — линия пройдёт по этой цене',
+        hray:   'Кликните на график — луч пойдёт от этой точки вправо',
         trendline: 'Click 1 — start, Click 2 — end of trend line',
         long:   'Клик — Entry. Тяните вверх для TP, вниз для SL',
         short:  'Клик — Entry. Тяните вниз для TP, вверх для SL',
@@ -17427,6 +18059,7 @@ function _annPointerDown(e) {
     if (e.target && e.target.closest && e.target.closest('.ann-bar,.topbar,#card-editor,.chart-header,.chart-coin-bar,.small-ann-tools,.chart-period-buttons')) return;
     if (currentTool === 'rect') return;
     if (currentTool === 'hline') { mdPos = { x:e.clientX, y:e.clientY }; return; }
+    if (currentTool === 'hray')  { mdPos = { x:e.clientX, y:e.clientY }; return; }
     if (currentTool === 'long' || currentTool === 'short') { mdPos = { x:e.clientX, y:e.clientY }; return; }
     mdPos = { x:e.clientX, y:e.clientY };
 }
@@ -17449,6 +18082,7 @@ function _annPointerUp(e) {
     if (currentTool === 'signal') handleSignalClick(px, coord);
     if (currentTool === 'card')   handleCardClick(px, coord);
     if (currentTool === 'hline')      handleHlineClick(coord);
+    if (currentTool === 'hray')       handleHrayClick(coord);
     if (currentTool === 'trendline') handleTrendlineClick(px, coord);
     if (currentTool === 'long')        handlePositionClick(coord, true);
     if (currentTool === 'short')       handlePositionClick(coord, false);
@@ -17484,7 +18118,7 @@ const rectCapture = document.getElementById('ann-rect-capture');
 // (wired into setTool via watching currentTool changes — see setTool patch below)
 function syncRectCapture() {
     const isRect  = currentTool === 'rect';
-    const isHline = currentTool === 'hline';
+    const isHline = currentTool === 'hline' || currentTool === 'hray';
     const isCard  = currentTool === 'card' || currentTool === 'signal';
     rectCapture.style.display = isRect ? 'block' : 'none';
     const el = (id) => { const e = document.getElementById(id); if(e) return e; return {style:{}}; };
@@ -17598,6 +18232,7 @@ document.addEventListener('pointerup', (e) => {
     if (dragState.trendHandle) {
         dragState = null;
         renderAnnotations();
+        scheduleSaveAnnotations();
         return;
     }
     const dx = dragState._dx || 0;
@@ -17651,6 +18286,13 @@ document.addEventListener('pointerup', (e) => {
                 ann.labelTime = nl.time; ann.labelPrice = nl.price;
                 ann.tipTime   = np.time; ann.tipPrice   = np.price;
             } else if (ann.type === 'hline') {
+                const origY = annSeries().priceToCoordinate(s.price ?? ann.price);
+                if (origY != null) {
+                    const newPrice = annSeries().coordinateToPrice(origY + dy);
+                    if (newPrice != null) ann.price = newPrice;
+                }
+            } else if (ann.type === 'hray') {
+                // Drag hray: меняем только price (вертикально). Точка старта (time) не двигается.
                 const origY = annSeries().priceToCoordinate(s.price ?? ann.price);
                 if (origY != null) {
                     const newPrice = annSeries().coordinateToPrice(origY + dy);
@@ -17735,6 +18377,7 @@ document.addEventListener('pointerup', (e) => {
     }
     dragState = null;
     renderAnnotations();
+    scheduleSaveAnnotations();
 });
 
 // ── Text tool ──
@@ -17825,6 +18468,22 @@ function handleHlineClick(coord) {
     if (coord.price == null) return;
     addAnnotation({
         type: 'hline',
+        price: coord.price,
+        strokeColor: currentHlineColor,
+        strokeWidth: currentHlineWidth,
+        strokeStyle: currentHlineStyle,
+    });
+    setTool(null); hideHint();
+}
+
+// ── Hray tool — горизонтальный луч, стартует от клика и идёт вправо ──
+// Переиспользует current*-стили hline (цвет/толщина/стиль), чтобы не плодить
+// дублирующий UI. Если нужны разные дефолтные стили — можно выделить потом.
+function handleHrayClick(coord) {
+    if (coord.price == null || coord.time == null) return;
+    addAnnotation({
+        type: 'hray',
+        time: coord.time,
         price: coord.price,
         strokeColor: currentHlineColor,
         strokeWidth: currentHlineWidth,
@@ -18102,7 +18761,7 @@ function handleSignalClick(px, coord) {
 // ══════════════════════════════════════════════════════════
 // TOOLBAR EVENTS
 // ══════════════════════════════════════════════════════════
-['text','arrow','signal','card','rect','hline','trendline','long','short'].forEach(t => {
+['text','arrow','signal','card','rect','hline','hray','trendline','long','short'].forEach(t => {
     const el = document.getElementById(`ann-tool-${t}`);
     if (el) el.addEventListener('click', () => setTool(currentTool===t ? null : t));
 });
@@ -19252,6 +19911,7 @@ function trySubscribeReplay() {
         card:     'Card',
         rect:     'Rectangle',
         hline:    'Horizontal line',
+        hray:     'Horizontal ray',
         trendline:'Trend line',
         long:     'Long position',
         short:    'Short position',
@@ -19350,7 +20010,8 @@ function trySubscribeReplay() {
         typeLabel.textContent = TYPE_NAMES[annType] || 'Annotation';
 
         // Show/hide type-specific panels
-        const isHline = annType === 'hline' || annType === 'trendline';
+        // hray использует ту же ctx-панель что hline (цвет/стиль/толщина/прозрачность).
+        const isHline = annType === 'hline' || annType === 'hray' || annType === 'trendline';
         hlinePanel.classList.toggle('visible', isHline);
         if (isHline) syncHlinePanel(getAnn(annId));
 
