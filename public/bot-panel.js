@@ -29,6 +29,10 @@
         trailingEnabled: false,
         trailingOffset: '0.25',
         trailingActivation: '70',
+        stepTpEnabled: false,
+        stepTpTrigger: '5.00',
+        stepTpStep: '0.50',
+        stepTpTolerance: '0.50',
         bbExitEnabled: false,
         bbExitTolerance: '5',
         smaReturnEnabled: false,
@@ -423,6 +427,10 @@
             if (data.trailingEnabled !== undefined) _state.trailingEnabled = !!data.trailingEnabled;
             if (data.trailingActivation !== undefined) _state.trailingActivation = data.trailingActivation;
             if (data.trailingOffset !== undefined) _state.trailingOffset = data.trailingOffset;
+            if (data.stepTpEnabled !== undefined) _state.stepTpEnabled = !!data.stepTpEnabled;
+            if (data.stepTpTrigger !== undefined) _state.stepTpTrigger = String(data.stepTpTrigger);
+            if (data.stepTpStep !== undefined) _state.stepTpStep = String(data.stepTpStep);
+            if (data.stepTpTolerance !== undefined) _state.stepTpTolerance = String(data.stepTpTolerance);
             if (data.bbExitEnabled !== undefined) _state.bbExitEnabled = !!data.bbExitEnabled;
             if (data.bbExitTolerance !== undefined) _state.bbExitTolerance = data.bbExitTolerance;
             if (data.smaReturnEnabled !== undefined) _state.smaReturnEnabled = !!data.smaReturnEnabled;
@@ -1017,6 +1025,19 @@
         var pnlPct = pos.entryPrice > 0 ? (((_state.currentPrice - pos.entryPrice) / pos.entryPrice) * (isLong ? 100 : -100)).toFixed(2) : '0.00';
         var elapsed = pos.openedAt ? Math.floor((Date.now() - pos.openedAt) / 60000) : 0;
 
+        // ── Хелпер: динамическое форматирование цены по её величине ──
+        // BTC (>=10000) → 2 знака; SOL (>=100) → 2; ETH с 4 знаками (>=10) → 3;
+        // NEAR (>=1) → 4 знака; мелкие (<1) → 5.
+        function fmtPrice(p) {
+            if (p == null || !isFinite(p)) return '—';
+            var n = Number(p);
+            if (n >= 10000) return n.toFixed(2);
+            if (n >= 100)   return n.toFixed(2);
+            if (n >= 10)    return n.toFixed(3);
+            if (n >= 1)     return n.toFixed(4);
+            return n.toFixed(5);
+        }
+
         // Прогресс-бар: позиция цены между стопом и тейком
         var totalRange = Math.abs(pos.target - pos.stop);
         var progressPct = 50;
@@ -1030,6 +1051,63 @@
 
         // Общий янтарный цвет для обеих меток
         var amber = '#F59E0B';
+
+        // ── Метки Step TP (STP) ──
+        // До активации: одна зелёная стрелка сверху — где STP активируется (цена, при которой прибыль = trigger$).
+        // После активации: красная стрелка = текущий подтянутый стоп (= pos.stop), зелёная = следующая ступенька.
+        // Показываем только если stepTpEnabled (и трейлинг неактивен — они взаимоисключают друг друга).
+        var stpMarkers = '';
+        if (_state.stepTpEnabled && !_state.trailingEnabled && pos.entryPrice && pos.size > 0 && totalRange > 0) {
+            var trigger = parseFloat(_state.stepTpTrigger) || 5.0;
+            var step = parseFloat(_state.stepTpStep) || 0.5;
+            var tolerance = parseFloat(_state.stepTpTolerance) || 0.5;
+
+            // Функция: unrealized $ → цена
+            function profitToPrice(profit) {
+                var delta = profit * pos.entryPrice / pos.size;
+                return isLong ? pos.entryPrice + delta : pos.entryPrice - delta;
+            }
+            // Функция: цена → % на шкале
+            function priceToBarPct(pr) {
+                return isLong
+                    ? ((pr - pos.stop) / totalRange) * 100
+                    : ((pos.stop - pr) / totalRange) * 100;
+            }
+            // Стрелочка торчит СВЕРХУ над шкалой, пунктир идёт ВНУТРИ шкалы
+            // (как у штриха трейлинга), чтобы зрительно не отрываться от полосы.
+            function makeMarker(barPct, color) {
+                if (barPct < -5 || barPct > 105) return '';
+                // Стрелочка над шкалой
+                var arrow = '<div style="position:absolute;left:' + barPct.toFixed(1) + '%;top:-8px;width:8px;height:6px;transform:translateX(-50%);pointer-events:none;z-index:5;">' +
+                    '<svg width="8" height="6" viewBox="0 0 8 6" style="display:block;"><path d="M4 6 L0 0 L8 0 Z" fill="' + color + '"/></svg>' +
+                '</div>';
+                // Пунктирная линия ВНУТРИ шкалы — на всю высоту
+                var dash = '<div style="position:absolute;left:' + barPct.toFixed(1) + '%;top:0;width:1px;height:100%;transform:translateX(-50%);background-image:repeating-linear-gradient(to bottom,' + color + ' 0 2px,transparent 2px 4px);pointer-events:none;z-index:4;"></div>';
+                return arrow + dash;
+            }
+
+            if (!pos.stepTpActive) {
+                // До активации — одна метка: где активируется STP
+                var actPrice = profitToPrice(trigger);
+                var actPct = priceToBarPct(actPrice);
+                stpMarkers = makeMarker(actPct, '#10B981');
+            } else {
+                // После активации — две метки:
+                // 1) красная = текущий подтянутый стоп (уже в pos.stop)
+                var stopPct = priceToBarPct(pos.stop);
+                stpMarkers += makeMarker(stopPct, '#EF4444');
+                // 2) зелёная = следующая ступенька
+                // текущий уровень stopProfit мы знаем как pos.stepTpMaxLevel. Следующая ступенька
+                // подтянет стоп на (stopProfit + step). Соответствующая прибыль для активации —
+                // на step выше пика. Упрощённо: next_stop_profit = pos.stepTpMaxLevel + step.
+                // Для отображения маркера используем цену где будет следующий stopProfit.
+                var curMaxStop = pos.stepTpMaxLevel != null ? pos.stepTpMaxLevel : (trigger - tolerance);
+                var nextStopProfit = curMaxStop + step;
+                var nextPrice = profitToPrice(nextStopProfit);
+                var nextPct = priceToBarPct(nextPrice);
+                stpMarkers += makeMarker(nextPct, '#10B981');
+            }
+        }
 
         // ── Метка активации трейлинга ──
         // ШТРИХ пунктирный — на самой шкале (top:0, height:100%, проходит от верха до низа).
@@ -1048,9 +1126,7 @@
                 : ((pos.stop - trailPrice) / totalRange) * 100;
             if (trailOnBar >= 0 && trailOnBar <= 100) {
                 var markerOpacity = pos.trailingActive ? '0.4' : '0.9';
-                var trailPriceFmt = trailPrice >= 1000 ? trailPrice.toFixed(2)
-                                  : trailPrice >= 1    ? trailPrice.toFixed(2)
-                                  : trailPrice.toFixed(4);
+                var trailPriceFmt = fmtPrice(trailPrice);
                 // Штрих на шкале — от верха до низа шкалы, строго по позиции.
                 trailMarkerHtml =
                     '<div class="bot-w-pos-bar-trail" style="position:absolute;top:0;left:' + trailOnBar.toFixed(1) + '%;width:1px;height:100%;transform:translateX(-50%);pointer-events:none;opacity:' + markerOpacity + ';z-index:2;background-image:repeating-linear-gradient(to bottom,' + amber + ' 0 2px,transparent 2px 4px);"></div>';
@@ -1093,9 +1169,7 @@
                 }
 
                 if (smaOnBar >= 0 && smaOnBar <= 100) {
-                    var smaPriceFmt = smaPrice >= 1000 ? smaPrice.toFixed(2)
-                                    : smaPrice >= 1    ? smaPrice.toFixed(2)
-                                    : smaPrice.toFixed(4);
+                    var smaPriceFmt = fmtPrice(smaPrice);
                     smaMarkerHtml =
                         '<div class="bot-w-pos-bar-sma" style="position:absolute;top:0;left:' + smaOnBar.toFixed(1) + '%;width:1px;height:100%;transform:translateX(-50%);background:' + amber + ';opacity:0.95;pointer-events:none;z-index:3;"></div>';
                     smaLabelHtml =
@@ -1110,9 +1184,7 @@
         if (sizeVal >= 1000) sizeStr = '$' + (sizeVal / 1000).toFixed(1) + 'k';
         else sizeStr = '$' + sizeVal.toFixed(0);
 
-        var entryPriceFmt = pos.entryPrice >= 1000 ? pos.entryPrice.toFixed(2)
-                          : pos.entryPrice >= 1    ? pos.entryPrice.toFixed(2)
-                          : pos.entryPrice.toFixed(4);
+        var entryPriceFmt = fmtPrice(pos.entryPrice);
 
         container.innerHTML = '\
             <div class="bot-w-pos-header">\
@@ -1128,18 +1200,18 @@
                     ' + smaMarkerHtml + '\
                     ' + trailLabelHtml + '\
                     ' + smaLabelHtml + '\
-                    <div class="bot-w-pos-bar-thumb" style="left:' + progressPct.toFixed(1) + '%;"></div>\
+                    ' + stpMarkers + '\
                 </div>\
                 <div class="bot-w-pos-bar-labels">\
-                    <span style="color:#EF5350;">' + (pos.trailingActive ? '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="vertical-align:-1px;"><polyline points="1,8 3,5 5,6 9,2" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="6,2 9,2 9,5" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Трейл ' : 'Стоп ') + pos.stop + '</span>\
-                    <span style="color:#26a69a;">Тейк ' + pos.target + '</span>\
+                    <span style="color:#EF5350;">' + (pos.trailingActive ? '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="vertical-align:-1px;"><polyline points="1,8 3,5 5,6 9,2" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="6,2 9,2 9,5" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Трейл ' : 'Стоп ') + fmtPrice(pos.stop) + '</span>\
+                    <span style="color:#26a69a;">Тейк ' + fmtPrice(pos.target) + '</span>\
                 </div>\
             </div>\
             \
             <div class="bot-w-pos-details">\
                 <div class="bot-w-pos-detail">\
                     <span class="bot-w-pos-dlabel">Текущая</span>\
-                    <span class="bot-w-pos-dval" style="color:' + barColor + ';">' + (_state.currentPrice || '—') + '</span>\
+                    <span class="bot-w-pos-dval" style="color:' + barColor + ';">' + (_state.currentPrice ? fmtPrice(_state.currentPrice) : '—') + '</span>\
                 </div>\
                 <div class="bot-w-pos-detail">\
                     <span class="bot-w-pos-dlabel">Размер</span>\
@@ -1534,7 +1606,7 @@
                             <span class="bst-lbl">RSI диапазон</span>\
                             <span class="bst-rsi-vals"><span class="bst-rsi-os" id="bstRsiOSVal">' + rsiOS + '</span><span class="bst-rsi-dash"> — </span><span class="bst-rsi-ob" id="bstRsiOBVal">' + rsiOB + '</span></span>\
                         </div>\
-                        <input type="range" class="bst-rsi-single" id="bstRsiSlider" min="55" max="80" step="1" value="' + rsiOB + '">\
+                        <input type="range" class="bst-rsi-single" id="bstRsiSlider" min="55" max="90" step="1" value="' + rsiOB + '">\
                         <div class="bst-rsi-scale"><span>строже</span><span></span><span>мягче</span></div>\
                     </div>\
                 </div>\
@@ -1651,6 +1723,45 @@
                                     <div class="bst-step-btn bst-step-dec" data-target="bstTrailAct" data-step="5" data-min="30"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
                                     <input class="bst-step-input" id="bstTrailAct" type="number" min="30" max="95" step="5" value="' + _state.trailingActivation + '">\
                                     <div class="bst-step-btn bst-step-inc" data-target="bstTrailAct" data-step="5" data-max="95">▶</div>\
+                                </div>\
+                            </div>\
+                        </div>\
+                    </div>\
+                </div>\
+                \
+                <!-- 6a. ШАГОВЫЙ TP (Step TP / STP) — конкурент трейлингу -->\
+                <div class="bst-section" id="bstStepTpSection">\
+                    <div class="bst-trail-header">\
+                        <span class="bst-section-label">Шаговый TP</span>\
+                        <label class="bst-switch">\
+                            <input type="checkbox" id="bstStepTpToggle" ' + (_state.stepTpEnabled ? 'checked' : '') + (_state.trailingEnabled ? ' disabled' : '') + '>\
+                            <span class="bst-switch-slider"></span>\
+                        </label>\
+                    </div>\
+                    <div class="bst-trail-body" id="bstStepTpBody" style="' + (_state.stepTpEnabled ? '' : 'opacity:0.55;pointer-events:none;') + '">\
+                        <div class="bst-row bst-row-3">\
+                            <div class="bst-col">\
+                                <div class="bst-lbl">Активация ($)</div>\
+                                <div class="bst-stepper">\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpTrigger" data-step="0.5" data-min="0.5"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstStepTpTrigger" type="number" min="0.5" max="100" step="0.5" value="' + _state.stepTpTrigger + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpTrigger" data-step="0.5" data-max="100">▶</div>\
+                                </div>\
+                            </div>\
+                            <div class="bst-col">\
+                                <div class="bst-lbl">Шаг подтяжки ($)</div>\
+                                <div class="bst-stepper">\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpStep" data-step="0.1" data-min="0.1"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstStepTpStep" type="number" min="0.1" max="10" step="0.1" value="' + _state.stepTpStep + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpStep" data-step="0.1" data-max="10">▶</div>\
+                                </div>\
+                            </div>\
+                            <div class="bst-col">\
+                                <div class="bst-lbl">Зазор стопа ($)</div>\
+                                <div class="bst-stepper">\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpTolerance" data-step="0.1" data-min="0"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstStepTpTolerance" type="number" min="0" max="10" step="0.1" value="' + _state.stepTpTolerance + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpTolerance" data-step="0.1" data-max="10">▶</div>\
                                 </div>\
                             </div>\
                         </div>\
@@ -2009,12 +2120,50 @@
 
         // Trailing toggle
         var trailToggle = body.querySelector('#bstTrailToggle');
+        var stepTpToggle = body.querySelector('#bstStepTpToggle');
         if (trailToggle) trailToggle.onchange = function() {
             _state.trailingEnabled = trailToggle.checked;
             var tb = body.querySelector('#bstTrailBody');
             if (tb) {
                 tb.style.opacity = trailToggle.checked ? '1' : '0.55';
                 tb.style.pointerEvents = trailToggle.checked ? 'auto' : 'none';
+            }
+            // Взаимоисключение: при включении Trailing → выключаем Step TP
+            if (trailToggle.checked && stepTpToggle) {
+                stepTpToggle.checked = false;
+                stepTpToggle.disabled = true;
+                _state.stepTpEnabled = false;
+                var stpBody = body.querySelector('#bstStepTpBody');
+                if (stpBody) {
+                    stpBody.style.opacity = '0.55';
+                    stpBody.style.pointerEvents = 'none';
+                }
+            } else if (stepTpToggle) {
+                stepTpToggle.disabled = false;
+            }
+            updateSummary();
+        };
+
+        // Step TP toggle
+        if (stepTpToggle) stepTpToggle.onchange = function() {
+            _state.stepTpEnabled = stepTpToggle.checked;
+            var stpBody = body.querySelector('#bstStepTpBody');
+            if (stpBody) {
+                stpBody.style.opacity = stepTpToggle.checked ? '1' : '0.55';
+                stpBody.style.pointerEvents = stepTpToggle.checked ? 'auto' : 'none';
+            }
+            // Взаимоисключение: при включении Step TP → выключаем Trailing
+            if (stepTpToggle.checked && trailToggle) {
+                trailToggle.checked = false;
+                trailToggle.disabled = true;
+                _state.trailingEnabled = false;
+                var tb = body.querySelector('#bstTrailBody');
+                if (tb) {
+                    tb.style.opacity = '0.55';
+                    tb.style.pointerEvents = 'none';
+                }
+            } else if (trailToggle && !_state.bbExitEnabled) {
+                trailToggle.disabled = false;
             }
             updateSummary();
         };
@@ -2158,6 +2307,7 @@
             bstTakeProfit: 'maxProfitPct', bstCooldown: 'cooldownCandles', bstStopAtr: 'stopAtrMultiplier',
             bstRiskPct: 'riskPct', bstDayLimit: 'dayLimitPct', bstMaxLosses: 'maxLosses',
             bstBalance: 'virtualBalance', bstTrailOffset: 'trailingOffset', bstTrailAct: 'trailingActivation',
+            bstStepTpTrigger: 'stepTpTrigger', bstStepTpStep: 'stepTpStep', bstStepTpTolerance: 'stepTpTolerance',
             bstLeverage: 'maxLeverage',
             bstBbTol: 'bbExitTolerance', bstSmaTol2: 'smaReturnTolerance'
         };
@@ -2314,6 +2464,10 @@
                     trailingEnabled: !!_state.trailingEnabled,
                     trailingOffset: _state.trailingOffset,
                     trailingActivation: _state.trailingActivation,
+                    stepTpEnabled: !!_state.stepTpEnabled,
+                    stepTpTrigger: _state.stepTpTrigger,
+                    stepTpStep: _state.stepTpStep,
+                    stepTpTolerance: _state.stepTpTolerance,
                     clusterEnabled: _state.clusterEnabled,
                     clusterThreshold: _state.clusterThreshold,
                     clusterExitConfirm: _state.clusterExitConfirm,
@@ -2355,6 +2509,9 @@
         var trailLabel = _state.trailingEnabled
             ? 'Вкл (' + parseFloat(_state.trailingOffset).toFixed(2) + '%, акт. ' + _state.trailingActivation + '%)'
             : 'Выкл';
+        var stepTpLabel = _state.stepTpEnabled
+            ? 'Вкл ($' + parseFloat(_state.stepTpTrigger).toFixed(2) + ' / ' + parseFloat(_state.stepTpStep).toFixed(2) + ' / ' + parseFloat(_state.stepTpTolerance).toFixed(2) + ')'
+            : 'Выкл';
         var modeLabel = (_state.mode === 'live' ? 'Live' : 'Paper');
 
         var rsiOS = 100 - (parseInt(_state.rsiOverbought) || 65);
@@ -2379,6 +2536,7 @@
             <div class="bst-sum-row"><span class="bst-sum-key">RSI</span><span class="bst-sum-val"><span class="bst-rsi-os">' + rsiOS + '</span><span class="bst-rsi-dash"> / </span><span class="bst-rsi-ob">' + rsiOB + '</span></span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Стоп / Тейк</span><span class="bst-sum-val">' + _state.stopAtrMultiplier + '× ATR / ' + _state.maxProfitPct + '%</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Трейлинг</span><span class="bst-sum-val ' + (_state.trailingEnabled ? 'bst-sum-accent' : '') + '">' + trailLabel + '</span></div>\
+            <div class="bst-sum-row"><span class="bst-sum-key">Шаговый TP</span><span class="bst-sum-val ' + (_state.stepTpEnabled ? 'bst-sum-accent' : '') + '">' + stepTpLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Риск / Плечо</span><span class="bst-sum-val">' + _state.riskPct + '% / ' + _state.maxLeverage + 'x</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Баланс</span><span class="bst-sum-val">' + (parseFloat(_state.virtualBalance) || 10000) + ' USDT · ' + modeLabel + '</span></div>';
     }
@@ -2433,6 +2591,10 @@
                 trailingEnabled: _state.trailingEnabled,
                 trailingOffset: _state.trailingOffset,
                 trailingActivation: _state.trailingActivation,
+                stepTpEnabled: !!_state.stepTpEnabled,
+                stepTpTrigger: _state.stepTpTrigger,
+                stepTpStep: _state.stepTpStep,
+                stepTpTolerance: _state.stepTpTolerance,
                 maxProfitPct: _state.maxProfitPct,
                 cooldownCandles: _state.cooldownCandles,
                 stopAtrMultiplier: _state.stopAtrMultiplier,
@@ -3001,7 +3163,7 @@
 
         var reasonMap = {
             'stop_loss': 'Стоп', 'take_profit': 'Тейк', 'timeout': 'Таймаут',
-            'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'cluster_exit': 'Кластер',
+            'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'step_tp': 'Шаговый TP', 'cluster_exit': 'Кластер',
             'manual_close': 'Ручной', 'bb_touch': 'BB', 'sma_return': 'SMA'
         };
 
@@ -3051,8 +3213,8 @@
                 var sideColor = t.side === 'SHORT' ? '#EF5350' : '#26a69a';
                 var pnlColor = t.pnl >= 0 ? '#10B981' : '#EF4444';
                 var reason = reasonMap[t.reason] || t.reason || '—';
-                var entryP = t.entryPrice ? t.entryPrice.toFixed(2) : '—';
-                var exitP = t.closePrice ? t.closePrice.toFixed(2) : '—';
+                var entryP = t.entryPrice ? pn(t.entryPrice) : '—';
+                var exitP = t.closePrice ? pn(t.closePrice) : '—';
                 var pnlPct = t.pnlPct !== undefined ? ('(' + (t.pnlPct >= 0 ? '+' : '') + t.pnlPct + '%)') : '';
                 var entryLabel = t.entryType === 'manual' ? 'Ручной' : (t.entryType === 'bot_tick' ? 'Бот (тик)' : 'Бот');
                 var entryColor = t.entryType === 'manual' ? '#FBBF24' : '#3B82F6';
@@ -3085,14 +3247,19 @@
                 var g2 = [];
                 // Первое движение (стрелка)
                 if (t.firstMoveSide) {
-                    var fmTxt = t.firstMoveSide === 'favor' ? '<span style="color:#10B981;">↑в плюс</span>' : '<span style="color:#EF4444;">↓в минус</span>';
+                    // Стрелка = физ. направление цены; текст = трактовка для позиции
+                    var fmUp = (t.side === 'LONG' && t.firstMoveSide === 'favor') || (t.side === 'SHORT' && t.firstMoveSide === 'adverse');
+                    var fmArrow = fmUp ? '↑' : '↓';
+                    var fmWord  = t.firstMoveSide === 'favor' ? 'в нашу сторону' : 'против нас';
+                    var fmCol2  = t.firstMoveSide === 'favor' ? '#10B981' : '#EF4444';
+                    var fmTxt = '<span style="color:' + fmCol2 + ';">' + fmArrow + ' ' + fmWord + '</span>';
                     g2.push('Первое ' + fmTxt);
                 }
                 // Пик в плюс с таймингом и ценой
                 if (t.maxUnrealized && t.maxUnrealized > 0.01) {
                     var mfTxt = '<span style="color:#10B981;">Макс+$' + t.maxUnrealized.toFixed(2) + '</span>';
                     if (maxFavDelta) mfTxt += ' <span style="color:#636B76;">(' + maxFavDelta;
-                    if (t.maxUnrealizedPrice) mfTxt += ' @ ' + t.maxUnrealizedPrice.toFixed(2);
+                    if (t.maxUnrealizedPrice) mfTxt += ' @ ' + pn(t.maxUnrealizedPrice);
                     if (maxFavDelta) mfTxt += ')</span>';
                     g2.push(mfTxt);
                 }
@@ -3100,7 +3267,7 @@
                 if (t.maxDrawdown && t.maxDrawdown < -0.01) {
                     var mdTxt = '<span style="color:#EF4444;">Макс−$' + Math.abs(t.maxDrawdown).toFixed(2) + '</span>';
                     if (maxAdvDelta) mdTxt += ' <span style="color:#636B76;">(' + maxAdvDelta;
-                    if (t.maxDrawdownPrice) mdTxt += ' @ ' + t.maxDrawdownPrice.toFixed(2);
+                    if (t.maxDrawdownPrice) mdTxt += ' @ ' + pn(t.maxDrawdownPrice);
                     if (maxAdvDelta) mdTxt += ')</span>';
                     g2.push(mdTxt);
                 }
@@ -3124,6 +3291,14 @@
                 } else if (t.reason === 'stop_loss' && t.maxUnrealized > 1) {
                     // Был пик но трейлинг не активировался — полезно знать
                     g3.push('<span style="color:#636B76;">TR не акт.</span>');
+                }
+                // Step TP: активировался и на каком уровне
+                if (t.stepTpActivated) {
+                    var stpDelta = deltaMin(t.openedAt, t.stepTpActivatedAt);
+                    var stpTxt = 'STP';
+                    if (t.stepTpMaxLevel != null) stpTxt += ' стоп $' + t.stepTpMaxLevel.toFixed(2);
+                    if (stpDelta) stpTxt += ' (' + stpDelta + ')';
+                    g3.push('<span style="color:#10B981;">' + stpTxt + '</span>');
                 }
 
                 // Собираем серую строку: три блока через " │ "
@@ -3162,19 +3337,22 @@
                 // ── Блок "Путь": пики с таймингом и первое движение ──
                 if (t.firstMoveSide) {
                     var fmCol = t.firstMoveSide === 'favor' ? '#10B981' : '#EF4444';
-                    var fmLbl = t.firstMoveSide === 'favor' ? '↑ в плюс' : '↓ в минус';
+                    var fmUp3 = (t.side === 'LONG' && t.firstMoveSide === 'favor') || (t.side === 'SHORT' && t.firstMoveSide === 'adverse');
+                    var fmArr = fmUp3 ? '↑' : '↓';
+                    var fmWrd = t.firstMoveSide === 'favor' ? 'в нашу сторону' : 'против нас';
+                    var fmLbl = fmArr + ' ' + fmWrd;
                     expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Первое движение</span><span style="color:' + fmCol + ';">' + fmLbl + '</span></div>';
                 }
                 if (t.maxUnrealized) {
                     var mfVal = '+$' + t.maxUnrealized.toFixed(2);
                     if (maxFavDelta) mfVal += ' <span style="color:#64748B;font-size:10px;">· ' + maxFavDelta + '</span>';
-                    if (t.maxUnrealizedPrice) mfVal += ' <span style="color:#64748B;font-size:10px;">@ ' + t.maxUnrealizedPrice.toFixed(2) + '</span>';
+                    if (t.maxUnrealizedPrice) mfVal += ' <span style="color:#64748B;font-size:10px;">@ ' + pn(t.maxUnrealizedPrice) + '</span>';
                     expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс +</span><span style="color:#10B981;">' + mfVal + '</span></div>';
                 }
                 if (t.maxDrawdown) {
                     var mdVal = '−$' + Math.abs(t.maxDrawdown).toFixed(2);
                     if (maxAdvDelta) mdVal += ' <span style="color:#64748B;font-size:10px;">· ' + maxAdvDelta + '</span>';
-                    if (t.maxDrawdownPrice) mdVal += ' <span style="color:#64748B;font-size:10px;">@ ' + t.maxDrawdownPrice.toFixed(2) + '</span>';
+                    if (t.maxDrawdownPrice) mdVal += ' <span style="color:#64748B;font-size:10px;">@ ' + pn(t.maxDrawdownPrice) + '</span>';
                     expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Макс −</span><span style="color:#EF4444;">' + mdVal + '</span></div>';
                 }
                 // Взяли N% от пика — отдельной строкой
@@ -3194,6 +3372,15 @@
                     expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Трейлинг</span><span style="color:#FBBF24;">' + trVal + '</span></div>';
                 } else if (t.reason === 'stop_loss' && t.maxUnrealized > 1) {
                     expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Трейлинг</span><span style="color:#636B76;">не активировался</span></div>';
+                }
+                // ── Step TP: активировался или нет ──
+                if (t.stepTpActivated) {
+                    var stpDeltaExp = deltaMin(t.openedAt, t.stepTpActivatedAt);
+                    var stpVal = 'активирован';
+                    if (t.stepTpActivatedPnl != null) stpVal += ' на +$' + t.stepTpActivatedPnl.toFixed(2);
+                    if (t.stepTpMaxLevel != null) stpVal += ', стоп → $' + t.stepTpMaxLevel.toFixed(2);
+                    if (stpDeltaExp) stpVal += ' <span style="color:#64748B;font-size:10px;">· ' + stpDeltaExp + '</span>';
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Шаговый TP</span><span style="color:#10B981;">' + stpVal + '</span></div>';
                 }
 
                 expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Тип входа</span><span style="color:' + entryColor + ';">' + entryLabel + '</span></div>';
@@ -3352,7 +3539,7 @@
 
         var reasonMap = {
             'stop_loss': 'Стоп', 'take_profit': 'Тейк', 'timeout': 'Таймаут',
-            'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'cluster_exit': 'Кластер',
+            'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'step_tp': 'Шаговый TP', 'cluster_exit': 'Кластер',
             'manual_close': 'Ручной', 'bb_touch': 'BB', 'sma_return': 'SMA',
             'manual_limit_exit': 'Лимит'
         };
@@ -3376,6 +3563,16 @@
             if (d == null) d = 2;
             if (v == null || isNaN(v)) return '';
             return Number(v).toFixed(d);
+        }
+        // Price number — динамическая точность по величине цены:
+        // BTC (>=10k) / SOL (>=100) → 2 знака, ETH ≥10 → 3, NEAR ≥1 → 4, <1 → 5
+        function pn(v) {
+            if (v == null || isNaN(v)) return '';
+            var x = Number(v);
+            if (x >= 100)  return x.toFixed(2);
+            if (x >= 10)   return x.toFixed(3);
+            if (x >= 1)    return x.toFixed(4);
+            return x.toFixed(5);
         }
         function regimeStr(r) {
             if (!r) return '';
@@ -3401,6 +3598,7 @@
             'RSI выход','BB upper вых','BB middle вых','BB lower вых','ATR выход',
             'Кластер вход %','Кластер выход %','Δ Кластер','Кластерный фильтр',
             'Трейлинг активирован','Трейлинг активирован через (мин)','Трейлинг активирован на ($)','Трейлинг активирован @ цене',
+            'Step TP активирован','Step TP активирован через (мин)','Step TP активирован на ($)','Step TP финальный стоп ($)',
             'Режим рынка','Касаний уровня','Выход по'
         ];
         var lines = [headers.map(csvCell).join(',')];
@@ -3411,10 +3609,12 @@
             var entryLabel = t.entryType === 'manual' ? 'Ручной' : (t.entryType === 'bot_tick' ? 'Бот (тик)' : 'Бот');
             var reason = reasonMap[t.reason] || t.reason || '';
 
-            // Первое движение
-            var firstMove = t.firstMoveSide === 'favor' ? '↑ в плюс'
-                          : t.firstMoveSide === 'adverse' ? '↓ в минус'
-                          : '';
+            // Первое движение: стрелка = физ. направление, текст = трактовка
+            var firstMove = '';
+            if (t.firstMoveSide) {
+                var fmUpCsv = (t.side === 'LONG' && t.firstMoveSide === 'favor') || (t.side === 'SHORT' && t.firstMoveSide === 'adverse');
+                firstMove = (fmUpCsv ? '↑' : '↓') + ' ' + (t.firstMoveSide === 'favor' ? 'в нашу сторону' : 'против нас');
+            }
 
             // Взяли от пика %
             var tookPct = '';
@@ -3441,10 +3641,10 @@
                 fmtDate(t.closedAt),
                 t.durationMin != null ? t.durationMin : '',
                 t.candlesHeld != null ? t.candlesHeld : '',
-                n(t.entryPrice),
-                n(t.closePrice),
-                n(t.stop),
-                n(t.target),
+                pn(t.entryPrice),
+                pn(t.closePrice),
+                pn(t.stop),
+                pn(t.target),
                 n(t.size),
                 t.riskReward != null ? t.riskReward : '',
                 n(t.grossPnl),
@@ -3453,21 +3653,21 @@
                 n(t.fee),
                 n(t.maxUnrealized),
                 deltaMinN(t.openedAt, t.maxUnrealizedAt),
-                n(t.maxUnrealizedPrice),
+                pn(t.maxUnrealizedPrice),
                 n(t.maxDrawdown),
                 deltaMinN(t.openedAt, t.maxDrawdownAt),
-                n(t.maxDrawdownPrice),
+                pn(t.maxDrawdownPrice),
                 firstMove,
                 tookPct,
                 t.entryRsi != null ? t.entryRsi : '',
-                n(t.entryBbUpper),
-                n(t.entryBbMiddle),
-                n(t.entryBbLower),
+                pn(t.entryBbUpper),
+                pn(t.entryBbMiddle),
+                pn(t.entryBbLower),
                 n(t.entryAtr),
                 t.exitRsi != null ? t.exitRsi : '',
-                n(t.exitBbUpper),
-                n(t.exitBbMiddle),
-                n(t.exitBbLower),
+                pn(t.exitBbUpper),
+                pn(t.exitBbMiddle),
+                pn(t.exitBbLower),
                 n(t.exitAtr),
                 t.entryClusterBuy != null ? t.entryClusterBuy : '',
                 t.exitClusterBuy != null ? t.exitClusterBuy : '',
@@ -3476,7 +3676,11 @@
                 t.trailingActivated ? 'да' : 'нет',
                 deltaMinN(t.openedAt, t.trailingActivatedAt),
                 n(t.trailingActivatedPnl),
-                n(t.trailingActivatedPrice),
+                pn(t.trailingActivatedPrice),
+                t.stepTpActivated ? 'да' : 'нет',
+                deltaMinN(t.openedAt, t.stepTpActivatedAt),
+                n(t.stepTpActivatedPnl),
+                n(t.stepTpMaxLevel),
                 regimeStr(t.entryRegime),
                 t.levelTouches != null ? t.levelTouches : '',
                 reason
@@ -3664,6 +3868,7 @@
         var mode = (bot.entryMode === 'tick') ? 'T' : 'C';
         var dir = bot.direction === 'long' ? 'L' : bot.direction === 'short' ? 'S' : 'L+S';
         var trail = bot.trailingEnabled ? ' ' + s + ' TR' : '';
+        var stepTp = bot.stepTpEnabled ? ' ' + s + ' STP' : '';
         var bbExit = bot.bbExitEnabled ? ' ' + s + ' BB' : '';
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
         var regime = bot.regimeFilterEnabled ? ' ' + s + ' R' : '';
@@ -3672,7 +3877,7 @@
         if (bot.rsiOversold || bot.rsiOverbought) {
             rsiStr = ' ' + s + ' ' + (bot.rsiOversold || 35) + '/' + (bot.rsiOverbought || 65);
         }
-        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + bbExit + cluster + regime + atr + rsiStr;
+        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + rsiStr;
     }
 
     function updateBotSelector() {
@@ -3693,6 +3898,7 @@
                 pair: _state.pair, strategy: _state.strategy, timeframe: _state.timeframe,
                 entryMode: _state.entryMode, direction: _state.direction,
                 trailingEnabled: _state.trailingEnabled,
+                stepTpEnabled: _state.stepTpEnabled,
                 rsiOversold: _state.rsiOversold, rsiOverbought: _state.rsiOverbought
             };
             label.textContent = getBotLabel(fallback);

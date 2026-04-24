@@ -42,6 +42,7 @@ module.exports = function(app) {
         const dir = session.direction === 'long' ? 'L' : session.direction === 'short' ? 'S' : 'L+S';
         let extra = '';
         if (session.trailingEnabled) extra += ` ${s} TR`;
+        if (session.stepTpEnabled)   extra += ` ${s} STP`;
         if (session.bbExitEnabled) extra += ` ${s} BB`;
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
@@ -68,11 +69,16 @@ module.exports = function(app) {
                     mode: session.mode,
                     balance: Math.round(session.virtualBalance * 100) / 100,
                     dayPnl: Math.round(session.dayPnl * 100) / 100,
+                    totalPnl: Math.round(((session.virtualBalance || 0) - (session.startBalance || 0)) * 100) / 100,
                     position: session.position ? session.position.side : null,
                     name: session.botName || null,
                     entryMode: session.entryMode || 'candle',
                     direction: session.direction || 'both',
                     trailingEnabled: session.trailingEnabled || false,
+                    stepTpEnabled: session.stepTpEnabled || false,
+                    stepTpTrigger: session.stepTpTrigger || 5.00,
+                    stepTpStep: session.stepTpStep || 0.50,
+                    stepTpTolerance: session.stepTpTolerance || 0.50,
                     rsiOverbought: session.rsiOverbought || 65,
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
@@ -99,6 +105,7 @@ module.exports = function(app) {
             case 'take_profit':   return 'TP';
             case 'stop_loss':     return 'SL';
             case 'trailing_stop': return 'Trail';
+            case 'step_tp':       return 'StepTP';
             case 'timeout':       return 'Timeout';
             case 'cluster_exit':  return 'Cluster';
             case 'bb_touch':      return 'BB';
@@ -228,6 +235,15 @@ module.exports = function(app) {
                 trailingEnabled: false,     // вкл/выкл
                 trailingOffset:  0.25,      // отступ трейла (% от цены)
                 trailingActivation: 70,     // активация после N% пути до тейка
+
+                // ── Шаговый TP (Step TP / STP) — конкурент трейлингу ──
+                // Логика: когда прибыль (Gross, в $) пересекает каждую ступеньку (trigger + N*step),
+                // стоп переставляется на уровень прибыли (trigger + N*step − tolerance).
+                // Взаимоисключает trailing (оба не могут быть включены одновременно).
+                stepTpEnabled:   false,     // вкл/выкл
+                stepTpTrigger:   5.00,      // порог активации в $ (первый уровень)
+                stepTpStep:      0.50,      // шаг подтяжки в $
+                stepTpTolerance: 0.50,      // зазор стопа от уровня в $
 
                 // ── Выход по противоположной полосе Боллинджера (только для MR) ──
                 bbExitEnabled:       false,  // если true — игнорируется minProfit и trailing
@@ -1343,6 +1359,13 @@ module.exports = function(app) {
             trailingActivatedAt:    null, // timestamp активации трейлинга
             trailingActivatedPrice: null, // цена активации трейлинга
             trailingActivatedPnl:   null, // unrealized $ в момент активации
+            // ── Трекинг Step TP (STP) ──
+            stepTpActive:           false, // true после первой активации
+            stepTpLastLevel:        -1,    // максимальный индекс достигнутой ступеньки (-1 = ни одной)
+            stepTpActivatedAt:      null,  // timestamp первой активации
+            stepTpActivatedPrice:   null,  // цена в момент первой активации
+            stepTpActivatedPnl:     null,  // unrealized $ в момент первой активации
+            stepTpMaxLevel:         null,  // максимальный stopProfit ($), на который подтягивался стоп
         };
 
         // Запоминаем кластеры при входе + считаем три варианта для лога
@@ -1442,6 +1465,12 @@ module.exports = function(app) {
             trailingActivatedAt:    pos.trailingActivatedAt || null,
             trailingActivatedPrice: pos.trailingActivatedPrice || null,
             trailingActivatedPnl:   pos.trailingActivatedPnl || null,
+            // ── Step TP (STP): активировался или нет ──
+            stepTpActivated:        pos.stepTpActive || false,
+            stepTpActivatedAt:      pos.stepTpActivatedAt || null,
+            stepTpActivatedPrice:   pos.stepTpActivatedPrice || null,
+            stepTpActivatedPnl:     pos.stepTpActivatedPnl || null,
+            stepTpMaxLevel:         pos.stepTpMaxLevel || null,
             durationMin:      Math.round((Date.now() - pos.openedAt) / 60000),
         };
 
@@ -1575,13 +1604,22 @@ module.exports = function(app) {
             }
         }
 
-        // ── Стоп-лосс (включая трейлинг) ──
+        // ── Стоп-лосс (включая трейлинг и Step TP) ──
+        // Приоритет reason: step_tp > trailing_stop > stop_loss
+        // (оба не могут быть активны одновременно, но на всякий случай)
+        function stopReason() {
+            if (pos.stepTpActive) return 'step_tp';
+            if (pos.trailingActive) return 'trailing_stop';
+            return 'stop_loss';
+        }
+        // Закрываемся по текущей цене тика, а не по цене стопа — это симулирует
+        // реальное проскальзывание (в реальной торговле цена может пройти стоп).
         if (pos.side === 'LONG' && price <= pos.stop) {
-            closePosition(session, price, pos.trailingActive ? 'trailing_stop' : 'stop_loss');
+            closePosition(session, price, stopReason());
             return;
         }
         if (pos.side === 'SHORT' && price >= pos.stop) {
-            closePosition(session, price, pos.trailingActive ? 'trailing_stop' : 'stop_loss');
+            closePosition(session, price, stopReason());
             return;
         }
 
@@ -1662,20 +1700,6 @@ module.exports = function(app) {
             }
         }
 
-        // ── Тейк-профит ──
-        // В manual-стратегии pos.target = null (таргета нет), выход только
-        // по стопу или по ручному close. Пропускаем TP-проверку.
-        if (pos.target != null) {
-            if (pos.side === 'LONG' && price >= pos.target) {
-                closePosition(session, price, 'take_profit');
-                return;
-            }
-            if (pos.side === 'SHORT' && price <= pos.target) {
-                closePosition(session, price, 'take_profit');
-                return;
-            }
-        }
-
         // ── Трейлинг-стоп ──
         // Трейлинг использует pos.target для расчёта прогресса, поэтому
         // в manual (где target=null) он не работает — это ожидаемое поведение.
@@ -1716,6 +1740,78 @@ module.exports = function(app) {
                 }
             }
         }
+
+        // ── Шаговый TP (Step TP / STP) ──
+        // Вариант А: стоп переставляется дискретно при пересечении каждой ступеньки.
+        // Ступени: trigger, trigger+step, trigger+2*step, ...
+        // Стоп на уровне N = trigger + N*step − tolerance.
+        // Допуск активации (10% от step) — ступенька считается достигнутой чуть раньше,
+        // чтобы $5.99 засчитывало уровень $6.00, а не ждало ровно $6.00.
+        // Взаимоисключает трейлинг (в UI нельзя включить оба одновременно).
+        if (session.stepTpEnabled && !session.trailingEnabled) {
+            const trigger   = session.stepTpTrigger;
+            const step      = session.stepTpStep;
+            const tolerance = session.stepTpTolerance;
+            const activationTolerance = step * 0.10; // 10% от шага
+
+            const peakPnl = pos.maxUnrealized || 0;
+            const effectivePeak = peakPnl + activationTolerance;
+
+            if (effectivePeak >= trigger && step > 0) {
+                // Индекс максимальной пройденной ступеньки с учётом допуска активации
+                const maxLevelReached = Math.floor((effectivePeak - trigger) / step);
+
+                // Если достигнут новый (более высокий) уровень — переставляем стоп
+                if (maxLevelReached > (pos.stepTpLastLevel ?? -1) && maxLevelReached >= 0) {
+                    const stopProfit = trigger + maxLevelReached * step - tolerance;
+
+                    // Переводим прибыль в $ обратно в цену стопа
+                    // unrealized = (price - entry) * (size / entry)  для LONG
+                    // unrealized = (entry - price) * (size / entry)  для SHORT
+                    // Отсюда цена, где unrealized = stopProfit:
+                    //   LONG:  price = entry + stopProfit * entry / size
+                    //   SHORT: price = entry − stopProfit * entry / size
+                    const priceDelta = stopProfit * pos.entryPrice / pos.size;
+                    const newStop = pos.side === 'LONG'
+                        ? pos.entryPrice + priceDelta
+                        : pos.entryPrice - priceDelta;
+
+                    // Стоп двигается только в нашу пользу
+                    const stopImproved = pos.side === 'LONG'
+                        ? newStop > pos.stop
+                        : newStop < pos.stop;
+
+                    if (stopImproved) {
+                        if (!pos.stepTpActive) {
+                            console.log(`[BOT ${ts()}] 🎯 Step TP ACTIVATED for ${pos.side} @ ${price} | Peak $${peakPnl.toFixed(2)} | Stop → $${stopProfit.toFixed(2)} profit (price ${newStop.toFixed(2)})`);
+                            pos.stepTpActivatedAt    = Date.now();
+                            pos.stepTpActivatedPrice = price;
+                            pos.stepTpActivatedPnl   = Math.round(unrealized * 100) / 100;
+                        } else {
+                            console.log(`[BOT ${ts()}] 🎯 Step TP level ${maxLevelReached} | Peak $${peakPnl.toFixed(2)} | Stop → $${stopProfit.toFixed(2)} profit`);
+                        }
+                        pos.stop = Math.round(newStop * 100) / 100;
+                        pos.stepTpActive     = true;
+                        pos.stepTpLastLevel  = maxLevelReached;
+                        pos.stepTpMaxLevel   = Math.round(stopProfit * 100) / 100;
+                    }
+                }
+            }
+        }
+        // ── Тейк-профит ──
+        // В manual-стратегии pos.target = null (таргета нет), выход только
+        // по стопу или по ручному close. Пропускаем TP-проверку.
+        if (pos.target != null) {
+            if (pos.side === 'LONG' && price >= pos.target) {
+                closePosition(session, price, 'take_profit');
+                return;
+            }
+            if (pos.side === 'SHORT' && price <= pos.target) {
+                closePosition(session, price, 'take_profit');
+                return;
+            }
+        }
+
     }
 
     // Проверка таймаута (вызывается при закрытии каждой свечи)
@@ -2121,7 +2217,17 @@ module.exports = function(app) {
         session.maxLosses        = parseInt(settings.maxLosses)         || 3;
         session.maxLeverage      = parseInt(settings.maxLeverage)       || 5;
         session.virtualBalance   = parseFloat(settings.virtualBalance)  || 10000;
-        session.startBalance     = session.virtualBalance;
+        // startBalance фиксируется ОДИН РАЗ — при самом первом запуске бота.
+        // При следующих перезапусках (STOP → LIVE) не перезаписывается,
+        // чтобы totalPnl = virtualBalance - startBalance продолжал показывать
+        // прибыль за всё время работы бота.
+        // Флаг _startBalanceInit защищает от повторной установки и не зависит
+        // от значений по умолчанию в дефолтах сессии (было: startBalance=10000 в дефолте,
+        // а virtualBalance из UI = 500 → totalPnl = -9500$).
+        if (!session._startBalanceInit) {
+            session.startBalance = session.virtualBalance;
+            session._startBalanceInit = true;
+        }
         session.volumeMultiplier = parseFloat(settings.volumeMultiplier) || 1.5;
         session.positionTimeout  = parseInt(settings.positionTimeout)    || 6;
 
@@ -2129,6 +2235,20 @@ module.exports = function(app) {
         session.trailingEnabled    = !!settings.trailingEnabled;
         session.trailingOffset     = parseFloat(settings.trailingOffset)     || 0.25;
         session.trailingActivation = parseFloat(settings.trailingActivation) || 70;
+
+        // Шаговый TP (Step TP / STP) — конкурент трейлингу
+        session.stepTpEnabled   = !!settings.stepTpEnabled;
+        session.stepTpTrigger   = parseFloat(settings.stepTpTrigger);
+        if (!Number.isFinite(session.stepTpTrigger) || session.stepTpTrigger <= 0) session.stepTpTrigger = 5.00;
+        session.stepTpStep      = parseFloat(settings.stepTpStep);
+        if (!Number.isFinite(session.stepTpStep) || session.stepTpStep <= 0) session.stepTpStep = 0.50;
+        session.stepTpTolerance = parseFloat(settings.stepTpTolerance);
+        if (!Number.isFinite(session.stepTpTolerance) || session.stepTpTolerance < 0) session.stepTpTolerance = 0.50;
+        // Взаимоисключение: если включены оба — приоритет у Step TP, трейлинг выключаем
+        if (session.stepTpEnabled && session.trailingEnabled) {
+            session.trailingEnabled = false;
+            console.log('[BOT] ⚠ Step TP enabled — trailing force-disabled (mutual exclusion)');
+        }
 
         // Выход по противоположной полосе Боллинджера (MR) + толерансы возврата/касания
         session.bbExitEnabled      = !!settings.bbExitEnabled;
@@ -2718,6 +2838,26 @@ module.exports = function(app) {
             if (s.trailingOffset) { session.trailingOffset = parseFloat(s.trailingOffset); changed.push('trailingOffset'); }
             if (s.trailingActivation) { session.trailingActivation = parseFloat(s.trailingActivation); changed.push('trailingActivation'); }
 
+            // Шаговый TP (Step TP / STP)
+            if (s.stepTpEnabled !== undefined) { session.stepTpEnabled = !!s.stepTpEnabled; changed.push(`stepTp:${session.stepTpEnabled ? 'ON' : 'OFF'}`); }
+            if (s.stepTpTrigger !== undefined) {
+                const v = parseFloat(s.stepTpTrigger);
+                if (Number.isFinite(v) && v > 0) { session.stepTpTrigger = v; changed.push('stepTpTrigger'); }
+            }
+            if (s.stepTpStep !== undefined) {
+                const v = parseFloat(s.stepTpStep);
+                if (Number.isFinite(v) && v > 0) { session.stepTpStep = v; changed.push('stepTpStep'); }
+            }
+            if (s.stepTpTolerance !== undefined) {
+                const v = parseFloat(s.stepTpTolerance);
+                if (Number.isFinite(v) && v >= 0) { session.stepTpTolerance = v; changed.push('stepTpTolerance'); }
+            }
+            // Взаимоисключение Trailing ↔ StepTP
+            if (session.stepTpEnabled && session.trailingEnabled) {
+                session.trailingEnabled = false;
+                changed.push('trailing:OFF(excl)');
+            }
+
             // SMA-возврат (MR)
             if (s.smaReturnEnabled !== undefined) {
                 session.smaReturnEnabled = !!s.smaReturnEnabled;
@@ -2897,6 +3037,10 @@ module.exports = function(app) {
                 trailingEnabled: session.trailingEnabled,
                 trailingActivation: session.trailingActivation,
                 trailingOffset: session.trailingOffset,
+                stepTpEnabled: session.stepTpEnabled || false,
+                stepTpTrigger: session.stepTpTrigger || 5.00,
+                stepTpStep: session.stepTpStep || 0.50,
+                stepTpTolerance: session.stepTpTolerance || 0.50,
                 bbExitEnabled: session.bbExitEnabled,
                 bbExitTolerance: session.bbExitTolerance,
                 smaReturnEnabled: session.smaReturnEnabled || false,
@@ -2922,6 +3066,8 @@ module.exports = function(app) {
                     candlesHeld: session.position.candlesHeld,
                     unrealizedPnl: calcUnrealizedPnl(session),
                     trailingActive: session.position.trailingActive || false,
+                    stepTpActive:   session.position.stepTpActive || false,
+                    stepTpMaxLevel: session.position.stepTpMaxLevel || null,
                 } : null,
                 levels:      session.levels,
                 levelsCount: session.levels.length,
