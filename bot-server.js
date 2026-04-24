@@ -34,15 +34,12 @@ module.exports = function(app) {
     function getFullBotLabel(session) {
         const s = '\u00b7'; // ·
         const pair = session.pair || '???';
-        const strat = session.strategy === 'mean_reversion' ? 'MR'
-                    : session.strategy === 'manual' ? 'MN'
-                    : 'SC';
+        const strat = session.strategy === 'mean_reversion' ? 'MR' : 'SC';
         const tf = session.timeframe || '5m';
         const mode = session.entryMode === 'tick' ? 'T' : 'C';
         const dir = session.direction === 'long' ? 'L' : session.direction === 'short' ? 'S' : 'L+S';
         let extra = '';
         if (session.trailingEnabled) extra += ` ${s} TR`;
-        if (session.stepTpEnabled)   extra += ` ${s} STP`;
         if (session.bbExitEnabled) extra += ` ${s} BB`;
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
@@ -69,16 +66,11 @@ module.exports = function(app) {
                     mode: session.mode,
                     balance: Math.round(session.virtualBalance * 100) / 100,
                     dayPnl: Math.round(session.dayPnl * 100) / 100,
-                    totalPnl: Math.round(((session.virtualBalance || 0) - (session.startBalance || 0)) * 100) / 100,
                     position: session.position ? session.position.side : null,
                     name: session.botName || null,
                     entryMode: session.entryMode || 'candle',
                     direction: session.direction || 'both',
                     trailingEnabled: session.trailingEnabled || false,
-                    stepTpEnabled: session.stepTpEnabled || false,
-                    stepTpTrigger: session.stepTpTrigger || 5.00,
-                    stepTpStep: session.stepTpStep || 0.50,
-                    stepTpTolerance: session.stepTpTolerance || 0.50,
                     rsiOverbought: session.rsiOverbought || 65,
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
@@ -105,14 +97,12 @@ module.exports = function(app) {
             case 'take_profit':   return 'TP';
             case 'stop_loss':     return 'SL';
             case 'trailing_stop': return 'Trail';
-            case 'step_tp':       return 'StepTP';
             case 'timeout':       return 'Timeout';
             case 'cluster_exit':  return 'Cluster';
             case 'bb_touch':      return 'BB';
             case 'sma_return':    return 'SMA';
             case 'manual_close':  return 'Ручное';
             case 'manual_stop':   return 'Ручное';
-            case 'manual_limit_exit': return 'Лим. выход';
             default:              return reason || '—';
         }
     }
@@ -235,15 +225,6 @@ module.exports = function(app) {
                 trailingEnabled: false,     // вкл/выкл
                 trailingOffset:  0.25,      // отступ трейла (% от цены)
                 trailingActivation: 70,     // активация после N% пути до тейка
-
-                // ── Шаговый TP (Step TP / STP) — конкурент трейлингу ──
-                // Логика: когда прибыль (Gross, в $) пересекает каждую ступеньку (trigger + N*step),
-                // стоп переставляется на уровень прибыли (trigger + N*step − tolerance).
-                // Взаимоисключает trailing (оба не могут быть включены одновременно).
-                stepTpEnabled:   false,     // вкл/выкл
-                stepTpTrigger:   5.00,      // порог активации в $ (первый уровень)
-                stepTpStep:      0.50,      // шаг подтяжки в $
-                stepTpTolerance: 0.50,      // зазор стопа от уровня в $
 
                 // ── Выход по противоположной полосе Боллинджера (только для MR) ──
                 bbExitEnabled:       false,  // если true — игнорируется minProfit и trailing
@@ -1065,6 +1046,12 @@ module.exports = function(app) {
             side = 'LONG';
         }
 
+        // ВРЕМЕННАЯ ДИАГНОСТИКА — логируем когда близко к сигналу (потом убрать)
+        if (channelPct <= 10 || channelPct >= 90 || rsi <= rsiOversold + 5 || rsi >= rsiOverbought - 5) {
+            const sig = side || 'none';
+            console.log(`[BOT-DIAG ${ts()}] ${session.pair} tick: price=${price}, ch%=${channelPct.toFixed(1)}, rsi=${rsi.toFixed(1)}, os=${rsiOversold}, ob=${rsiOverbought} → signal=${sig}, cooldown=${session.cooldownUntil}, pos=${!!session.position}, pause=${session.paused}`);
+        }
+
         if (!side) return;
 
         if (market === 'spot' && side === 'SHORT') return;
@@ -1273,22 +1260,6 @@ module.exports = function(app) {
     ══════════════════════════════════════════ */
 
     function calcPositionSize(session, entry, stop) {
-        // В manual-стратегии, если выбран режим 'fixed' — размер = фикс % от баланса,
-        // независимо от расстояния до стопа. Это проще для понимания, но риск на сделку
-        // меняется в зависимости от того, насколько далеко стоп.
-        if (session.strategy === 'manual' && session.manualSizeMode === 'fixed') {
-            const fixedPct = session.manualFixedSizePct || 10;
-            let size = session.virtualBalance * (fixedPct / 100);
-            // Всё равно ограничиваем максимальным плечом, чтобы не открыть позицию больше,
-            // чем позволяет баланс × плечо.
-            const maxLev = session.market === 'spot' ? 1 : (session.maxLeverage || 5);
-            const maxSize = session.virtualBalance * maxLev;
-            if (size > maxSize) size = maxSize;
-            console.log(`[BOT ${ts()}] 📐 Manual fixed size: balance=$${session.virtualBalance.toFixed(2)} fixedPct=${fixedPct}% → size=$${size.toFixed(2)}`);
-            return size;
-        }
-
-        // Стандартный расчёт по риску от расстояния до стопа (scalper / MR / manual-risk)
         const riskAmount = session.virtualBalance * (session.riskPct / 100);
         const stopDist = Math.abs(entry - stop) / entry;
         if (stopDist === 0) return 0;
@@ -1321,9 +1292,6 @@ module.exports = function(app) {
             level:      signal.level,
             riskReward: signal.riskReward,
             entryType:  signal.concentration === 'manual' ? 'manual' : (signal.concentration === 'tick' ? 'bot_tick' : 'bot'),
-            // source различает, как попала позиция в систему: 'manual' — клик пользователя
-            // (Market/Limit), 'auto' — автосигнал бота. Используется в журнале для фильтрации статистики.
-            source:     signal.concentration === 'manual' ? 'manual' : 'auto',
             trailingActive: false,
             clusterExitCount: 0,
             // ── Аналитика при входе ──
@@ -1351,21 +1319,6 @@ module.exports = function(app) {
             // ── Трекинг max/min для анализа ──
             maxUnrealized:   0,    // максимальный unrealized P&L ($)
             maxDrawdown:     0,    // максимальный drawdown ($)
-            maxUnrealizedAt: null, // timestamp когда достигнут пик
-            maxUnrealizedPrice: null, // цена на пике прибыли
-            maxDrawdownAt:   null, // timestamp худшей просадки
-            maxDrawdownPrice: null, // цена на худшей просадке
-            firstMoveSide:   null, // 'favor' | 'adverse' — куда пошла цена первой (порог: 0.1% от size)
-            trailingActivatedAt:    null, // timestamp активации трейлинга
-            trailingActivatedPrice: null, // цена активации трейлинга
-            trailingActivatedPnl:   null, // unrealized $ в момент активации
-            // ── Трекинг Step TP (STP) ──
-            stepTpActive:           false, // true после первой активации
-            stepTpLastLevel:        -1,    // максимальный индекс достигнутой ступеньки (-1 = ни одной)
-            stepTpActivatedAt:      null,  // timestamp первой активации
-            stepTpActivatedPrice:   null,  // цена в момент первой активации
-            stepTpActivatedPnl:     null,  // unrealized $ в момент первой активации
-            stepTpMaxLevel:         null,  // максимальный stopProfit ($), на который подтягивался стоп
         };
 
         // Запоминаем кластеры при входе + считаем три варианта для лога
@@ -1388,7 +1341,7 @@ module.exports = function(app) {
         const stratInfo = signal.rsi !== undefined
             ? `RSI: ${signal.rsi} | BB: ${signal.bbLower}/${signal.bbMiddle}/${signal.bbUpper}`
             : `Cluster: trigger=${signal.triggerBuyPct}% bg=${signal.backgroundBuyPct}%`;
-        console.log(`[BOT ${ts()}] ✅ OPENED ${signal.side} @ ${signal.entry} | Stop: ${signal.stop} (ATR:${signal.atr}) | Target: ${signal.target == null ? '—' : signal.target} | Size: ${size.toFixed(2)} USDT | R:R ${signal.riskReward == null ? '—' : signal.riskReward} | ${stratInfo} | Vol: ${signal.volumeRatio}x${clusterDetails}`);
+        console.log(`[BOT ${ts()}] ✅ OPENED ${signal.side} @ ${signal.entry} | Stop: ${signal.stop} (ATR:${signal.atr}) | Target: ${signal.target} | Size: ${size.toFixed(2)} USDT | R:R ${signal.riskReward} | ${stratInfo} | Vol: ${signal.volumeRatio}x${clusterDetails}`);
     }
 
     function closePosition(session, price, reason) {
@@ -1428,7 +1381,6 @@ module.exports = function(app) {
             pnlPct:      Math.round(((netPnl / pos.size) * 100) * 100) / 100,
             reason:      reason,
             entryType:   pos.entryType || 'bot',
-            source:      pos.source || 'auto',
             riskReward:  pos.riskReward,
             levelTouches: pos.level ? pos.level.touches : 0,
             candlesHeld: pos.candlesHeld,
@@ -1447,30 +1399,8 @@ module.exports = function(app) {
             entryAtr:         pos.entryAtr,
             entryClusterBuy:  pos.entryClusterBuy,
             exitClusterBuy:   null, // заполним ниже
-            exitRsi:          null, // заполним ниже
-            exitAtr:          null, // заполним ниже
-            exitBbUpper:      null, // заполним ниже
-            exitBbMiddle:     null, // заполним ниже
-            exitBbLower:      null, // заполним ниже
             maxUnrealized:    pos.maxUnrealized || 0,
             maxDrawdown:      pos.maxDrawdown || 0,
-            // ── Новый трекинг: когда достигнуты пики ──
-            maxUnrealizedAt:    pos.maxUnrealizedAt || null,
-            maxUnrealizedPrice: pos.maxUnrealizedPrice || null,
-            maxDrawdownAt:      pos.maxDrawdownAt || null,
-            maxDrawdownPrice:   pos.maxDrawdownPrice || null,
-            firstMoveSide:      pos.firstMoveSide || null,
-            // ── Трейлинг: активировался или нет ──
-            trailingActivated:      pos.trailingActive || false,
-            trailingActivatedAt:    pos.trailingActivatedAt || null,
-            trailingActivatedPrice: pos.trailingActivatedPrice || null,
-            trailingActivatedPnl:   pos.trailingActivatedPnl || null,
-            // ── Step TP (STP): активировался или нет ──
-            stepTpActivated:        pos.stepTpActive || false,
-            stepTpActivatedAt:      pos.stepTpActivatedAt || null,
-            stepTpActivatedPrice:   pos.stepTpActivatedPrice || null,
-            stepTpActivatedPnl:     pos.stepTpActivatedPnl || null,
-            stepTpMaxLevel:         pos.stepTpMaxLevel || null,
             durationMin:      Math.round((Date.now() - pos.openedAt) / 60000),
         };
 
@@ -1490,28 +1420,8 @@ module.exports = function(app) {
             exitClusterDetails = ` | Cluster[entry(${lb}c):${entryClusterStr}→exit trig:${triggerBuyExit}% /3c:${bg3Exit.buyPct}% /${lb}c:${bgExit.buyPct}%]`;
         } catch(e) {}
 
-        // ── Индикаторы на момент выхода: RSI, ATR, BB ──
-        try {
-            const closedForExit = session.candles.filter(c => c.closed);
-            if (closedForExit.length >= 30) {
-                const exitRsi = calcRSI(closedForExit, session.rsiPeriod || 14);
-                if (exitRsi != null && !isNaN(exitRsi)) trade.exitRsi = Math.round(exitRsi * 10) / 10;
-
-                const exitAtr = calcATR(session.candles, 20);
-                if (exitAtr > 0) trade.exitAtr = Math.round(exitAtr * 100) / 100;
-
-                const exitBb = calcBollingerBands(closedForExit, session.bbPeriod || 20, session.bbMultiplier || 2.0);
-                if (exitBb) {
-                    trade.exitBbUpper  = Math.round(exitBb.upper  * 100) / 100;
-                    trade.exitBbMiddle = Math.round(exitBb.middle * 100) / 100;
-                    trade.exitBbLower  = Math.round(exitBb.lower  * 100) / 100;
-                }
-            }
-        } catch(e) {}
-
         session.trades.unshift(trade);
-        // Лимит поднят до 1000 (было 200). Для очистки используется /api/bot/clear-trades.
-        if (session.trades.length > 1000) session.trades.pop();
+        if (session.trades.length > 200) session.trades.pop();
 
         if (netPnl < 0) {
             session.consecutiveLosses++;
@@ -1533,12 +1443,6 @@ module.exports = function(app) {
         pushTradeClosed(session, trade);
 
         session.position = null;
-        // Если был лимитный выход, который ещё не сработал (позиция закрылась
-        // по стопу/трейлингу/таймауту/ручному CLOSE) — очищаем, чтобы он не
-        // "повис" и не сработал на следующей сессии.
-        if (session.pendingExit) {
-            session.pendingExit = null;
-        }
         checkLimits(session);
     }
 
@@ -1576,69 +1480,21 @@ module.exports = function(app) {
 
         session.currentPrice = price;
 
-        // ── Трекинг max unrealized P&L и max drawdown с timestamp-ами ──
+        // ── Трекинг max unrealized P&L и max drawdown ──
         const unrealized = pos.side === 'LONG'
             ? (price - pos.entryPrice) / pos.entryPrice * pos.size
             : (pos.entryPrice - price) / pos.entryPrice * pos.size;
+        if (unrealized > (pos.maxUnrealized || 0)) pos.maxUnrealized = Math.round(unrealized * 100) / 100;
+        if (unrealized < (pos.maxDrawdown || 0)) pos.maxDrawdown = Math.round(unrealized * 100) / 100;
 
-        // Пик в плюс
-        if (unrealized > (pos.maxUnrealized || 0)) {
-            pos.maxUnrealized = Math.round(unrealized * 100) / 100;
-            pos.maxUnrealizedAt = Date.now();
-            pos.maxUnrealizedPrice = price;
-        }
-        // Пик в минус
-        if (unrealized < (pos.maxDrawdown || 0)) {
-            pos.maxDrawdown = Math.round(unrealized * 100) / 100;
-            pos.maxDrawdownAt = Date.now();
-            pos.maxDrawdownPrice = price;
-        }
-
-        // ── Первое значимое движение (порог: 0.1% от размера позиции) ──
-        if (pos.firstMoveSide === null) {
-            const threshold = pos.size * 0.001; // 0.1% от размера = $1 на позиции $1000
-            if (unrealized >= threshold) {
-                pos.firstMoveSide = 'favor';
-            } else if (unrealized <= -threshold) {
-                pos.firstMoveSide = 'adverse';
-            }
-        }
-
-        // ── Стоп-лосс (включая трейлинг и Step TP) ──
-        // Приоритет reason: step_tp > trailing_stop > stop_loss
-        // (оба не могут быть активны одновременно, но на всякий случай)
-        function stopReason() {
-            if (pos.stepTpActive) return 'step_tp';
-            if (pos.trailingActive) return 'trailing_stop';
-            return 'stop_loss';
-        }
-        // Закрываемся по текущей цене тика, а не по цене стопа — это симулирует
-        // реальное проскальзывание (в реальной торговле цена может пройти стоп).
+        // ── Стоп-лосс (включая трейлинг) ──
         if (pos.side === 'LONG' && price <= pos.stop) {
-            closePosition(session, price, stopReason());
+            closePosition(session, price, pos.trailingActive ? 'trailing_stop' : 'stop_loss');
             return;
         }
         if (pos.side === 'SHORT' && price >= pos.stop) {
-            closePosition(session, price, stopReason());
+            closePosition(session, price, pos.trailingActive ? 'trailing_stop' : 'stop_loss');
             return;
-        }
-
-        // ── Лимитный выход (pendingExit) — только для manual-стратегии ──
-        // Срабатывает, когда цена достигла заданного уровня.
-        // LONG exit: закрываем когда цена поднялась ДО или ВЫШЕ exit-цены.
-        // SHORT exit: закрываем когда цена опустилась ДО или НИЖЕ exit-цены.
-        // Закрываем по цене pendingExit (а не рыночной), как работают настоящие лимит-ордера.
-        if (session.strategy === 'manual' && session.pendingExit) {
-            const pe = session.pendingExit;
-            const triggered =
-                (pos.side === 'LONG'  && price >= pe.price) ||
-                (pos.side === 'SHORT' && price <= pe.price);
-            if (triggered) {
-                console.log(`[BOT ${ts()}] 🎯 LIMIT EXIT FILLED: ${pos.side} @ ${pe.price} (market: ${price})`);
-                session.pendingExit = null;
-                closePosition(session, pe.price, 'manual_limit_exit');
-                return;
-            }
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -1700,10 +1556,18 @@ module.exports = function(app) {
             }
         }
 
+        // ── Тейк-профит ──
+        if (pos.side === 'LONG' && price >= pos.target) {
+            closePosition(session, price, 'take_profit');
+            return;
+        }
+        if (pos.side === 'SHORT' && price <= pos.target) {
+            closePosition(session, price, 'take_profit');
+            return;
+        }
+
         // ── Трейлинг-стоп ──
-        // Трейлинг использует pos.target для расчёта прогресса, поэтому
-        // в manual (где target=null) он не работает — это ожидаемое поведение.
-        if (session.trailingEnabled && pos.target != null) {
+        if (session.trailingEnabled) {
             const totalPath = Math.abs(pos.target - pos.entryPrice);
             const activationThreshold = totalPath * (session.trailingActivation / 100);
             const trailDist = price * (session.trailingOffset / 100);
@@ -1715,9 +1579,6 @@ module.exports = function(app) {
                     if (newStop > pos.stop) {
                         if (!pos.trailingActive) {
                             console.log(`[BOT] 📈 Trailing stop ACTIVATED for LONG @ ${price} | New stop: ${newStop.toFixed(2)}`);
-                            pos.trailingActivatedAt    = Date.now();
-                            pos.trailingActivatedPrice = price;
-                            pos.trailingActivatedPnl   = Math.round(unrealized * 100) / 100;
                         }
                         pos.stop = Math.round(newStop * 100) / 100;
                         pos.trailingActive = true;
@@ -1730,9 +1591,6 @@ module.exports = function(app) {
                     if (newStop < pos.stop) {
                         if (!pos.trailingActive) {
                             console.log(`[BOT ${ts()}] 📉 Trailing stop ACTIVATED for SHORT @ ${price} | New stop: ${newStop.toFixed(2)}`);
-                            pos.trailingActivatedAt    = Date.now();
-                            pos.trailingActivatedPrice = price;
-                            pos.trailingActivatedPnl   = Math.round(unrealized * 100) / 100;
                         }
                         pos.stop = Math.round(newStop * 100) / 100;
                         pos.trailingActive = true;
@@ -1740,78 +1598,6 @@ module.exports = function(app) {
                 }
             }
         }
-
-        // ── Шаговый TP (Step TP / STP) ──
-        // Вариант А: стоп переставляется дискретно при пересечении каждой ступеньки.
-        // Ступени: trigger, trigger+step, trigger+2*step, ...
-        // Стоп на уровне N = trigger + N*step − tolerance.
-        // Допуск активации (10% от step) — ступенька считается достигнутой чуть раньше,
-        // чтобы $5.99 засчитывало уровень $6.00, а не ждало ровно $6.00.
-        // Взаимоисключает трейлинг (в UI нельзя включить оба одновременно).
-        if (session.stepTpEnabled && !session.trailingEnabled) {
-            const trigger   = session.stepTpTrigger;
-            const step      = session.stepTpStep;
-            const tolerance = session.stepTpTolerance;
-            const activationTolerance = step * 0.10; // 10% от шага
-
-            const peakPnl = pos.maxUnrealized || 0;
-            const effectivePeak = peakPnl + activationTolerance;
-
-            if (effectivePeak >= trigger && step > 0) {
-                // Индекс максимальной пройденной ступеньки с учётом допуска активации
-                const maxLevelReached = Math.floor((effectivePeak - trigger) / step);
-
-                // Если достигнут новый (более высокий) уровень — переставляем стоп
-                if (maxLevelReached > (pos.stepTpLastLevel ?? -1) && maxLevelReached >= 0) {
-                    const stopProfit = trigger + maxLevelReached * step - tolerance;
-
-                    // Переводим прибыль в $ обратно в цену стопа
-                    // unrealized = (price - entry) * (size / entry)  для LONG
-                    // unrealized = (entry - price) * (size / entry)  для SHORT
-                    // Отсюда цена, где unrealized = stopProfit:
-                    //   LONG:  price = entry + stopProfit * entry / size
-                    //   SHORT: price = entry − stopProfit * entry / size
-                    const priceDelta = stopProfit * pos.entryPrice / pos.size;
-                    const newStop = pos.side === 'LONG'
-                        ? pos.entryPrice + priceDelta
-                        : pos.entryPrice - priceDelta;
-
-                    // Стоп двигается только в нашу пользу
-                    const stopImproved = pos.side === 'LONG'
-                        ? newStop > pos.stop
-                        : newStop < pos.stop;
-
-                    if (stopImproved) {
-                        if (!pos.stepTpActive) {
-                            console.log(`[BOT ${ts()}] 🎯 Step TP ACTIVATED for ${pos.side} @ ${price} | Peak $${peakPnl.toFixed(2)} | Stop → $${stopProfit.toFixed(2)} profit (price ${newStop.toFixed(2)})`);
-                            pos.stepTpActivatedAt    = Date.now();
-                            pos.stepTpActivatedPrice = price;
-                            pos.stepTpActivatedPnl   = Math.round(unrealized * 100) / 100;
-                        } else {
-                            console.log(`[BOT ${ts()}] 🎯 Step TP level ${maxLevelReached} | Peak $${peakPnl.toFixed(2)} | Stop → $${stopProfit.toFixed(2)} profit`);
-                        }
-                        pos.stop = Math.round(newStop * 100) / 100;
-                        pos.stepTpActive     = true;
-                        pos.stepTpLastLevel  = maxLevelReached;
-                        pos.stepTpMaxLevel   = Math.round(stopProfit * 100) / 100;
-                    }
-                }
-            }
-        }
-        // ── Тейк-профит ──
-        // В manual-стратегии pos.target = null (таргета нет), выход только
-        // по стопу или по ручному close. Пропускаем TP-проверку.
-        if (pos.target != null) {
-            if (pos.side === 'LONG' && price >= pos.target) {
-                closePosition(session, price, 'take_profit');
-                return;
-            }
-            if (pos.side === 'SHORT' && price <= pos.target) {
-                closePosition(session, price, 'take_profit');
-                return;
-            }
-        }
-
     }
 
     // Проверка таймаута (вызывается при закрытии каждой свечи)
@@ -1820,10 +1606,6 @@ module.exports = function(app) {
         if (!pos) return;
 
         pos.candlesHeld++;
-
-        // В manual-стратегии таймаут работает только при явно включённом тумблере.
-        // В авто-стратегиях (scalper/mean_reversion) — всегда как раньше.
-        if (session.strategy === 'manual' && !session.manualTimeoutEnabled) return;
 
         if (pos.candlesHeld >= session.positionTimeout) {
             closePosition(session, session.currentPrice, 'timeout');
@@ -1895,10 +1677,8 @@ module.exports = function(app) {
         }
 
         // ── Кластерный выход из позиции ──
-        // Работает только если тумблер "Учитывать кластеры" включён.
-        // В manual-стратегии кластерные автовыходы отключены — пользователь
-        // сам решает, когда закрывать.
-        if (session.position && session.strategy !== 'manual' && (session.clusterEntryFilter || (session.strategy !== 'mean_reversion' && session.clusterEnabled))) {
+        // Работает только если тумблер "Учитывать кластеры" включён
+        if (session.position && (session.clusterEntryFilter || (session.strategy !== 'mean_reversion' && session.clusterEnabled))) {
             checkClusterExit(session);
         }
 
@@ -1908,9 +1688,7 @@ module.exports = function(app) {
         }
 
         // Если нет позиции и нет cooldown — ищем сигнал
-        // В manual-стратегии автосигналы не генерируются вовсе —
-        // входы только через /api/bot/manual-trade (Market/Limit).
-        if (!session.position && session.cooldownUntil <= 0 && session.strategy !== 'manual') {
+        if (!session.position && session.cooldownUntil <= 0) {
             const signal = session.strategy === 'mean_reversion'
                 ? checkSignalMeanReversion(session)
                 : checkSignal(session);
@@ -2052,42 +1830,6 @@ module.exports = function(app) {
                     checkPosition(session, candle.close);
                 }
 
-                // ── Срабатывание pending limit (manual-стратегия) ──
-                // LONG limit срабатывает когда цена опустилась до или ниже limit,
-                // SHORT limit — когда цена поднялась до или выше limit.
-                // Открываем позицию по цене limit (так работают настоящие лимит-ордера),
-                // а не по текущей рыночной — это даёт более предсказуемый вход.
-                if (!session.position && session.pendingLimit && session.strategy === 'manual' && !session.paused) {
-                    const pl = session.pendingLimit;
-                    const triggered =
-                        (pl.side === 'LONG'  && candle.close <= pl.price) ||
-                        (pl.side === 'SHORT' && candle.close >= pl.price);
-                    if (triggered) {
-                        const entryPrice = pl.price;
-                        const stopPct = (session.manualStopPct || 0.5) / 100;
-                        const stop = pl.side === 'LONG'
-                            ? entryPrice * (1 - stopPct)
-                            : entryPrice * (1 + stopPct);
-                        const atr = calcATR(session.candles, 20);
-                        const signal = {
-                            side: pl.side,
-                            entry: entryPrice,
-                            stop: Math.round(stop * 100) / 100,
-                            target: null,
-                            atr: Math.round(atr * 100) / 100,
-                            level: null,
-                            riskReward: null,
-                            triggerBuyPct: 50,
-                            backgroundBuyPct: 50,
-                            concentration: 'manual',
-                            volumeRatio: 0,
-                        };
-                        console.log(`[BOT ${ts()}] 🎯 LIMIT FILLED: ${pl.side} @ ${entryPrice} (market: ${candle.close})`);
-                        session.pendingLimit = null;
-                        openPosition(session, signal);
-                    }
-                }
-
                 // ── Вход по тику (Mean Reversion, tick mode) ──
                 if (!session.position && session.cooldownUntil <= 0
                     && session.strategy === 'mean_reversion'
@@ -2217,17 +1959,7 @@ module.exports = function(app) {
         session.maxLosses        = parseInt(settings.maxLosses)         || 3;
         session.maxLeverage      = parseInt(settings.maxLeverage)       || 5;
         session.virtualBalance   = parseFloat(settings.virtualBalance)  || 10000;
-        // startBalance фиксируется ОДИН РАЗ — при самом первом запуске бота.
-        // При следующих перезапусках (STOP → LIVE) не перезаписывается,
-        // чтобы totalPnl = virtualBalance - startBalance продолжал показывать
-        // прибыль за всё время работы бота.
-        // Флаг _startBalanceInit защищает от повторной установки и не зависит
-        // от значений по умолчанию в дефолтах сессии (было: startBalance=10000 в дефолте,
-        // а virtualBalance из UI = 500 → totalPnl = -9500$).
-        if (!session._startBalanceInit) {
-            session.startBalance = session.virtualBalance;
-            session._startBalanceInit = true;
-        }
+        session.startBalance     = session.virtualBalance;
         session.volumeMultiplier = parseFloat(settings.volumeMultiplier) || 1.5;
         session.positionTimeout  = parseInt(settings.positionTimeout)    || 6;
 
@@ -2235,20 +1967,6 @@ module.exports = function(app) {
         session.trailingEnabled    = !!settings.trailingEnabled;
         session.trailingOffset     = parseFloat(settings.trailingOffset)     || 0.25;
         session.trailingActivation = parseFloat(settings.trailingActivation) || 70;
-
-        // Шаговый TP (Step TP / STP) — конкурент трейлингу
-        session.stepTpEnabled   = !!settings.stepTpEnabled;
-        session.stepTpTrigger   = parseFloat(settings.stepTpTrigger);
-        if (!Number.isFinite(session.stepTpTrigger) || session.stepTpTrigger <= 0) session.stepTpTrigger = 5.00;
-        session.stepTpStep      = parseFloat(settings.stepTpStep);
-        if (!Number.isFinite(session.stepTpStep) || session.stepTpStep <= 0) session.stepTpStep = 0.50;
-        session.stepTpTolerance = parseFloat(settings.stepTpTolerance);
-        if (!Number.isFinite(session.stepTpTolerance) || session.stepTpTolerance < 0) session.stepTpTolerance = 0.50;
-        // Взаимоисключение: если включены оба — приоритет у Step TP, трейлинг выключаем
-        if (session.stepTpEnabled && session.trailingEnabled) {
-            session.trailingEnabled = false;
-            console.log('[BOT] ⚠ Step TP enabled — trailing force-disabled (mutual exclusion)');
-        }
 
         // Выход по противоположной полосе Боллинджера (MR) + толерансы возврата/касания
         session.bbExitEnabled      = !!settings.bbExitEnabled;
@@ -2278,17 +1996,9 @@ module.exports = function(app) {
         session.stopAtrMultiplier = parseFloat(settings.stopAtrMultiplier) || 1.5;
 
         // ── Стратегия ──
-        session.strategy = settings.strategy || 'scalper'; // 'scalper' | 'mean_reversion' | 'manual'
+        session.strategy = settings.strategy || 'scalper'; // 'scalper' | 'mean_reversion'
         session.direction = settings.direction || 'both'; // 'both' | 'long' | 'short'
         session.entryMode = settings.entryMode || 'candle'; // 'candle' | 'tick'
-
-        // ── Manual-стратегия параметры ──
-        session.manualStopPct       = parseFloat(settings.manualStopPct)      || 0.5;   // % от цены входа
-        session.manualSizeMode      = settings.manualSizeMode  === 'fixed' ? 'fixed' : 'risk'; // 'risk' | 'fixed'
-        session.manualFixedSizePct  = parseFloat(settings.manualFixedSizePct) || 10;    // % баланса при fixed
-        session.manualTimeoutEnabled = !!settings.manualTimeoutEnabled;                 // опциональный таймаут
-        session.pendingLimit        = null;  // { side, price, createdAt } — ожидающий лимит-ордер на ВХОД
-        session.pendingExit         = null;  // { price, createdAt } — ожидающий лимитный ВЫХОД из открытой позиции
 
         // Кластерный анализ
         session.clusterEnabled     = settings.clusterEnabled !== false;
@@ -2417,19 +2127,6 @@ module.exports = function(app) {
         // Закрываем позицию по рынку
         if (session.position && session.currentPrice > 0) {
             closePosition(session, session.currentPrice, 'manual_stop');
-        }
-
-        // Отменяем ожидающую лимитку — иначе она осталась бы активной в памяти,
-        // но без работающего WebSocket-потока никогда бы не сработала.
-        if (session.pendingLimit) {
-            console.log(`[BOT] 🖐 LIMIT CANCELLED on stop: ${session.pendingLimit.side} @ ${session.pendingLimit.price}`);
-            session.pendingLimit = null;
-        }
-        // Аналогично — лимитный выход (если был). closePosition выше уже должен был
-        // его очистить, но на всякий случай.
-        if (session.pendingExit) {
-            console.log(`[BOT] 🖐 LIMIT EXIT CANCELLED on stop: ${session.pendingExit.price}`);
-            session.pendingExit = null;
         }
 
         // Отключаем WebSocket
@@ -2600,63 +2297,21 @@ module.exports = function(app) {
             const uid = req.body.uid || 'anonymous';
             const botId = req.body.botId || 'default';
             const side = req.body.side; // 'LONG' или 'SHORT'
-            const orderType = req.body.orderType === 'limit' ? 'limit' : 'market';
-            const limitPrice = parseFloat(req.body.limitPrice);
             const session = getSession(uid, botId);
 
             if (!session.running) return res.status(400).json({ error: 'Бот не запущен' });
-            if (session.paused) return res.status(400).json({ error: 'Бот на паузе (дневной лимит убытков)' });
             if (session.position) return res.status(400).json({ error: 'Уже есть открытая позиция' });
-            if (session.pendingLimit) return res.status(400).json({ error: 'Уже есть ожидающая лимитка — сначала отмените' });
             if (!side || (side !== 'LONG' && side !== 'SHORT')) return res.status(400).json({ error: 'Укажите side: LONG или SHORT' });
             if (session.market === 'spot' && side === 'SHORT') return res.status(400).json({ error: 'SHORT недоступен на споте' });
-            if (session.direction === 'long' && side === 'SHORT') return res.status(400).json({ error: 'Направление ограничено: только LONG' });
-            if (session.direction === 'short' && side === 'LONG') return res.status(400).json({ error: 'Направление ограничено: только SHORT' });
             if (!session.currentPrice || session.currentPrice <= 0) return res.status(400).json({ error: 'Нет данных о цене' });
 
-            const isManualStrategy = session.strategy === 'manual';
-
-            // ── Валидация limit-ордера ──
-            if (orderType === 'limit') {
-                if (!isManualStrategy) {
-                    return res.status(400).json({ error: 'Limit-ордера доступны только в ручной стратегии' });
-                }
-                if (!Number.isFinite(limitPrice) || limitPrice <= 0) {
-                    return res.status(400).json({ error: 'Некорректная limit-цена' });
-                }
-                // Защита от очевидно ошибочных лимиток:
-                // LONG limit должен быть ниже текущей цены (ждём отката вниз),
-                // SHORT limit — выше (ждём отскока вверх). Иначе ордер мгновенно сработает.
-                if (side === 'LONG' && limitPrice >= session.currentPrice) {
-                    return res.status(400).json({ error: 'LONG limit должен быть ниже текущей цены' });
-                }
-                if (side === 'SHORT' && limitPrice <= session.currentPrice) {
-                    return res.status(400).json({ error: 'SHORT limit должен быть выше текущей цены' });
-                }
-
-                // Ставим pending limit, позиция не открывается — ждём касания цены в tick-цикле
-                session.pendingLimit = {
-                    side,
-                    price: Math.round(limitPrice * 100) / 100,
-                    createdAt: Date.now(),
-                };
-                console.log(`[BOT ${ts()}] 🖐 MANUAL ${side} LIMIT @ ${session.pendingLimit.price} (current: ${session.currentPrice})`);
-                return res.json({ ok: true, pendingLimit: session.pendingLimit });
-            }
-
-            // ── Market-ордер: считаем стоп и таргет ──
             const price = session.currentPrice;
             const atr = calcATR(session.candles, 20);
-            const stopDistFallback = atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002;
+            const stopDist = atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002;
 
             let stop, tp;
 
-            if (isManualStrategy) {
-                // Manual: стоп по manualStopPct (% от цены входа), таргета нет
-                const stopPct = (session.manualStopPct || 0.5) / 100;
-                stop = side === 'LONG' ? price * (1 - stopPct) : price * (1 + stopPct);
-                tp = null; // таргета в manual нет — выход только по стопу или по ручному close
-            } else if (session.strategy === 'mean_reversion') {
+            if (session.strategy === 'mean_reversion') {
                 // Mean Reversion: таргет = макс(SMA, минимальный профит), стоп за полосой BB
                 const closedCandles = session.candles.filter(c => c.closed);
                 const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);
@@ -2674,11 +2329,11 @@ module.exports = function(app) {
                         : bb.upper + (atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002);
                 } else {
                     tp = side === 'LONG' ? price * 1.005 : price * 0.995;
-                    stop = side === 'LONG' ? price - stopDistFallback : price + stopDistFallback;
+                    stop = side === 'LONG' ? price - stopDist : price + stopDist;
                 }
             } else {
                 // Скальпер: старая логика
-                stop = side === 'LONG' ? price - stopDistFallback : price + stopDistFallback;
+                stop = side === 'LONG' ? price - stopDist : price + stopDist;
                 tp = side === 'LONG'
                     ? price * (1 + session.maxProfitPct / 100)
                     : price * (1 - session.maxProfitPct / 100);
@@ -2688,10 +2343,10 @@ module.exports = function(app) {
                 side,
                 entry: price,
                 stop: Math.round(stop * 100) / 100,
-                target: tp == null ? null : Math.round(tp * 100) / 100,
+                target: Math.round(tp * 100) / 100,
                 atr: Math.round(atr * 100) / 100,
                 level: null,
-                riskReward: tp == null ? null : Math.round((Math.abs(tp - price) / Math.abs(price - stop)) * 100) / 100,
+                riskReward: Math.round((Math.abs(tp - price) / Math.abs(price - stop)) * 100) / 100,
                 triggerBuyPct: 50,
                 backgroundBuyPct: 50,
                 concentration: 'manual',
@@ -2699,7 +2354,7 @@ module.exports = function(app) {
             };
 
             openPosition(session, signal);
-            console.log(`[BOT ${ts()}] 🖐 MANUAL ${side} @ ${price} | Stop: ${signal.stop} | Target: ${signal.target == null ? '—' : signal.target}`);
+            console.log(`[BOT ${ts()}] 🖐 MANUAL ${side} @ ${price} | Stop: ${signal.stop} | Target: ${signal.target}`);
 
             res.json({ ok: true, position: session.position ? {
                 side: session.position.side,
@@ -2707,84 +2362,6 @@ module.exports = function(app) {
                 stop: session.position.stop,
                 target: session.position.target,
             } : null });
-        } catch(e) {
-            res.status(500).json({ error: e.message });
-        }
-    });
-
-    // POST /api/bot/cancel-limit — отменить ожидающий лимит-ордер (только manual)
-    app.post('/api/bot/cancel-limit', (req, res) => {
-        try {
-            const uid = req.body.uid || 'anonymous';
-            const botId = req.body.botId || 'default';
-            const session = getSession(uid, botId);
-            if (!session.pendingLimit) return res.status(400).json({ error: 'Нет ожидающей лимитки' });
-            const cancelled = session.pendingLimit;
-            session.pendingLimit = null;
-            console.log(`[BOT ${ts()}] 🖐 LIMIT CANCELLED: ${cancelled.side} @ ${cancelled.price}`);
-            res.json({ ok: true, cancelled });
-        } catch(e) {
-            res.status(500).json({ error: e.message });
-        }
-    });
-
-    // POST /api/bot/set-exit-limit — поставить лимитный выход из открытой позиции (только manual)
-    // Срабатывает как take-profit: когда цена касается exit-price, позиция закрывается.
-    app.post('/api/bot/set-exit-limit', (req, res) => {
-        try {
-            const uid = req.body.uid || 'anonymous';
-            const botId = req.body.botId || 'default';
-            const price = parseFloat(req.body.price);
-            const session = getSession(uid, botId);
-
-            if (!session.running) return res.status(400).json({ error: 'Бот не запущен' });
-            if (session.strategy !== 'manual') return res.status(400).json({ error: 'Лимитный выход доступен только в ручной стратегии' });
-            if (!session.position) return res.status(400).json({ error: 'Нет открытой позиции' });
-            if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Некорректная цена лимитного выхода' });
-            if (!session.currentPrice || session.currentPrice <= 0) return res.status(400).json({ error: 'Нет данных о цене' });
-
-            const pos = session.position;
-            // Валидация: exit-цена должна быть "в правильную сторону" от текущей,
-            // иначе лимит сработает мгновенно (это не лимит, а market).
-            // LONG: exit должна быть ВЫШЕ текущей (закрываем в плюс).
-            // SHORT: exit должна быть НИЖЕ текущей.
-            if (pos.side === 'LONG' && price <= session.currentPrice) {
-                return res.status(400).json({ error: 'Для LONG лимитный выход должен быть выше текущей цены' });
-            }
-            if (pos.side === 'SHORT' && price >= session.currentPrice) {
-                return res.status(400).json({ error: 'Для SHORT лимитный выход должен быть ниже текущей цены' });
-            }
-            // Также защитимся от exit-цены, которая стоит ПРОТИВ позиции, глубже стопа —
-            // это бессмыслица (позиция уже закроется по стопу раньше).
-            if (pos.side === 'LONG' && price <= pos.stop) {
-                return res.status(400).json({ error: 'Лимитный выход не должен быть ниже стопа' });
-            }
-            if (pos.side === 'SHORT' && price >= pos.stop) {
-                return res.status(400).json({ error: 'Лимитный выход не должен быть выше стопа' });
-            }
-
-            session.pendingExit = {
-                price: Math.round(price * 100) / 100,
-                createdAt: Date.now(),
-            };
-            console.log(`[BOT ${ts()}] 🖐 LIMIT EXIT SET: ${pos.side} @ ${session.pendingExit.price} (current: ${session.currentPrice})`);
-            res.json({ ok: true, pendingExit: session.pendingExit });
-        } catch(e) {
-            res.status(500).json({ error: e.message });
-        }
-    });
-
-    // POST /api/bot/cancel-exit-limit — отменить лимитный выход
-    app.post('/api/bot/cancel-exit-limit', (req, res) => {
-        try {
-            const uid = req.body.uid || 'anonymous';
-            const botId = req.body.botId || 'default';
-            const session = getSession(uid, botId);
-            if (!session.pendingExit) return res.status(400).json({ error: 'Нет лимитного выхода' });
-            const cancelled = session.pendingExit;
-            session.pendingExit = null;
-            console.log(`[BOT ${ts()}] 🖐 LIMIT EXIT CANCELLED: @ ${cancelled.price}`);
-            res.json({ ok: true, cancelled });
         } catch(e) {
             res.status(500).json({ error: e.message });
         }
@@ -2838,26 +2415,6 @@ module.exports = function(app) {
             if (s.trailingOffset) { session.trailingOffset = parseFloat(s.trailingOffset); changed.push('trailingOffset'); }
             if (s.trailingActivation) { session.trailingActivation = parseFloat(s.trailingActivation); changed.push('trailingActivation'); }
 
-            // Шаговый TP (Step TP / STP)
-            if (s.stepTpEnabled !== undefined) { session.stepTpEnabled = !!s.stepTpEnabled; changed.push(`stepTp:${session.stepTpEnabled ? 'ON' : 'OFF'}`); }
-            if (s.stepTpTrigger !== undefined) {
-                const v = parseFloat(s.stepTpTrigger);
-                if (Number.isFinite(v) && v > 0) { session.stepTpTrigger = v; changed.push('stepTpTrigger'); }
-            }
-            if (s.stepTpStep !== undefined) {
-                const v = parseFloat(s.stepTpStep);
-                if (Number.isFinite(v) && v > 0) { session.stepTpStep = v; changed.push('stepTpStep'); }
-            }
-            if (s.stepTpTolerance !== undefined) {
-                const v = parseFloat(s.stepTpTolerance);
-                if (Number.isFinite(v) && v >= 0) { session.stepTpTolerance = v; changed.push('stepTpTolerance'); }
-            }
-            // Взаимоисключение Trailing ↔ StepTP
-            if (session.stepTpEnabled && session.trailingEnabled) {
-                session.trailingEnabled = false;
-                changed.push('trailing:OFF(excl)');
-            }
-
             // SMA-возврат (MR)
             if (s.smaReturnEnabled !== undefined) {
                 session.smaReturnEnabled = !!s.smaReturnEnabled;
@@ -2883,28 +2440,6 @@ module.exports = function(app) {
             if (s.rsiPeriod) { session.rsiPeriod = parseInt(s.rsiPeriod); changed.push('rsiPeriod'); }
             if (s.rsiOverbought) { session.rsiOverbought = parseFloat(s.rsiOverbought); changed.push('rsiOverbought'); }
             if (s.rsiOversold) { session.rsiOversold = parseFloat(s.rsiOversold); changed.push('rsiOversold'); }
-
-            // Manual-стратегия
-            if (s.manualStopPct !== undefined) {
-                const v = parseFloat(s.manualStopPct);
-                if (Number.isFinite(v) && v > 0 && v < 20) {
-                    session.manualStopPct = v; changed.push('manualStopPct');
-                }
-            }
-            if (s.manualSizeMode !== undefined) {
-                session.manualSizeMode = s.manualSizeMode === 'fixed' ? 'fixed' : 'risk';
-                changed.push(`manualSizeMode:${session.manualSizeMode}`);
-            }
-            if (s.manualFixedSizePct !== undefined) {
-                const v = parseFloat(s.manualFixedSizePct);
-                if (Number.isFinite(v) && v > 0 && v <= 100) {
-                    session.manualFixedSizePct = v; changed.push('manualFixedSizePct');
-                }
-            }
-            if (s.manualTimeoutEnabled !== undefined) {
-                session.manualTimeoutEnabled = !!s.manualTimeoutEnabled;
-                changed.push(`manualTimeout:${session.manualTimeoutEnabled ? 'ON' : 'OFF'}`);
-            }
 
             // Объём
             if (s.volumeMultiplier) { session.volumeMultiplier = parseFloat(s.volumeMultiplier); changed.push('volumeMultiplier'); }
@@ -3037,10 +2572,6 @@ module.exports = function(app) {
                 trailingEnabled: session.trailingEnabled,
                 trailingActivation: session.trailingActivation,
                 trailingOffset: session.trailingOffset,
-                stepTpEnabled: session.stepTpEnabled || false,
-                stepTpTrigger: session.stepTpTrigger || 5.00,
-                stepTpStep: session.stepTpStep || 0.50,
-                stepTpTolerance: session.stepTpTolerance || 0.50,
                 bbExitEnabled: session.bbExitEnabled,
                 bbExitTolerance: session.bbExitTolerance,
                 smaReturnEnabled: session.smaReturnEnabled || false,
@@ -3066,8 +2597,6 @@ module.exports = function(app) {
                     candlesHeld: session.position.candlesHeld,
                     unrealizedPnl: calcUnrealizedPnl(session),
                     trailingActive: session.position.trailingActive || false,
-                    stepTpActive:   session.position.stepTpActive || false,
-                    stepTpMaxLevel: session.position.stepTpMaxLevel || null,
                 } : null,
                 levels:      session.levels,
                 levelsCount: session.levels.length,
@@ -3088,15 +2617,7 @@ module.exports = function(app) {
                 strategy: session.strategy || 'scalper',
                 regime: session.regime || null,
                 atrRegime: session.atrRegime || null,
-                // Manual-стратегия: настройки + ожидающая лимитка
-                manualStopPct:       session.manualStopPct || 0.5,
-                manualSizeMode:      session.manualSizeMode || 'risk',
-                manualFixedSizePct:  session.manualFixedSizePct || 10,
-                manualTimeoutEnabled: !!session.manualTimeoutEnabled,
-                pendingLimit:        session.pendingLimit || null,
-                pendingExit:         session.pendingExit || null,
-                // BB/RSI рассчитываем и для MR, и для manual — виджет в обоих случаях их показывает
-                bbData: (session.strategy === 'mean_reversion' || session.strategy === 'manual') ? (() => {
+                bbData: session.strategy === 'mean_reversion' ? (() => {
                     const closedCandles = session.candles.filter(c => c.closed);
                     const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);
                     const rsi = calcRSI(closedCandles, session.rsiPeriod || 14);
@@ -3118,7 +2639,7 @@ module.exports = function(app) {
         try {
             const uid   = req.query.uid || 'anonymous';
             const botId = req.query.botId || 'default';
-            const limit = parseInt(req.query.limit) || 1000;
+            const limit = parseInt(req.query.limit) || 20;
             const session = getSession(uid, botId);
             const label = getFullBotLabel(session);
             const trades = session.trades.slice(0, limit).map(t => Object.assign({}, t, { botLabel: label }));
@@ -3132,7 +2653,7 @@ module.exports = function(app) {
     app.get('/api/bot/trades-all', (req, res) => {
         try {
             const uid = req.query.uid || 'anonymous';
-            const limit = parseInt(req.query.limit) || 1000;
+            const limit = parseInt(req.query.limit) || 100;
             const allTrades = [];
             for (const [key, session] of sessions) {
                 if (!key.startsWith(uid + ':')) continue;
@@ -3150,8 +2671,11 @@ module.exports = function(app) {
     });
 
     // POST /api/bot/clear-trades — очистка журнала сделок
-    // Если указан botId — чистим только у этого бота, иначе у всех ботов пользователя.
-    // Открытые позиции не трогаем.
+    // body: { uid, botId? }  — если botId передан, чистим только его;
+    // если botId нет, чистим у всех ботов пользователя.
+    // Открытые позиции (session.position) не трогаем.
+    // Также обнуляем dayPnl и consecutiveLosses, чтобы статистика
+    // не осталась висеть относительно пустого журнала.
     app.post('/api/bot/clear-trades', (req, res) => {
         try {
             const uid   = req.body.uid || 'anonymous';
@@ -3165,14 +2689,12 @@ module.exports = function(app) {
                 if (botId && sessBotId !== botId) continue;
                 cleared += session.trades.length;
                 session.trades = [];
-                // Сбрасываем дневной PnL и счётчик проигрышей подряд —
-                // иначе статистика будет "кривой" относительно пустого журнала.
                 session.dayPnl = 0;
                 session.consecutiveLosses = 0;
                 botsAffected++;
             }
 
-            console.log(`[BOT ${ts()}] 🗑️  Cleared ${cleared} trades across ${botsAffected} bot(s) for uid=${uid}${botId ? ` botId=${botId}` : ' (all bots)'}`);
+            console.log(`[BOT ${ts()}] Cleared ${cleared} trades across ${botsAffected} bot(s) for uid=${uid}${botId ? ` botId=${botId}` : ' (all bots)'}`);
             res.json({ ok: true, cleared, botsAffected });
         } catch(e) {
             res.status(500).json({ error: e.message });

@@ -2546,6 +2546,17 @@
        ДЕЙСТВИЯ: СТАРТ / СТОП / РЕЗЮМЕ
     ══════════════════════════════════════════ */
 
+    // Price number — динамическая точность по величине цены.
+    // Используется в showJournalModal и exportTradesToCSV.
+    function pn(v) {
+        if (v == null || isNaN(v)) return '';
+        var x = Number(v);
+        if (x >= 100)  return x.toFixed(2);
+        if (x >= 10)   return x.toFixed(3);
+        if (x >= 1)    return x.toFixed(4);
+        return x.toFixed(5);
+    }
+
     function getUid() {
         return (window.firebase && window.firebase.auth && window.firebase.auth().currentUser)
             ? window.firebase.auth().currentUser.uid : 'anonymous';
@@ -3564,16 +3575,7 @@
             if (v == null || isNaN(v)) return '';
             return Number(v).toFixed(d);
         }
-        // Price number — динамическая точность по величине цены:
-        // BTC (>=10k) / SOL (>=100) → 2 знака, ETH ≥10 → 3, NEAR ≥1 → 4, <1 → 5
-        function pn(v) {
-            if (v == null || isNaN(v)) return '';
-            var x = Number(v);
-            if (x >= 100)  return x.toFixed(2);
-            if (x >= 10)   return x.toFixed(3);
-            if (x >= 1)    return x.toFixed(4);
-            return x.toFixed(5);
-        }
+        // Price number — используется общая функция pn(v) из модуля
         function regimeStr(r) {
             if (!r) return '';
             function arr(v) { return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
