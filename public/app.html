@@ -11661,6 +11661,10 @@
             if (!price || !isFinite(price) || price <= 0) return;
             _prevWsPrice = _lastWsPrice;
             _lastWsPrice = price;
+            // Экспорт живой цены для bot-panel (обновление окна позиции без
+            // ожидания 5-сек поллинга статуса бота)
+            window._getLivePrice = function() { return _lastWsPrice; };
+            window._getLivePriceSymbol = function() { return selectedCoin ? selectedCoin.symbol : null; };
 
             // Хелпер: безопасный .update() — если lightweight-charts бросит
             // "Value is null" или "time must be greater than..." — ловим и не

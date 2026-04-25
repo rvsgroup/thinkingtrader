@@ -634,10 +634,18 @@
         updateButtons();
 
         // ── Линии позиции на графике (entry/stop/pending) ──
-        // Хук определён в app.html. Вызываем каждый раз на поллинге — библиотека
-        // сама кэширует priceLine'ы, а наша clear+redraw дешевле логики diff'ов.
-        if (typeof window._drawBotPosition === 'function') {
-            window._drawBotPosition(_state.position, _state.pendingExit, _state.pendingLimit);
+        // Рисуем ТОЛЬКО для manual-стратегии. В scalper/MR бот автономный —
+        // стоп и тейк двигаются (трейлинг, STP, BB), линии бы прыгали и
+        // засоряли график. Вся нужная информация есть в карточке позиции.
+        if (_state.strategy === 'manual') {
+            if (typeof window._drawBotPosition === 'function') {
+                window._drawBotPosition(_state.position, _state.pendingExit, _state.pendingLimit);
+            }
+        } else {
+            // Подчищаем линии если стратегию переключили с manual на другую
+            if (typeof window._clearBotPosition === 'function') {
+                window._clearBotPosition();
+            }
         }
     }
 
@@ -2546,8 +2554,9 @@
        ДЕЙСТВИЯ: СТАРТ / СТОП / РЕЗЮМЕ
     ══════════════════════════════════════════ */
 
-    // Price number — динамическая точность по величине цены.
-    // Используется в showJournalModal и exportTradesToCSV.
+    // Price number — динамическая точность форматирования цены по величине:
+    // BTC (>=100) → 2 знака, ETH ≥10 → 3, NEAR ≥1 → 4, <1 → 5.
+    // На уровне модуля чтобы быть доступной из showJournalModal и exportTradesToCSV.
     function pn(v) {
         if (v == null || isNaN(v)) return '';
         var x = Number(v);
@@ -3575,7 +3584,8 @@
             if (v == null || isNaN(v)) return '';
             return Number(v).toFixed(d);
         }
-        // Price number — используется общая функция pn(v) из модуля
+        // pn() поднята на уровень модуля (см. ниже над getUid),
+        // чтобы её мог использовать и showJournalModal, и этот экспорт.
         function regimeStr(r) {
             if (!r) return '';
             function arr(v) { return v==='up'?'↑':v==='down'?'↓':'↑↓'; }

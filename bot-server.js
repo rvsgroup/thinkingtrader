@@ -66,11 +66,16 @@ module.exports = function(app) {
                     mode: session.mode,
                     balance: Math.round(session.virtualBalance * 100) / 100,
                     dayPnl: Math.round(session.dayPnl * 100) / 100,
+                    // totalPnl = прибыль за всё время работы бота (virtualBalance - startBalance).
+                    // НЕ сбрасывается в полночь. Это то, что показывается в бэдже
+                    // selector'а бота и в dropdown справа от лейбла.
+                    totalPnl: Math.round((session.virtualBalance - session.startBalance) * 100) / 100,
                     position: session.position ? session.position.side : null,
                     name: session.botName || null,
                     entryMode: session.entryMode || 'candle',
                     direction: session.direction || 'both',
                     trailingEnabled: session.trailingEnabled || false,
+                    stepTpEnabled: session.stepTpEnabled || false,
                     rsiOverbought: session.rsiOverbought || 65,
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
@@ -226,6 +231,15 @@ module.exports = function(app) {
                 trailingOffset:  0.25,      // отступ трейла (% от цены)
                 trailingActivation: 70,     // активация после N% пути до тейка
 
+                // ── Шаговый TP (Step TP / STP) — конкурент трейлингу ──
+                // Логика: когда прибыль (Gross, в $) пересекает каждую ступеньку
+                // (trigger + N*step), стоп переставляется на уровень прибыли
+                // (trigger + N*step − tolerance). Взаимоисключает trailing.
+                stepTpEnabled:   false,     // вкл/выкл
+                stepTpTrigger:   5.00,      // порог активации в $ (первый уровень)
+                stepTpStep:      0.50,      // шаг подтяжки в $
+                stepTpTolerance: 0.50,      // зазор стопа от уровня в $
+
                 // ── Выход по противоположной полосе Боллинджера (только для MR) ──
                 bbExitEnabled:       false,  // если true — игнорируется minProfit и trailing
                 bbExitTolerance:     5,      // % от ширины канала: насколько не дотягивать до ББ считать касанием
@@ -261,6 +275,14 @@ module.exports = function(app) {
                 ws:            null,
                 wsReconnectTimer: null,
                 lastCandleTime: 0,          // время последней закрытой свечи
+
+                // ── Manual pending orders ──
+                // pendingLimit: ожидающая лимитка на ВХОД (позиции ещё нет).
+                //   {side: 'LONG'|'SHORT', price, createdAt}
+                // pendingExit: ожидающая лимитка на ВЫХОД (позиция открыта).
+                //   {price, createdAt}
+                pendingLimit:  null,
+                pendingExit:   null,
 
                 // ── Bybit API (для live) ──
                 apiKey:        '',
@@ -399,7 +421,7 @@ module.exports = function(app) {
             const lastTouch = Math.max(...cluster.map(p => p.index));
 
             levels.push({
-                price:     Math.round(avgPrice * 100) / 100,
+                price:     avgPrice,
                 touches:   cluster.length,
                 type:      null, // определим ниже
                 lastTouch: lastTouch,
@@ -966,11 +988,11 @@ module.exports = function(app) {
         }
 
         // ── Таргет = максимум из SMA и минимального профита из настроек ──
-        const smaTarget = Math.round(bb.middle * 100) / 100;
+        const smaTarget = bb.middle;
         const minProfitPct = session.maxProfitPct || 1.0;
         const minTarget = side === 'LONG'
-            ? Math.round(price * (1 + minProfitPct / 100) * 100) / 100
-            : Math.round(price * (1 - minProfitPct / 100) * 100) / 100;
+            ? price * (1 + minProfitPct / 100)
+            : price * (1 - minProfitPct / 100);
         const target = side === 'LONG'
             ? Math.max(smaTarget, minTarget)
             : Math.min(smaTarget, minTarget);
@@ -981,8 +1003,8 @@ module.exports = function(app) {
 
         const stopAtrDist = atr * (session.stopAtrMultiplier || 1.5);
         const stop = side === 'LONG'
-            ? Math.round((bb.lower - stopAtrDist) * 100) / 100
-            : Math.round((bb.upper + stopAtrDist) * 100) / 100;
+            ? (bb.lower - stopAtrDist)
+            : (bb.upper + stopAtrDist);
 
         const risk = Math.abs(price - stop);
         const reward = Math.abs(target - price);
@@ -997,12 +1019,12 @@ module.exports = function(app) {
             entry: price,
             stop,
             target,
-            atr: Math.round(atr * 100) / 100,
+            atr: atr,
             riskReward: Math.round((reward / risk) * 100) / 100,
             rsi: Math.round(rsi * 10) / 10,
-            bbUpper: Math.round(bb.upper * 100) / 100,
-            bbMiddle: Math.round(bb.middle * 100) / 100,
-            bbLower: Math.round(bb.lower * 100) / 100,
+            bbUpper: bb.upper,
+            bbMiddle: bb.middle,
+            bbLower: bb.lower,
             volumeRatio: Math.round(
                 (lastCandle.volume / (candles.slice(-21, -1).reduce((s, c) => s + c.volume, 0) / 20)) * 100
             ) / 100,
@@ -1081,11 +1103,11 @@ module.exports = function(app) {
         }
 
         // ── Таргет = макс(SMA, минимальный профит) ──
-        const smaTarget = Math.round(bb.middle * 100) / 100;
+        const smaTarget = bb.middle;
         const minProfitPct = session.maxProfitPct || 1.0;
         const minTarget = side === 'LONG'
-            ? Math.round(price * (1 + minProfitPct / 100) * 100) / 100
-            : Math.round(price * (1 - minProfitPct / 100) * 100) / 100;
+            ? price * (1 + minProfitPct / 100)
+            : price * (1 - minProfitPct / 100);
         const target = side === 'LONG'
             ? Math.max(smaTarget, minTarget)
             : Math.min(smaTarget, minTarget);
@@ -1095,8 +1117,8 @@ module.exports = function(app) {
         if (atr <= 0) return;
         const stopAtrDist = atr * (session.stopAtrMultiplier || 1.5);
         const stop = side === 'LONG'
-            ? Math.round((bb.lower - stopAtrDist) * 100) / 100
-            : Math.round((bb.upper + stopAtrDist) * 100) / 100;
+            ? (bb.lower - stopAtrDist)
+            : (bb.upper + stopAtrDist);
 
         // ── R:R и мин. профит ──
         const risk = Math.abs(price - stop);
@@ -1110,12 +1132,12 @@ module.exports = function(app) {
             entry: price,
             stop,
             target,
-            atr: Math.round(atr * 100) / 100,
+            atr: atr,
             riskReward: Math.round((reward / risk) * 100) / 100,
             rsi: Math.round(rsi * 10) / 10,
-            bbUpper: Math.round(bb.upper * 100) / 100,
-            bbMiddle: Math.round(bb.middle * 100) / 100,
-            bbLower: Math.round(bb.lower * 100) / 100,
+            bbUpper: bb.upper,
+            bbMiddle: bb.middle,
+            bbLower: bb.lower,
             volumeRatio: 0,
             concentration: 'tick',
         };
@@ -1239,9 +1261,9 @@ module.exports = function(app) {
         return {
             side,
             entry:     price,
-            stop:      Math.round(stop * 100) / 100,
-            target:    Math.round(tp * 100) / 100,
-            atr:       Math.round(atr * 100) / 100,
+            stop:      stop,
+            target:    tp,
+            atr:       atr,
             level:     nearestLevel, // для лога, не для решения
             riskReward: Math.round((reward / risk) * 100) / 100,
             triggerBuyPct: Math.round(triggerBuyPct),
@@ -1319,6 +1341,13 @@ module.exports = function(app) {
             // ── Трекинг max/min для анализа ──
             maxUnrealized:   0,    // максимальный unrealized P&L ($)
             maxDrawdown:     0,    // максимальный drawdown ($)
+            // ── Трекинг Step TP (STP) ──
+            stepTpActive:         false,  // true после первой активации
+            stepTpLastLevel:      -1,     // максимальный индекс достигнутой ступеньки (-1 = ни одной)
+            stepTpActivatedAt:    null,   // timestamp первой активации
+            stepTpActivatedPrice: null,   // цена в момент первой активации
+            stepTpActivatedPnl:   null,   // unrealized $ в момент первой активации
+            stepTpMaxLevel:       null,   // максимальный stopProfit ($), на который подтягивался стоп
         };
 
         // Запоминаем кластеры при входе + считаем три варианта для лога
@@ -1401,6 +1430,12 @@ module.exports = function(app) {
             exitClusterBuy:   null, // заполним ниже
             maxUnrealized:    pos.maxUnrealized || 0,
             maxDrawdown:      pos.maxDrawdown || 0,
+            // ── Step TP (STP): активировался или нет ──
+            stepTpActivated:        pos.stepTpActive || false,
+            stepTpActivatedAt:      pos.stepTpActivatedAt || null,
+            stepTpActivatedPrice:   pos.stepTpActivatedPrice || null,
+            stepTpActivatedPnl:     pos.stepTpActivatedPnl || null,
+            stepTpMaxLevel:         pos.stepTpMaxLevel || null,
             durationMin:      Math.round((Date.now() - pos.openedAt) / 60000),
         };
 
@@ -1443,6 +1478,9 @@ module.exports = function(app) {
         pushTradeClosed(session, trade);
 
         session.position = null;
+        // При любом закрытии позиции сбрасываем лимитку на выход — она больше
+        // неактуальна, и если её оставить, то она повиснет на следующую позицию.
+        session.pendingExit = null;
         checkLimits(session);
     }
 
@@ -1487,14 +1525,39 @@ module.exports = function(app) {
         if (unrealized > (pos.maxUnrealized || 0)) pos.maxUnrealized = Math.round(unrealized * 100) / 100;
         if (unrealized < (pos.maxDrawdown || 0)) pos.maxDrawdown = Math.round(unrealized * 100) / 100;
 
-        // ── Стоп-лосс (включая трейлинг) ──
+        // ── Стоп-лосс (включая трейлинг и Step TP) ──
+        // Приоритет reason: step_tp > trailing_stop > stop_loss
+        // (оба не могут быть активны одновременно, но на всякий случай)
+        function stopReason() {
+            if (pos.stepTpActive)   return 'step_tp';
+            if (pos.trailingActive) return 'trailing_stop';
+            return 'stop_loss';
+        }
         if (pos.side === 'LONG' && price <= pos.stop) {
-            closePosition(session, price, pos.trailingActive ? 'trailing_stop' : 'stop_loss');
+            closePosition(session, price, stopReason());
             return;
         }
         if (pos.side === 'SHORT' && price >= pos.stop) {
-            closePosition(session, price, pos.trailingActive ? 'trailing_stop' : 'stop_loss');
+            closePosition(session, price, stopReason());
             return;
+        }
+
+        // ── Manual pendingExit: лимитная заявка на выход ──
+        // Только для manual стратегии. Срабатывает когда цена пересекает
+        // лимит-цену в "выгодную" сторону (LONG: price >= limit, SHORT: price <= limit).
+        // Используем цену лимитки как цену закрытия (реалистично для лимитного ордера).
+        if (session.pendingExit && session.pendingExit.price) {
+            const limit = session.pendingExit.price;
+            if (pos.side === 'LONG' && price >= limit) {
+                closePosition(session, limit, 'manual_limit');
+                session.pendingExit = null;
+                return;
+            }
+            if (pos.side === 'SHORT' && price <= limit) {
+                closePosition(session, limit, 'manual_limit');
+                session.pendingExit = null;
+                return;
+            }
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -1580,7 +1643,7 @@ module.exports = function(app) {
                         if (!pos.trailingActive) {
                             console.log(`[BOT] 📈 Trailing stop ACTIVATED for LONG @ ${price} | New stop: ${newStop.toFixed(2)}`);
                         }
-                        pos.stop = Math.round(newStop * 100) / 100;
+                        pos.stop = newStop;
                         pos.trailingActive = true;
                     }
                 }
@@ -1592,8 +1655,66 @@ module.exports = function(app) {
                         if (!pos.trailingActive) {
                             console.log(`[BOT ${ts()}] 📉 Trailing stop ACTIVATED for SHORT @ ${price} | New stop: ${newStop.toFixed(2)}`);
                         }
-                        pos.stop = Math.round(newStop * 100) / 100;
+                        pos.stop = newStop;
                         pos.trailingActive = true;
+                    }
+                }
+            }
+        }
+
+        // ── Шаговый TP (Step TP / STP) ──
+        // Стоп переставляется дискретно при пересечении каждой ступеньки.
+        // Ступени: trigger, trigger+step, trigger+2*step, ...
+        // Стоп на уровне N = trigger + N*step − tolerance.
+        // Допуск активации (10% от step) — ступенька считается достигнутой чуть раньше,
+        // чтобы $5.99 засчитывало уровень $6.00, а не ждало ровно $6.00.
+        // Взаимоисключает трейлинг (в UI нельзя включить оба одновременно).
+        if (session.stepTpEnabled && !session.trailingEnabled) {
+            const trigger   = session.stepTpTrigger;
+            const step      = session.stepTpStep;
+            const tolerance = session.stepTpTolerance;
+            const activationTolerance = step * 0.10; // 10% от шага
+
+            const peakPnl = pos.maxUnrealized || 0;
+            const effectivePeak = peakPnl + activationTolerance;
+
+            if (effectivePeak >= trigger && step > 0) {
+                // Индекс максимальной пройденной ступеньки с учётом допуска активации
+                const maxLevelReached = Math.floor((effectivePeak - trigger) / step);
+
+                // Если достигнут новый (более высокий) уровень — переставляем стоп
+                if (maxLevelReached > (pos.stepTpLastLevel ?? -1) && maxLevelReached >= 0) {
+                    const stopProfit = trigger + maxLevelReached * step - tolerance;
+
+                    // Переводим прибыль в $ обратно в цену стопа:
+                    // unrealized = (price - entry) * (size / entry)  для LONG
+                    // unrealized = (entry - price) * (size / entry)  для SHORT
+                    // Отсюда цена, где unrealized = stopProfit:
+                    //   LONG:  price = entry + stopProfit * entry / size
+                    //   SHORT: price = entry − stopProfit * entry / size
+                    const priceDelta = stopProfit * pos.entryPrice / pos.size;
+                    const newStop = pos.side === 'LONG'
+                        ? pos.entryPrice + priceDelta
+                        : pos.entryPrice - priceDelta;
+
+                    // Стоп двигается только в нашу пользу
+                    const stopImproved = pos.side === 'LONG'
+                        ? newStop > pos.stop
+                        : newStop < pos.stop;
+
+                    if (stopImproved) {
+                        if (!pos.stepTpActive) {
+                            console.log(`[BOT ${ts()}] 🎯 Step TP ACTIVATED for ${pos.side} @ ${price} | Peak $${peakPnl.toFixed(2)} | Stop → $${stopProfit.toFixed(2)} profit (price ${newStop.toFixed(2)})`);
+                            pos.stepTpActivatedAt    = Date.now();
+                            pos.stepTpActivatedPrice = price;
+                            pos.stepTpActivatedPnl   = Math.round(unrealized * 100) / 100;
+                        } else {
+                            console.log(`[BOT ${ts()}] 🎯 Step TP level ${maxLevelReached} | Peak $${peakPnl.toFixed(2)} | Stop → $${stopProfit.toFixed(2)} profit`);
+                        }
+                        pos.stop = newStop;
+                        pos.stepTpActive    = true;
+                        pos.stepTpLastLevel = maxLevelReached;
+                        pos.stepTpMaxLevel  = Math.round(stopProfit * 100) / 100;
                     }
                 }
             }
@@ -1653,15 +1774,15 @@ module.exports = function(app) {
                 if (session.bbExitEnabled) {
                     // РЕЖИМ 2: цель = противоположная ББ. Target на шкале = реальная цель выхода.
                     newTarget = pos.side === 'LONG'
-                        ? Math.round(bb.upper * 100) / 100
-                        : Math.round(bb.lower * 100) / 100;
+                        ? bb.upper
+                        : bb.lower;
                 } else {
                     // РЕЖИМ 1: цель = max(SMA, minProfit)
-                    const smaTarget = Math.round(bb.middle * 100) / 100;
+                    const smaTarget = bb.middle;
                     const minProfitPct = session.maxProfitPct || 1.0;
                     const minTarget = pos.side === 'LONG'
-                        ? Math.round(pos.entryPrice * (1 + minProfitPct / 100) * 100) / 100
-                        : Math.round(pos.entryPrice * (1 - minProfitPct / 100) * 100) / 100;
+                        ? pos.entryPrice * (1 + minProfitPct / 100)
+                        : pos.entryPrice * (1 - minProfitPct / 100);
                     newTarget = pos.side === 'LONG'
                         ? Math.max(smaTarget, minTarget)
                         : Math.min(smaTarget, minTarget);
@@ -1830,6 +1951,27 @@ module.exports = function(app) {
                     checkPosition(session, candle.close);
                 }
 
+                // ── Триггер pendingLimit (manual вход по лимитке) ──
+                // Если позиции нет, но есть ожидающая лимитка, и цена её пересекла —
+                // открываем позицию по цене лимитки (не текущей). LONG: price<=limit,
+                // SHORT: price>=limit.
+                if (!session.position && session.pendingLimit && session.pendingLimit.price) {
+                    const pl = session.pendingLimit;
+                    const triggered =
+                        (pl.side === 'LONG'  && candle.close <= pl.price) ||
+                        (pl.side === 'SHORT' && candle.close >= pl.price);
+                    if (triggered) {
+                        try {
+                            const signal = buildManualSignal(session, pl.side, pl.price);
+                            openPosition(session, signal);
+                            console.log(`[BOT ${ts()}] ✅ LIMIT FILLED ${pl.side} @ ${pl.price} (trigger: ${candle.close})`);
+                        } catch (e) {
+                            console.error(`[BOT ${ts()}] Limit fill error:`, e.message);
+                        }
+                        session.pendingLimit = null;
+                    }
+                }
+
                 // ── Вход по тику (Mean Reversion, tick mode) ──
                 if (!session.position && session.cooldownUntil <= 0
                     && session.strategy === 'mean_reversion'
@@ -1967,6 +2109,20 @@ module.exports = function(app) {
         session.trailingEnabled    = !!settings.trailingEnabled;
         session.trailingOffset     = parseFloat(settings.trailingOffset)     || 0.25;
         session.trailingActivation = parseFloat(settings.trailingActivation) || 70;
+
+        // Шаговый TP (Step TP / STP) — конкурент трейлингу
+        session.stepTpEnabled   = !!settings.stepTpEnabled;
+        session.stepTpTrigger   = parseFloat(settings.stepTpTrigger);
+        if (!Number.isFinite(session.stepTpTrigger) || session.stepTpTrigger <= 0) session.stepTpTrigger = 5.00;
+        session.stepTpStep      = parseFloat(settings.stepTpStep);
+        if (!Number.isFinite(session.stepTpStep) || session.stepTpStep <= 0) session.stepTpStep = 0.50;
+        session.stepTpTolerance = parseFloat(settings.stepTpTolerance);
+        if (!Number.isFinite(session.stepTpTolerance) || session.stepTpTolerance < 0) session.stepTpTolerance = 0.50;
+        // Взаимоисключение: если включены оба — приоритет у Step TP, трейлинг выключаем
+        if (session.stepTpEnabled && session.trailingEnabled) {
+            session.trailingEnabled = false;
+            console.log('[BOT] ⚠ Step TP enabled — trailing force-disabled (mutual exclusion)');
+        }
 
         // Выход по противоположной полосе Боллинджера (MR) + толерансы возврата/касания
         session.bbExitEnabled      = !!settings.bbExitEnabled;
@@ -2291,12 +2447,65 @@ module.exports = function(app) {
         }
     });
 
+    // Хелпер: формирует manual-сигнал (stop/target по стратегии) для данного side и price.
+    // Используется и в /api/bot/manual-trade, и в триггере pendingLimit (лимитка на вход).
+    function buildManualSignal(session, side, price) {
+        const atr = calcATR(session.candles, 20);
+        const stopDist = atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002;
+        let stop, tp;
+
+        if (session.strategy === 'mean_reversion') {
+            const closedCandles = session.candles.filter(c => c.closed);
+            const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);
+            if (bb) {
+                const smaTarget = bb.middle;
+                const minProfitPct = session.maxProfitPct || 1.0;
+                const minTarget = side === 'LONG'
+                    ? price * (1 + minProfitPct / 100)
+                    : price * (1 - minProfitPct / 100);
+                tp = side === 'LONG'
+                    ? Math.max(smaTarget, minTarget)
+                    : Math.min(smaTarget, minTarget);
+                stop = side === 'LONG'
+                    ? bb.lower - (atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002)
+                    : bb.upper + (atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002);
+            } else {
+                tp = side === 'LONG' ? price * 1.005 : price * 0.995;
+                stop = side === 'LONG' ? price - stopDist : price + stopDist;
+            }
+        } else {
+            stop = side === 'LONG' ? price - stopDist : price + stopDist;
+            tp = side === 'LONG'
+                ? price * (1 + session.maxProfitPct / 100)
+                : price * (1 - session.maxProfitPct / 100);
+        }
+
+        return {
+            side,
+            entry: price,
+            stop: stop,
+            target: Math.round(tp * 100) / 100,
+            atr: atr,
+            level: null,
+            riskReward: Math.round((Math.abs(tp - price) / Math.abs(price - stop)) * 100) / 100,
+            triggerBuyPct: 50,
+            backgroundBuyPct: 50,
+            concentration: 'manual',
+            volumeRatio: 0,
+        };
+    }
+
     // POST /api/bot/manual-trade — ручной вход в позицию
+    // Поддерживает orderType: 'market' (по умолчанию) и 'limit' (с полем limitPrice).
+    // limit: сохраняет pendingLimit в сессию, триггер срабатывает в WS-цикле при
+    // пересечении цены.
     app.post('/api/bot/manual-trade', (req, res) => {
         try {
             const uid = req.body.uid || 'anonymous';
             const botId = req.body.botId || 'default';
             const side = req.body.side; // 'LONG' или 'SHORT'
+            const orderType = req.body.orderType || 'market';
+            const limitPrice = parseFloat(req.body.limitPrice);
             const session = getSession(uid, botId);
 
             if (!session.running) return res.status(400).json({ error: 'Бот не запущен' });
@@ -2305,54 +2514,32 @@ module.exports = function(app) {
             if (session.market === 'spot' && side === 'SHORT') return res.status(400).json({ error: 'SHORT недоступен на споте' });
             if (!session.currentPrice || session.currentPrice <= 0) return res.status(400).json({ error: 'Нет данных о цене' });
 
-            const price = session.currentPrice;
-            const atr = calcATR(session.candles, 20);
-            const stopDist = atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002;
-
-            let stop, tp;
-
-            if (session.strategy === 'mean_reversion') {
-                // Mean Reversion: таргет = макс(SMA, минимальный профит), стоп за полосой BB
-                const closedCandles = session.candles.filter(c => c.closed);
-                const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);
-                if (bb) {
-                    const smaTarget = bb.middle;
-                    const minProfitPct = session.maxProfitPct || 1.0;
-                    const minTarget = side === 'LONG'
-                        ? price * (1 + minProfitPct / 100)
-                        : price * (1 - minProfitPct / 100);
-                    tp = side === 'LONG'
-                        ? Math.max(smaTarget, minTarget)
-                        : Math.min(smaTarget, minTarget);
-                    stop = side === 'LONG'
-                        ? bb.lower - (atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002)
-                        : bb.upper + (atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002);
-                } else {
-                    tp = side === 'LONG' ? price * 1.005 : price * 0.995;
-                    stop = side === 'LONG' ? price - stopDist : price + stopDist;
+            // ── LIMIT: просто запоминаем pendingLimit, откроется при пересечении ──
+            if (orderType === 'limit') {
+                if (!isFinite(limitPrice) || limitPrice <= 0) {
+                    return res.status(400).json({ error: 'Неверная лимитная цена' });
                 }
-            } else {
-                // Скальпер: старая логика
-                stop = side === 'LONG' ? price - stopDist : price + stopDist;
-                tp = side === 'LONG'
-                    ? price * (1 + session.maxProfitPct / 100)
-                    : price * (1 - session.maxProfitPct / 100);
+                // Санити: LONG-лимитка должна быть НИЖЕ текущей (buy limit),
+                // SHORT-лимитка — ВЫШЕ текущей (sell limit).
+                const cp = session.currentPrice;
+                if (side === 'LONG' && limitPrice >= cp) {
+                    return res.status(400).json({ error: 'LONG лимит должен быть ниже текущей цены ' + cp });
+                }
+                if (side === 'SHORT' && limitPrice <= cp) {
+                    return res.status(400).json({ error: 'SHORT лимит должен быть выше текущей цены ' + cp });
+                }
+                session.pendingLimit = {
+                    side,
+                    price: limitPrice,
+                    createdAt: Date.now(),
+                };
+                console.log(`[BOT ${ts()}] ⏳ MANUAL LIMIT ${side} @ ${session.pendingLimit.price} (current: ${cp})`);
+                return res.json({ ok: true, pendingLimit: session.pendingLimit });
             }
 
-            const signal = {
-                side,
-                entry: price,
-                stop: Math.round(stop * 100) / 100,
-                target: Math.round(tp * 100) / 100,
-                atr: Math.round(atr * 100) / 100,
-                level: null,
-                riskReward: Math.round((Math.abs(tp - price) / Math.abs(price - stop)) * 100) / 100,
-                triggerBuyPct: 50,
-                backgroundBuyPct: 50,
-                concentration: 'manual',
-                volumeRatio: 0,
-            };
-
+            // ── MARKET: открываем позицию сразу ──
+            const price = session.currentPrice;
+            const signal = buildManualSignal(session, side, price);
             openPosition(session, signal);
             console.log(`[BOT ${ts()}] 🖐 MANUAL ${side} @ ${price} | Stop: ${signal.stop} | Target: ${signal.target}`);
 
@@ -2415,6 +2602,26 @@ module.exports = function(app) {
             if (s.trailingOffset) { session.trailingOffset = parseFloat(s.trailingOffset); changed.push('trailingOffset'); }
             if (s.trailingActivation) { session.trailingActivation = parseFloat(s.trailingActivation); changed.push('trailingActivation'); }
 
+            // Шаговый TP (Step TP / STP)
+            if (s.stepTpEnabled !== undefined) { session.stepTpEnabled = !!s.stepTpEnabled; changed.push(`stepTp:${session.stepTpEnabled ? 'ON' : 'OFF'}`); }
+            if (s.stepTpTrigger !== undefined) {
+                const v = parseFloat(s.stepTpTrigger);
+                if (Number.isFinite(v) && v > 0) { session.stepTpTrigger = v; changed.push('stepTpTrigger'); }
+            }
+            if (s.stepTpStep !== undefined) {
+                const v = parseFloat(s.stepTpStep);
+                if (Number.isFinite(v) && v > 0) { session.stepTpStep = v; changed.push('stepTpStep'); }
+            }
+            if (s.stepTpTolerance !== undefined) {
+                const v = parseFloat(s.stepTpTolerance);
+                if (Number.isFinite(v) && v >= 0) { session.stepTpTolerance = v; changed.push('stepTpTolerance'); }
+            }
+            // Взаимоисключение Trailing ↔ StepTP
+            if (session.stepTpEnabled && session.trailingEnabled) {
+                session.trailingEnabled = false;
+                changed.push('trailing:OFF(excl)');
+            }
+
             // SMA-возврат (MR)
             if (s.smaReturnEnabled !== undefined) {
                 session.smaReturnEnabled = !!s.smaReturnEnabled;
@@ -2468,6 +2675,70 @@ module.exports = function(app) {
 
             closePosition(session, session.currentPrice, 'manual_close');
             console.log(`[BOT ${ts()}] 🖐 MANUAL CLOSE @ ${session.currentPrice}`);
+            res.json({ ok: true });
+        } catch(e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/bot/set-exit-limit — установить лимитный выход из ОТКРЫТОЙ позиции.
+    // При срабатывании в checkPosition позиция закрывается с reason='manual_limit'.
+    app.post('/api/bot/set-exit-limit', (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            const botId = req.body.botId || 'default';
+            const price = parseFloat(req.body.price);
+            const session = getSession(uid, botId);
+
+            if (!session.position) return res.status(400).json({ error: 'Нет открытой позиции' });
+            if (!isFinite(price) || price <= 0) return res.status(400).json({ error: 'Неверная цена' });
+
+            // Санити: для LONG exit-limit должен быть ВЫШЕ текущей цены (take profit),
+            // для SHORT — НИЖЕ. Иначе лимитка сработает немедленно, что обычно не то, что нужно.
+            const pos = session.position;
+            const cp = session.currentPrice;
+            if (pos.side === 'LONG' && price <= cp) {
+                return res.status(400).json({ error: 'Для LONG лимит выхода должен быть выше текущей цены ' + cp });
+            }
+            if (pos.side === 'SHORT' && price >= cp) {
+                return res.status(400).json({ error: 'Для SHORT лимит выхода должен быть ниже текущей цены ' + cp });
+            }
+
+            session.pendingExit = {
+                price: price,
+                createdAt: Date.now(),
+            };
+            console.log(`[BOT ${ts()}] ⏳ EXIT LIMIT set @ ${session.pendingExit.price} (current: ${cp})`);
+            res.json({ ok: true, pendingExit: session.pendingExit });
+        } catch(e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/bot/cancel-exit-limit — отменить лимитный выход
+    app.post('/api/bot/cancel-exit-limit', (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            const botId = req.body.botId || 'default';
+            const session = getSession(uid, botId);
+
+            session.pendingExit = null;
+            console.log(`[BOT ${ts()}] ❌ EXIT LIMIT cancelled`);
+            res.json({ ok: true });
+        } catch(e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/bot/cancel-limit — отменить лимитку на ВХОД (позиции ещё нет)
+    app.post('/api/bot/cancel-limit', (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            const botId = req.body.botId || 'default';
+            const session = getSession(uid, botId);
+
+            session.pendingLimit = null;
+            console.log(`[BOT ${ts()}] ❌ ENTRY LIMIT cancelled`);
             res.json({ ok: true });
         } catch(e) {
             res.status(500).json({ error: e.message });
@@ -2572,6 +2843,10 @@ module.exports = function(app) {
                 trailingEnabled: session.trailingEnabled,
                 trailingActivation: session.trailingActivation,
                 trailingOffset: session.trailingOffset,
+                stepTpEnabled: session.stepTpEnabled || false,
+                stepTpTrigger: session.stepTpTrigger || 5.00,
+                stepTpStep: session.stepTpStep || 0.50,
+                stepTpTolerance: session.stepTpTolerance || 0.50,
                 bbExitEnabled: session.bbExitEnabled,
                 bbExitTolerance: session.bbExitTolerance,
                 smaReturnEnabled: session.smaReturnEnabled || false,
@@ -2597,7 +2872,11 @@ module.exports = function(app) {
                     candlesHeld: session.position.candlesHeld,
                     unrealizedPnl: calcUnrealizedPnl(session),
                     trailingActive: session.position.trailingActive || false,
+                    stepTpActive:   session.position.stepTpActive || false,
+                    stepTpMaxLevel: session.position.stepTpMaxLevel || null,
                 } : null,
+                pendingLimit: session.pendingLimit || null,
+                pendingExit:  session.pendingExit  || null,
                 levels:      session.levels,
                 levelsCount: session.levels.length,
                 consecutiveLosses: session.consecutiveLosses,
