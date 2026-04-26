@@ -186,6 +186,18 @@
             background: rgba(99,102,241,0.08);
         }
 
+        /* Подсветка таймфрейма бота: зелёная обводка.
+           Появляется когда график на другом ТФ, чем у работающего бота —
+           подсказывает куда переключиться чтобы видеть BB-полосы и маркеры бота. */
+        .period-btn.bot-tf-highlight {
+            color: #10B981;
+            border: 1.5px solid #10B981 !important;
+            box-shadow: 0 0 0 1px rgba(16,185,129,0.15);
+        }
+        .period-btn.bot-tf-highlight:hover {
+            background: rgba(16,185,129,0.08);
+        }
+
         /* Тип графика: активный */
         .chart-type-btn.active {
             color: rgba(99,102,241,0.9);
@@ -1493,7 +1505,7 @@
         }
 
         .right-panel:not(.collapsed) {
-            width: 360px;
+            width: 400px;
         }
 
         /* ── Левая колонка: обёртка ── */
@@ -9262,20 +9274,24 @@
                             const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
                             // time может быть unix timestamp (число) или объект {year, month, day}
+                            // ВАЖНО: используем ЛОКАЛЬНОЕ время браузера (а не UTC),
+                            // чтобы пользователь видел часы в своей часовой зоне.
                             let date;
                             if (typeof time === 'object' && time.year) {
-                                date = new Date(Date.UTC(time.year, time.month - 1, time.day || 1));
+                                // Объект {year, month, day} приходит для дневных/недельных тиков —
+                                // время суток для них не важно, конструируем локальную полночь.
+                                date = new Date(time.year, time.month - 1, time.day || 1);
                             } else {
                                 date = new Date(time * 1000);
                             }
 
                             if (isNaN(date.getTime())) return '';
 
-                            const m = date.getUTCMonth();
-                            const d = date.getUTCDate();
-                            const y = date.getUTCFullYear();
-                            const h = String(date.getUTCHours()).padStart(2, '0');
-                            const min = String(date.getUTCMinutes()).padStart(2, '0');
+                            const m = date.getMonth();
+                            const d = date.getDate();
+                            const y = date.getFullYear();
+                            const h = String(date.getHours()).padStart(2, '0');
+                            const min = String(date.getMinutes()).padStart(2, '0');
                             const cp = typeof currentPeriod !== 'undefined' ? currentPeriod : 1;
 
                             // Маленькие таймфреймы (1m, 5m, 15m, 1h) — показываем время
@@ -9289,6 +9305,30 @@
                             // Дневной и выше — дата
                             if (m === 0 && d === 1) return String(y);
                             return d + ' ' + (currentLang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m]);
+                        } catch(e) {
+                            return '';
+                        }
+                    },
+                    // Формат времени в плашке кроссхера (когда наводишь курсор на свечу).
+                    // По умолчанию lightweight-charts показывает UTC — переопределяем на локальное.
+                    timeFormatter: (time) => {
+                        try {
+                            const MONTHS_RU = ['янв.','фев.','мар.','апр.','май','июн.','июл.','авг.','сен.','окт.','ноя.','дек.'];
+                            const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                            let date;
+                            if (typeof time === 'object' && time.year) {
+                                date = new Date(time.year, time.month - 1, time.day || 1);
+                            } else {
+                                date = new Date(time * 1000);
+                            }
+                            if (isNaN(date.getTime())) return '';
+                            const m = date.getMonth();
+                            const d = date.getDate();
+                            const y = date.getFullYear();
+                            const h = String(date.getHours()).padStart(2, '0');
+                            const min = String(date.getMinutes()).padStart(2, '0');
+                            const monthName = currentLang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m];
+                            return d + ' ' + monthName + ' ' + y + '  ' + h + ':' + min;
                         } catch(e) {
                             return '';
                         }
@@ -9447,6 +9487,15 @@
         function drawBotPositionLines(position, pendingExit, pendingLimit) {
             if (!lwSeries || !lwChart) return;
 
+            // Линии позиции (entry / stop / target / pendingExit / pendingLimit) рисуются
+            // ТОЛЬКО для manual-стратегии. В scalper и mean_reversion бот управляет позицией
+            // сам — пунктирные линии на графике становятся визуальным шумом.
+            const botStrategy = typeof window._getBotStrategy === 'function' ? window._getBotStrategy() : null;
+            if (botStrategy && botStrategy !== 'manual') {
+                clearBotPositionLines();
+                return;
+            }
+
             // Не рисуем если пара графика не совпадает с парой бота
             const botSymbol = typeof window._getBotPairSymbol === 'function' ? window._getBotPairSymbol() : null;
             if (botSymbol && selectedCoin && botSymbol !== selectedCoin.symbol) {
@@ -9569,6 +9618,22 @@
                 return;
             }
 
+            // Не рисуем при несовпадении таймфрейма (маркеры с миллисекундами не лягут на дневные свечи).
+            const botTf = typeof window._getBotTimeframe === 'function' ? window._getBotTimeframe() : null;
+            if (botTf) {
+                const TF_TO_PERIOD = {
+                    '1m': '0.0007', '5m': '0.003', '15m': '0.01',
+                    '30m': '0.01',  '1h': '0.04',  '4h': '0.17', '1d': '1',
+                };
+                const expectedPeriod = TF_TO_PERIOD[botTf];
+                const activeBtn = document.querySelector('.period-btn.active');
+                const activePeriod = activeBtn ? activeBtn.dataset.period : null;
+                if (expectedPeriod && activePeriod && expectedPeriod !== activePeriod) {
+                    clearBotTradeMarkers();
+                    return;
+                }
+            }
+
             if (!Array.isArray(trades) || trades.length === 0) {
                 clearBotTradeMarkers();
                 return;
@@ -9611,6 +9676,26 @@
                 clearBotLevelLines();
                 clearBBSeries();
                 return;
+            }
+
+            // Не рисуем если таймфрейм графика не совпадает с таймфреймом бота.
+            // Иначе BB-история (с тиками 5m) ляжет криво на дневной график → Value is null.
+            var botTf = typeof window._getBotTimeframe === 'function' ? window._getBotTimeframe() : null;
+            if (botTf) {
+                var TF_TO_PERIOD = {
+                    '1m': '0.0007', '5m': '0.003', '15m': '0.01',
+                    '30m': '0.01',  '1h': '0.04',  '4h': '0.17', '1d': '1',
+                };
+                var expectedPeriod = TF_TO_PERIOD[botTf];
+                var activeBtn = document.querySelector('.period-btn.active');
+                var activePeriod = activeBtn ? activeBtn.dataset.period : null;
+                if (expectedPeriod && activePeriod && expectedPeriod !== activePeriod) {
+                    // ТФ не совпадает — очищаем и подсвечиваем нужную кнопку
+                    clearBotLevelLines();
+                    clearBBSeries();
+                    if (typeof updateBotTimeframeHighlight === 'function') updateBotTimeframeHighlight();
+                    return;
+                }
             }
 
             var uid = (window.firebase && window.firebase.auth && window.firebase.auth().currentUser)
@@ -9679,6 +9764,71 @@
                 selectCoin(coin);
             }
         };
+
+        // Маппинг таймфрейма бота → period кнопки графика (data-period).
+        // Соответствует таблице кнопок: 1М/5М/15М/1H/4H/1Д.
+        // 30m не имеет своей кнопки — округляем до 15m (ближайший вверх не ломает данные).
+        var BOT_TF_TO_PERIOD = {
+            '1m':  '0.0007',
+            '5m':  '0.003',
+            '15m': '0.01',
+            '30m': '0.01',  // нет отдельной кнопки — используем 15М
+            '1h':  '0.04',
+            '4h':  '0.17',
+            '1d':  '1',
+        };
+
+        // Текущий "целевой" таймфрейм бота — для подсветки кнопки
+        // когда юзер вручную переключился на другой ТФ.
+        window._botActiveTimeframe = null;
+
+        // Подсветка кнопки таймфрейма бота: зелёная обводка.
+        // Снимается со всех, ставится на текущий ТФ бота, если он отличается от выбранного.
+        function updateBotTimeframeHighlight() {
+            var btns = document.querySelectorAll('.period-btn');
+            var botTf = window._botActiveTimeframe;
+            var botPeriod = botTf ? BOT_TF_TO_PERIOD[botTf] : null;
+            btns.forEach(function(b) {
+                b.classList.remove('bot-tf-highlight');
+                if (botPeriod && b.dataset.period === botPeriod && !b.classList.contains('active')) {
+                    b.classList.add('bot-tf-highlight');
+                }
+            });
+        }
+        // Экспортируем для bot-panel.js (вызывается при восстановлении состояния бота на загрузке страницы)
+        window._updateBotTimeframeHighlight = updateBotTimeframeHighlight;
+
+        // Глобальный хук — синхронизирует график с парой и таймфреймом бота.
+        // Вызывается из bot-panel.js при старте бота и переключении бота в дропдауне.
+        window._syncChartToBot = function(pair, timeframe) {
+            // 1. Переключаем пару
+            if (pair) {
+                var symbol = pair.replace('/USDT', '').replace('USDT', '');
+                var coin = COINS.find(function(c) { return c.symbol === symbol; });
+                if (coin && coin.id !== selectedCoin.id) {
+                    selectCoin(coin);
+                }
+            }
+            // 2. Запоминаем целевой ТФ для подсветки
+            window._botActiveTimeframe = timeframe || null;
+            // 3. Переключаем период графика
+            if (timeframe && BOT_TF_TO_PERIOD[timeframe]) {
+                var targetPeriod = BOT_TF_TO_PERIOD[timeframe];
+                var btn = document.querySelector('.period-btn[data-period="' + targetPeriod + '"]');
+                if (btn && !btn.classList.contains('active')) {
+                    btn.click();  // вызовет existing handler — он перезагрузит данные и WS
+                }
+            }
+            // 4. Обновляем подсветку (на случай если уже на нужном ТФ — снимем подсветку)
+            setTimeout(updateBotTimeframeHighlight, 50);
+        };
+
+        // Если юзер вручную переключает ТФ — обновляем подсветку
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.classList && e.target.classList.contains('period-btn')) {
+                setTimeout(updateBotTimeframeHighlight, 50);
+            }
+        });
 
         // Глобальный хук для передачи botId в уровни
         window._botCurrentBotId = null;
@@ -12233,12 +12383,42 @@
                 const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                 lwChart.applyOptions({
                     localization: {
+                        // Используем ЛОКАЛЬНОЕ время (как в основном форматтере выше).
                         tickMarkFormatter: (time) => {
-                            const date = new Date(time * 1000);
-                            const m = date.getUTCMonth();
-                            const y = date.getUTCFullYear();
-                            if (m === 0) return String(y);
-                            return lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m];
+                            let date;
+                            if (typeof time === 'object' && time.year) {
+                                date = new Date(time.year, time.month - 1, time.day || 1);
+                            } else {
+                                date = new Date(time * 1000);
+                            }
+                            if (isNaN(date.getTime())) return '';
+                            const m = date.getMonth();
+                            const d = date.getDate();
+                            const y = date.getFullYear();
+                            const h = String(date.getHours()).padStart(2, '0');
+                            const min = String(date.getMinutes()).padStart(2, '0');
+                            const cp = typeof currentPeriod !== 'undefined' ? currentPeriod : 1;
+                            if (cp <= 0.04) return h + ':' + min;
+                            if (cp <= 0.17) return d + ' ' + (lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m]) + ' ' + h + ':' + min;
+                            if (m === 0 && d === 1) return String(y);
+                            return d + ' ' + (lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m]);
+                        },
+                        // Плашка кроссхера тоже в локальном времени.
+                        timeFormatter: (time) => {
+                            let date;
+                            if (typeof time === 'object' && time.year) {
+                                date = new Date(time.year, time.month - 1, time.day || 1);
+                            } else {
+                                date = new Date(time * 1000);
+                            }
+                            if (isNaN(date.getTime())) return '';
+                            const m = date.getMonth();
+                            const d = date.getDate();
+                            const y = date.getFullYear();
+                            const h = String(date.getHours()).padStart(2, '0');
+                            const min = String(date.getMinutes()).padStart(2, '0');
+                            const monthName = lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m];
+                            return d + ' ' + monthName + ' ' + y + '  ' + h + ':' + min;
                         },
                     },
                 });
@@ -15713,6 +15893,54 @@
             crosshair: { mode: 0, vertLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 }, horzLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 } },
             timeScale: { timeVisible: true, secondsVisible: false, borderColor: 'rgba(255,255,255,0.06)' },
             rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.08, bottom: 0.25 } },
+            // ЛОКАЛЬНОЕ время на оси и в плашке кроссхера (по умолчанию был UTC).
+            localization: {
+                tickMarkFormatter: (time) => {
+                    try {
+                        const MONTHS_RU = ['янв.','фев.','мар.','апр.','май','июн.','июл.','авг.','сен.','окт.','ноя.','дек.'];
+                        const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        let date;
+                        if (typeof time === 'object' && time.year) {
+                            date = new Date(time.year, time.month - 1, time.day || 1);
+                        } else {
+                            date = new Date(time * 1000);
+                        }
+                        if (isNaN(date.getTime())) return '';
+                        const m = date.getMonth();
+                        const d = date.getDate();
+                        const y = date.getFullYear();
+                        const h = String(date.getHours()).padStart(2, '0');
+                        const min = String(date.getMinutes()).padStart(2, '0');
+                        const months = (typeof currentLang !== 'undefined' && currentLang === 'ru') ? MONTHS_RU : MONTHS_EN;
+                        // Внутридневные тики -> часы, иначе дата.
+                        // У fs-графика нет переменной currentPeriod, поэтому опираемся на fsCurrentDays.
+                        const isIntraday = (typeof fsCurrentDays !== 'undefined') ? (fsCurrentDays <= 7) : true;
+                        if (isIntraday) return h + ':' + min;
+                        if (m === 0 && d === 1) return String(y);
+                        return d + ' ' + months[m];
+                    } catch(e) { return ''; }
+                },
+                timeFormatter: (time) => {
+                    try {
+                        const MONTHS_RU = ['янв.','фев.','мар.','апр.','май','июн.','июл.','авг.','сен.','окт.','ноя.','дек.'];
+                        const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        let date;
+                        if (typeof time === 'object' && time.year) {
+                            date = new Date(time.year, time.month - 1, time.day || 1);
+                        } else {
+                            date = new Date(time * 1000);
+                        }
+                        if (isNaN(date.getTime())) return '';
+                        const m = date.getMonth();
+                        const d = date.getDate();
+                        const y = date.getFullYear();
+                        const h = String(date.getHours()).padStart(2, '0');
+                        const min = String(date.getMinutes()).padStart(2, '0');
+                        const months = (typeof currentLang !== 'undefined' && currentLang === 'ru') ? MONTHS_RU : MONTHS_EN;
+                        return d + ' ' + months[m] + ' ' + y + '  ' + h + ':' + min;
+                    } catch(e) { return ''; }
+                },
+            },
         });
         fsCandleSeries = fsChart.addCandlestickSeries({
             upColor: '#10B981', downColor: '#EF4444',

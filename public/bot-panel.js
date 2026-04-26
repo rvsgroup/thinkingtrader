@@ -98,6 +98,39 @@
         dotEl.classList.add('bot-dot-' + state);
     }
 
+    /* Управление видимостью групп секций ("Рынок"/"Торговля") в виджете.
+       Группа появляется только если внутри есть хотя бы одна видимая секция.
+       Иначе остаётся пустая шапка с заголовком — некрасиво.
+       Вызывается в конце updateWidgetFromStatus(). */
+    function updateGroupVisibility() {
+        function toggle(groupId, sectionIds) {
+            var any = sectionIds.some(function(id) {
+                var el = document.getElementById(id);
+                return el && el.style.display !== 'none';
+            });
+            var group = document.getElementById(groupId);
+            if (group) group.style.display = any ? '' : 'none';
+        }
+        toggle('botMarketGroup',  ['botAtrSection', 'botRegimeSection', 'botClusterSection']);
+        toggle('botTradingGroup', ['botManualBtnsSection', 'botWidgetPositionSection']);
+    }
+
+    /* HTML мини-тумблера для встраивания справа от метрики в блоке "Рынок".
+       Состояние (вкл/выкл) задаётся параметром on (true/false).
+       targetCheckboxId — id оригинального чекбокса в скрытом wrap'е, который
+       переключается при клике на этот тумблер (делегирование через event listener).
+       Не показывается в Manual — там тумблеров вообще нет. */
+    function renderInlineToggle(on, targetCheckboxId) {
+        var trackBg  = on ? 'rgba(38,166,154,0.30)' : 'rgba(255,255,255,0.10)';
+        var dotBg    = on ? '#26a69a' : '#636B76';
+        var dotLeft  = on ? '14px' : '2px';
+        return '<label class="bot-w-inline-toggle" data-target="' + targetCheckboxId + '" ' +
+               'style="position:relative;width:26px;height:14px;display:inline-block;cursor:pointer;flex-shrink:0;margin-left:8px;">' +
+                   '<span style="position:absolute;inset:0;background:' + trackBg + ';border-radius:7px;transition:0.2s;"></span>' +
+                   '<span style="position:absolute;top:2px;left:' + dotLeft + ';width:10px;height:10px;background:' + dotBg + ';border-radius:50%;transition:0.2s;"></span>' +
+               '</label>';
+    }
+
     /* ── Кнопка БОТ (только для админа) ── */
     function createBotButton() {
         var btn = document.createElement('button');
@@ -172,18 +205,10 @@
                 </div>\
             </div>\
             \
-            <div class="bot-w-section">\
-                <div class="bot-w-section-title">Режим</div>\
-                <div class="bot-w-mode-row">\
-                    <div class="bot-w-mode-btn" id="botModeWidgetPaper"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="vertical-align:-1px;"><circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.2"/><circle cx="5" cy="5" r="1" fill="currentColor"/></svg> Paper</div>\
-                    <div class="bot-w-mode-btn" id="botModeWidgetLive"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style="vertical-align:-1px;"><polygon points="1,0 10,5 1,10"/></svg> Live</div>\
-                </div>\
-            </div>\
-            \
             <div class="bot-w-section" id="botWidgetLevelsSection">\
-                <div class="bot-w-section-title" id="botLevelsToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">\
-                    <span>Микроуровни <span id="botLevelCount" style="color:#636B76;font-weight:400;text-transform:none;letter-spacing:0;">—</span></span>\
-                    <span id="botLevelsArrow" style="font-size:10px;color:#636B76;transition:transform 0.2s;display:inline-flex;"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="0,2 8,2 4,7"/></svg></span>\
+                <div class="bot-w-collapsible-title" id="botLevelsToggle">\
+                    <span class="bot-w-collapsible-label">Микроуровни <span id="botLevelCount" style="color:#475569;font-weight:400;">—</span></span>\
+                    <svg id="botLevelsArrow" class="bot-w-collapsible-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,5 7,8.5 10,5"/></svg>\
                 </div>\
                 <div id="botWidgetLevelsList" class="bot-w-levels-list">\
                     <div class="bot-w-log-empty">Бот не запущен</div>\
@@ -192,63 +217,80 @@
             </div>\
             \
             <div class="bot-w-section" id="botBBSection" style="display:none;">\
-                <div class="bot-w-section-title" id="botBBToggle" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;">\
-                    <span>Bollinger Bands / RSI</span>\
-                    <span id="botBBArrow" style="font-size:10px;color:#636B76;transition:transform 0.2s;display:inline-flex;"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="0,2 8,2 4,7"/></svg></span>\
+                <div class="bot-w-collapsible-title" id="botBBToggle">\
+                    <span class="bot-w-collapsible-label">Bollinger Bands / RSI</span>\
+                    <svg id="botBBArrow" class="bot-w-collapsible-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,5 7,8.5 10,5"/></svg>\
                 </div>\
                 <div id="botBBCollapsible">\
                     <div id="botBBContainer" style="font-size:11px;color:#94A3B8;line-height:1.8;"></div>\
                 </div>\
             </div>\
             \
-            <div class="bot-w-section" id="botAtrSection" style="display:none;padding-top:6px;padding-bottom:6px;">\
-                <div id="botAtrContainer"></div>\
-                <div id="botAtrToggleWrap" style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
-                    <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
-                    <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
-                        <input type="checkbox" id="botAtrEntryToggle" style="opacity:0;width:0;height:0;">\
-                        <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
-                        <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botAtrToggleDot"></span>\
-                    </label>\
+            <!-- Группа "РЫНОК": ATR / Режим рынка / Кластеры под одной шапкой -->\
+            <div class="bot-w-group" id="botMarketGroup" style="display:none;">\
+                <div class="bot-w-group-title">Рынок</div>\
+                <div class="bot-w-group-body">\
+                    <div class="bot-w-section" id="botAtrSection" style="display:none;">\
+                        <div id="botAtrContainer"></div>\
+                        <div id="botAtrToggleWrap" class="bot-w-mini-toggle-wrap" style="margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
+                            <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
+                            <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
+                                <input type="checkbox" id="botAtrEntryToggle" style="opacity:0;width:0;height:0;">\
+                                <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
+                                <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botAtrToggleDot"></span>\
+                            </label>\
+                        </div>\
+                    </div>\
+                    \
+                    <div class="bot-w-section" id="botRegimeSection" style="display:none;">\
+                        <div id="botRegimeContainer"></div>\
+                        <div id="botRegimeToggleWrap" class="bot-w-mini-toggle-wrap" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
+                            <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
+                            <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
+                                <input type="checkbox" id="botRegimeEntryToggle" style="opacity:0;width:0;height:0;">\
+                                <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
+                                <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botRegimeToggleDot"></span>\
+                            </label>\
+                        </div>\
+                    </div>\
+                    \
+                    <div class="bot-w-section" id="botClusterSection" style="display:none;">\
+                        <div id="botClusterContainer"></div>\
+                        <div id="botClusterToggleWrap" class="bot-w-mini-toggle-wrap" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
+                            <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
+                            <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
+                                <input type="checkbox" id="botClusterEntryToggle" style="opacity:0;width:0;height:0;">\
+                                <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
+                                <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botClusterToggleDot"></span>\
+                            </label>\
+                        </div>\
+                    </div>\
                 </div>\
             </div>\
             \
-            <div class="bot-w-section" id="botRegimeSection" style="display:none;">\
-                <div id="botRegimeContainer"></div>\
-                <div id="botRegimeToggleWrap" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
-                    <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
-                    <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
-                        <input type="checkbox" id="botRegimeEntryToggle" style="opacity:0;width:0;height:0;">\
-                        <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
-                        <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botRegimeToggleDot"></span>\
-                    </label>\
+            <!-- Группа "ТОРГОВЛЯ": ручные кнопки + открытая позиция -->\
+            <div class="bot-w-group" id="botTradingGroup" style="display:none;">\
+                <div class="bot-w-group-title">Торговля</div>\
+                <div class="bot-w-group-body">\
+                    <div class="bot-w-section" id="botManualBtnsSection" style="display:none;">\
+                        <div id="botManualBtnsContainer"></div>\
+                    </div>\
+                    \
+                    <div class="bot-w-section" id="botWidgetPositionSection" style="display:none;">\
+                        <div class="bot-w-section-title">Открытая позиция</div>\
+                        <div id="botWidgetPosition" class="bot-w-position"></div>\
+                    </div>\
                 </div>\
-            </div>\
-            \
-            <div class="bot-w-section" id="botClusterSection" style="display:none;">\
-                <div id="botClusterContainer"></div>\
-                <div id="botClusterToggleWrap" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
-                    <span style="font-size:10px;color:#636B76;">Учитывать при входе</span>\
-                    <label style="position:relative;width:32px;height:18px;cursor:pointer;">\
-                        <input type="checkbox" id="botClusterEntryToggle" style="opacity:0;width:0;height:0;">\
-                        <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0.1);border-radius:9px;transition:0.2s;"></span>\
-                        <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#636B76;border-radius:50%;transition:0.2s;" id="botClusterToggleDot"></span>\
-                    </label>\
-                </div>\
-            </div>\
-            \
-            <div class="bot-w-section" id="botManualBtnsSection" style="display:none;">\
-                <div id="botManualBtnsContainer"></div>\
-            </div>\
-            \
-            <div class="bot-w-section" id="botWidgetPositionSection" style="display:none;">\
-                <div class="bot-w-section-title">Открытая позиция</div>\
-                <div id="botWidgetPosition" class="bot-w-position"></div>\
             </div>\
             \
             <div class="bot-w-section">\
-                <div class="bot-w-section-title">Сегодня</div>\
-                <div class="bot-w-stats-grid">\
+                <div class="bot-w-section-title" style="display:flex;justify-content:space-between;align-items:center;">\
+                    <span>Сегодня</span>\
+                    <span class="bot-w-today-meta" style="font-weight:400;letter-spacing:0;text-transform:none;color:#475569;font-size:9px;">\
+                        WR <span class="bot-w-stats-foot-val" id="wWinrate" style="color:#94A3B8;">—</span> · <span id="wTradesInline">0</span> сд. · WS <span class="bot-w-stats-foot-val" id="wWsStatus" style="color:#94A3B8;">—</span>\
+                    </span>\
+                </div>\
+                <div class="bot-w-stats-grid bot-w-stats-grid-2col">\
                     <div class="bot-w-stat-card">\
                         <div class="bot-w-stat-card-val" id="wBalance">$10,000</div>\
                         <div class="bot-w-stat-card-lbl">Баланс</div>\
@@ -257,14 +299,10 @@
                         <div class="bot-w-stat-card-val" id="wPnl">—</div>\
                         <div class="bot-w-stat-card-lbl">P&L сегодня</div>\
                     </div>\
-                    <div class="bot-w-stat-card">\
+                    <div class="bot-w-stat-card" style="display:none;" id="wTradesCard">\
                         <div class="bot-w-stat-card-val" id="wTrades">0</div>\
                         <div class="bot-w-stat-card-lbl">Сделок</div>\
                     </div>\
-                </div>\
-                <div class="bot-w-stats-footer">\
-                    <span class="bot-w-stats-foot-item">Win rate <span class="bot-w-stats-foot-val" id="wWinrate">—</span></span>\
-                    <span class="bot-w-stats-foot-item">WS <span class="bot-w-stats-foot-val" id="wWsStatus">—</span></span>\
                 </div>\
             </div>\
             \
@@ -334,6 +372,20 @@
             }).then(function() { loadBotList(); }).catch(function() {});
         };
         widget.querySelector('#botWidgetStart').onclick = startBot;
+
+        // Делегированный обработчик кликов по inline-тумблерам в блоке "Рынок".
+        // При клике переключает состояние оригинального скрытого чекбокса —
+        // дальше срабатывает его .onchange (см. обработчики выше) и весь существующий
+        // флоу: запрос /api/bot/settings + перерисовка.
+        widget.addEventListener('click', function(e) {
+            var label = e.target.closest('.bot-w-inline-toggle');
+            if (!label) return;
+            var targetId = label.getAttribute('data-target');
+            var cb = document.getElementById(targetId);
+            if (!cb) return;
+            cb.checked = !cb.checked;
+            cb.dispatchEvent(new Event('change'));
+        });
         widget.querySelector('#botWidgetStop').onclick  = stopBot;
         widget.querySelector('#botSaveSettings').onclick = saveSettingsHot;
         widget.querySelector('#botWidgetResume').onclick = resumeBot;
@@ -387,8 +439,12 @@
                 }
             } catch(e) {}
         }
-        widget.querySelector('#botModeWidgetPaper').onclick = function() { setMode('paper'); openModal(); };
-        widget.querySelector('#botModeWidgetLive').onclick  = function() { setMode('live');  openModal(); };
+        // Кнопки Paper/Live перенесены в шапку и в модалку настроек — здесь их нет.
+        // Сохраняем null-safe обработку на случай если элементы где-то остались.
+        var pBtn = widget.querySelector('#botModeWidgetPaper');
+        var lBtn = widget.querySelector('#botModeWidgetLive');
+        if (pBtn) pBtn.onclick = function() { setMode('paper'); openModal(); };
+        if (lBtn) lBtn.onclick = function() { setMode('live');  openModal(); };
 
         var wlWrap = document.getElementById('watchlistWrap');
         if (wlWrap) wlWrap.parentNode.insertBefore(widget, wlWrap);
@@ -563,13 +619,23 @@
         // В manual-стратегии эти фильтры бессмысленны: они фильтруют автосигналы,
         // а автосигналов нет. Скрываем тумблеры, оставляем сами секции-индикаторы.
         // Все три wrap-элемента имеют display:flex в инлайн-стиле — восстанавливаем именно его.
+        // Старые wrap'ы "Учитывать при входе" внизу секций больше не показываем —
+        // вместо них в верхнюю строку каждой метрики встроен inline-тумблер
+        // (см. renderInlineToggle). Чекбоксы остаются в DOM для существующих
+        // обработчиков; визуальные обёртки скрыты.
         var isManual = _state.strategy === 'manual';
         var atrToggleWrap = document.getElementById('botAtrToggleWrap');
         var regimeToggleWrap = document.getElementById('botRegimeToggleWrap');
         var clusterToggleWrap = document.getElementById('botClusterToggleWrap');
-        if (atrToggleWrap) atrToggleWrap.style.display = isManual ? 'none' : 'flex';
-        if (regimeToggleWrap) regimeToggleWrap.style.display = isManual ? 'none' : 'flex';
-        if (clusterToggleWrap) clusterToggleWrap.style.display = isManual ? 'none' : 'flex';
+        if (atrToggleWrap) atrToggleWrap.style.display = 'none';
+        if (regimeToggleWrap) regimeToggleWrap.style.display = 'none';
+        if (clusterToggleWrap) clusterToggleWrap.style.display = 'none';
+
+        // В Manual группа "Рынок" без декоративной плитки-фона — секции
+        // визуально как простые полоски одна под другой. В MR/Scalper остаётся
+        // плитка с фоном, чтобы тумблеры справа выглядели как часть карточки.
+        var marketGroup = document.getElementById('botMarketGroup');
+        if (marketGroup) marketGroup.classList.toggle('bot-w-group--plain', isManual);
 
         // ── Баланс ──
         var balEl = document.getElementById('wBalance');
@@ -594,8 +660,10 @@
 
         // ── Сделки и winrate ──
         var trEl = document.getElementById('wTrades');
+        var trInlineEl = document.getElementById('wTradesInline');
         var wrEl = document.getElementById('wWinrate');
-        if (trEl) trEl.textContent = _state.tradeCount;
+        if (trEl)       trEl.textContent       = _state.tradeCount;
+        if (trInlineEl) trInlineEl.textContent = _state.tradeCount;
         if (wrEl) wrEl.textContent = _state.winRate != null ? _state.winRate + '%' : '—';
 
         // ── WebSocket статус ──
@@ -634,19 +702,14 @@
         updateButtons();
 
         // ── Линии позиции на графике (entry/stop/pending) ──
-        // Рисуем ТОЛЬКО для manual-стратегии. В scalper/MR бот автономный —
-        // стоп и тейк двигаются (трейлинг, STP, BB), линии бы прыгали и
-        // засоряли график. Вся нужная информация есть в карточке позиции.
-        if (_state.strategy === 'manual') {
-            if (typeof window._drawBotPosition === 'function') {
-                window._drawBotPosition(_state.position, _state.pendingExit, _state.pendingLimit);
-            }
-        } else {
-            // Подчищаем линии если стратегию переключили с manual на другую
-            if (typeof window._clearBotPosition === 'function') {
-                window._clearBotPosition();
-            }
+        // Хук определён в app.html. Вызываем каждый раз на поллинге — библиотека
+        // сама кэширует priceLine'ы, а наша clear+redraw дешевле логики diff'ов.
+        if (typeof window._drawBotPosition === 'function') {
+            window._drawBotPosition(_state.position, _state.pendingExit, _state.pendingLimit);
         }
+
+        // Пересчёт видимости групп "Рынок"/"Торговля" — скрываем пустые группы.
+        updateGroupVisibility();
     }
 
     function renderLevels() {
@@ -994,10 +1057,16 @@
         var fadeStart = Math.max(0, buyPct - 8);
         var fadeEnd   = Math.min(100, buyPct + 8);
 
-        container.innerHTML = '<div style="padding:6px 8px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:11px;">' +
+        var isManual = _state.strategy === 'manual';
+        var toggleHtml = isManual ? '' : renderInlineToggle(!!_state.clusterEntryFilter, 'botClusterEntryToggle');
+
+        container.innerHTML = '<div style="font-size:11px;">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-            '<span style="color:#636B76;">Кластеры (' + ci.lookback + ' свечей)</span>' +
-            '<span style="color:' + domColor + ';font-weight:600;">' + domLabel + '</span>' +
+            '<span style="color:#94A3B8;">Кластеры (' + ci.lookback + ' свечей)</span>' +
+            '<span style="display:flex;align-items:center;">' +
+                '<span style="color:' + domColor + ';font-weight:600;font-size:10px;">' + domLabel + '</span>' +
+                toggleHtml +
+            '</span>' +
             '</div>' +
             '<div style="height:6px;border-radius:3px;background:linear-gradient(to right,' +
                 '#26a69a 0%,' +
@@ -1257,10 +1326,16 @@
         var colorH = colorFor(r.higher);
         var colorM = colorFor(r.main);
 
+        var isManual = _state.strategy === 'manual';
+        var toggleHtml = isManual ? '' : renderInlineToggle(!!_state.regimeFilterEnabled, 'botRegimeEntryToggle');
+
         container.innerHTML =
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
                 '<span style="font-size:11px;color:#94A3B8;">Режим рынка (' + tfHigher + ' · ' + tfMain + ')</span>' +
-                '<span style="color:' + allowedColor + ';font-weight:600;letter-spacing:0.5px;font-size:10px;">→ ' + allowed + '</span>' +
+                '<span style="display:flex;align-items:center;">' +
+                    '<span style="color:' + allowedColor + ';font-weight:600;letter-spacing:0.5px;font-size:10px;">→ ' + allowed + '</span>' +
+                    toggleHtml +
+                '</span>' +
             '</div>' +
             '<div style="height:5px;border-radius:3px;background:linear-gradient(to right,' +
                 colorH + ' 0%,' +
@@ -1299,10 +1374,16 @@
         var fillPct = Math.max(0, Math.min(100, ((mult - 1.0) / (maxScale - 1.0)) * 100));
         var thresholdPct = Math.max(0, Math.min(100, ((threshold - 1.0) / (maxScale - 1.0)) * 100));
 
+        var isManual = _state.strategy === 'manual';
+        var toggleHtml = isManual ? '' : renderInlineToggle(!!_state.atrFilterEnabled, 'botAtrEntryToggle');
+
         container.innerHTML =
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-                '<span style="font-size:11px;color:#94A3B8;">Волатильность (ATR) <span style="font-size:9px;color:#636B76;">×' + mult.toFixed(2) + '</span></span>' +
-                '<span style="color:' + levelColor + ';font-weight:600;letter-spacing:0.3px;font-size:10px;">' + levelLabel + '</span>' +
+                '<span style="font-size:11px;color:#94A3B8;">Волатильность <span style="font-size:9px;color:#636B76;">×' + mult.toFixed(2) + '</span></span>' +
+                '<span style="display:flex;align-items:center;">' +
+                    '<span style="color:' + levelColor + ';font-weight:600;letter-spacing:0.3px;font-size:10px;">' + levelLabel + '</span>' +
+                    toggleHtml +
+                '</span>' +
             '</div>' +
             '<div style="height:3px;border-radius:2px;background:rgba(255,255,255,0.06);position:relative;overflow:hidden;">' +
                 '<div style="position:absolute;top:0;left:0;height:100%;width:' + fillPct.toFixed(1) + '%;background:' + levelColor + ';border-radius:2px;"></div>' +
@@ -2657,6 +2738,11 @@
                 // Начинаем рисовать уровни бота на графике (только если стратегия не manual)
                 window._botCurrentBotId = _state.botId;
                 syncBotLevelsVisibility();
+                // Автоматически переключаем график на пару и таймфрейм бота,
+                // чтобы BB-полосы и маркеры рисовались на правильной шкале времени.
+                if (typeof window._syncChartToBot === 'function') {
+                    window._syncChartToBot(_state.pair, _state.timeframe);
+                }
             } else {
                 alert('Ошибка запуска: ' + (data.error || 'unknown'));
             }
@@ -2689,6 +2775,11 @@
             loadBotList();
             // Убираем уровни бота с графика
             if (typeof window._stopBotLevels === 'function') window._stopBotLevels();
+            // Снимаем подсветку ТФ бота
+            window._botActiveTimeframe = null;
+            if (typeof window._updateBotTimeframeHighlight === 'function') {
+                window._updateBotTimeframeHighlight();
+            }
         })
         .catch(function(e) { console.warn('[BOT] stop error', e); });
     }
@@ -4149,10 +4240,15 @@
             var pairLabel = document.getElementById('botWidgetPairLabel');
             if (pairLabel) pairLabel.textContent = bot.pair;
 
-            // Переключаем график на пару бота
-            var symbol = bot.pair ? bot.pair.replace('/USDT', '').replace('USDT', '') : null;
-            if (symbol && typeof window._switchChartCoin === 'function') {
-                window._switchChartCoin(symbol);
+            // Переключаем график на пару и таймфрейм бота
+            if (typeof window._syncChartToBot === 'function') {
+                window._syncChartToBot(bot.pair, bot.timeframe);
+            } else {
+                // Fallback на старый _switchChartCoin если _syncChartToBot не определён
+                var symbol = bot.pair ? bot.pair.replace('/USDT', '').replace('USDT', '') : null;
+                if (symbol && typeof window._switchChartCoin === 'function') {
+                    window._switchChartCoin(symbol);
+                }
             }
 
             // Обновляем botId для отрисовки уровней
@@ -4315,6 +4411,19 @@
             return _state.pair ? _state.pair.replace('/USDT', '').replace('USDT', '') : null;
         };
 
+        // Глобальный хук — возвращает таймфрейм текущего бота ('1m', '5m', '15m', '1h', ...)
+        window._getBotTimeframe = function() {
+            return _state.timeframe || null;
+        };
+
+        // Глобальный хук — возвращает стратегию текущего бота ('manual', 'mean_reversion', 'scalper').
+        // Используется в app.html для решения: рисовать ли линии позиции на графике.
+        // Линии входа/стопа/таргета показываются ТОЛЬКО для manual — в авто-режимах
+        // они визуальный шум, бот сам управляет позицией.
+        window._getBotStrategy = function() {
+            return _state.strategy || null;
+        };
+
         // При загрузке страницы проверяем — может бот уже запущен на сервере
         setTimeout(function() {
             var uid = getUid();
@@ -4340,6 +4449,16 @@
                         // Рисуем уровни бота на графике (только для scalper/MR)
                         window._botCurrentBotId = _state.botId;
                         syncBotLevelsVisibility();
+
+                        // Запоминаем целевой ТФ бота (для подсветки кнопки на графике).
+                        // НЕ переключаем график автоматически при перезагрузке страницы —
+                        // пусть юзер сам решает. Просто подсвечиваем нужную кнопку.
+                        if (_state.timeframe) {
+                            window._botActiveTimeframe = _state.timeframe;
+                            if (typeof window._updateBotTimeframeHighlight === 'function') {
+                                window._updateBotTimeframeHighlight();
+                            }
+                        }
 
                         // Подгружаем историю сделок
                         if (data.tradeCount > 0) fetchTrades(uid);
