@@ -2356,7 +2356,14 @@ module.exports = function(app) {
         // Флаг _startBalanceInit защищает от повторной установки и не зависит
         // от значений по умолчанию в дефолтах сессии (было: startBalance=10000 в дефолте,
         // а virtualBalance из UI = 500 → totalPnl = -9500$).
-        if (!session._startBalanceInit) {
+        //
+        // ИСКЛЮЧЕНИЕ: если у бота нулевая история (ни одной сделки) — это значит
+        // никакой "накопленной прибыли" защищать не надо, и пользователь по сути
+        // настраивает свежего бота. В этом случае разрешаем переинициализацию,
+        // иначе при создании бота с балансом $500 и сохранённым в JSON
+        // startBalance=$10000 totalPnl сразу покажет −$9500.
+        const hasHistory = (session.trades && session.trades.length > 0);
+        if (!session._startBalanceInit || !hasHistory) {
             session.startBalance = session.virtualBalance;
             session._startBalanceInit = true;
         }
@@ -3093,8 +3100,71 @@ module.exports = function(app) {
             session.botName = req.body.botName || null;
             if (req.body.pair) session.pair = req.body.pair;
             if (req.body.strategy) session.strategy = req.body.strategy;
-            console.log(`[BOT ${ts()}] ➕ Created bot ${botId} for uid=${uid} (${session.pair} / ${session.strategy || 'scalper'})`);
+
+            // Если фронтенд передал стартовый баланс — фиксируем его сразу,
+            // не дожидаясь первого startBot. Иначе при последующем запуске
+            // сработает защита _startBalanceInit и totalPnl покажет
+            // virtualBalance(новый) − startBalance(дефолтный 10000) = большой минус.
+            if (req.body.virtualBalance !== undefined) {
+                const vb = parseFloat(req.body.virtualBalance);
+                if (Number.isFinite(vb) && vb > 0) {
+                    session.virtualBalance = vb;
+                    session.startBalance = vb;
+                    session._startBalanceInit = true;
+                }
+            }
+            // Гарантия чистого листа для нового бота: сброс истории/счётчиков.
+            // getSession ставит дефолты только при ПЕРВОМ создании ключа в Map,
+            // но если botId совпадёт с уже существующим (или сюда придут стейлы из persist),
+            // — лучше явно зачистить.
+            session.trades = [];
+            session.dayPnl = 0;
+            session.dayStartDate = null;
+            session.consecutiveLosses = 0;
+            session.position = null;
+
+            console.log(`[BOT ${ts()}] ➕ Created bot ${botId} for uid=${uid} (${session.pair} / ${session.strategy || 'scalper'}) start=$${session.startBalance}`);
             res.json({ ok: true, botId, bots: getUserBots(uid) });
+        } catch(e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/bot/reset-stats — сбросить статистику бота (баланс, сделки, dayPnl)
+    // НЕ удаляет бота и его настройки — только обнуляет историю и баланс.
+    // Используется когда нужно "начать заново" с теми же настройками.
+    app.post('/api/bot/reset-stats', (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            const botId = req.body.botId;
+            if (!botId) return res.status(400).json({ error: 'botId required' });
+
+            const key = uid + ':' + botId;
+            const session = sessions.get(key);
+            if (!session) return res.status(404).json({ error: 'bot not found' });
+
+            // Если бот сейчас в позиции — не даём ресетить (иначе теряется баланс изменения)
+            if (session.position) {
+                return res.status(400).json({ error: 'Close open position before reset' });
+            }
+
+            const newBalance = parseFloat(req.body.virtualBalance);
+            if (Number.isFinite(newBalance) && newBalance > 0) {
+                session.virtualBalance = newBalance;
+                session.startBalance   = newBalance;
+            } else {
+                // По умолчанию — сбросить к текущему startBalance (то есть totalPnl станет 0)
+                session.virtualBalance = session.startBalance;
+            }
+            session._startBalanceInit = true;
+            session.trades = [];
+            session.dayPnl = 0;
+            session.dayStartDate = null;
+            session.consecutiveLosses = 0;
+
+            try { saveSessionsToDisk(); } catch(e) {}
+            console.log(`[BOT ${ts()}] 🔄 Reset stats for bot ${botId} (uid=${uid}), balance=$${session.virtualBalance}`);
+            res.json({ ok: true, balance: session.virtualBalance, startBalance: session.startBalance });
         } catch(e) {
             res.status(500).json({ error: e.message });
         }
