@@ -9274,24 +9274,20 @@
                             const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
                             // time может быть unix timestamp (число) или объект {year, month, day}
-                            // ВАЖНО: используем ЛОКАЛЬНОЕ время браузера (а не UTC),
-                            // чтобы пользователь видел часы в своей часовой зоне.
                             let date;
                             if (typeof time === 'object' && time.year) {
-                                // Объект {year, month, day} приходит для дневных/недельных тиков —
-                                // время суток для них не важно, конструируем локальную полночь.
-                                date = new Date(time.year, time.month - 1, time.day || 1);
+                                date = new Date(Date.UTC(time.year, time.month - 1, time.day || 1));
                             } else {
                                 date = new Date(time * 1000);
                             }
 
                             if (isNaN(date.getTime())) return '';
 
-                            const m = date.getMonth();
-                            const d = date.getDate();
-                            const y = date.getFullYear();
-                            const h = String(date.getHours()).padStart(2, '0');
-                            const min = String(date.getMinutes()).padStart(2, '0');
+                            const m = date.getUTCMonth();
+                            const d = date.getUTCDate();
+                            const y = date.getUTCFullYear();
+                            const h = String(date.getUTCHours()).padStart(2, '0');
+                            const min = String(date.getUTCMinutes()).padStart(2, '0');
                             const cp = typeof currentPeriod !== 'undefined' ? currentPeriod : 1;
 
                             // Маленькие таймфреймы (1m, 5m, 15m, 1h) — показываем время
@@ -9305,30 +9301,6 @@
                             // Дневной и выше — дата
                             if (m === 0 && d === 1) return String(y);
                             return d + ' ' + (currentLang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m]);
-                        } catch(e) {
-                            return '';
-                        }
-                    },
-                    // Формат времени в плашке кроссхера (когда наводишь курсор на свечу).
-                    // По умолчанию lightweight-charts показывает UTC — переопределяем на локальное.
-                    timeFormatter: (time) => {
-                        try {
-                            const MONTHS_RU = ['янв.','фев.','мар.','апр.','май','июн.','июл.','авг.','сен.','окт.','ноя.','дек.'];
-                            const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                            let date;
-                            if (typeof time === 'object' && time.year) {
-                                date = new Date(time.year, time.month - 1, time.day || 1);
-                            } else {
-                                date = new Date(time * 1000);
-                            }
-                            if (isNaN(date.getTime())) return '';
-                            const m = date.getMonth();
-                            const d = date.getDate();
-                            const y = date.getFullYear();
-                            const h = String(date.getHours()).padStart(2, '0');
-                            const min = String(date.getMinutes()).padStart(2, '0');
-                            const monthName = currentLang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m];
-                            return d + ' ' + monthName + ' ' + y + '  ' + h + ':' + min;
                         } catch(e) {
                             return '';
                         }
@@ -11816,6 +11788,18 @@
             window._getLivePrice = function() { return _lastWsPrice; };
             window._getLivePriceSymbol = function() { return selectedCoin ? selectedCoin.symbol : null; };
 
+            // Эмитим событие, чтобы bot-panel.js мог обновить поле "Текущая"
+            // в карточке позиции тиково, а не раз в 5 секунд через серверный poll.
+            // detail содержит символ — bot-panel сравнит с парой бота прежде чем подменять цену.
+            try {
+                window.dispatchEvent(new CustomEvent('live-price-tick', {
+                    detail: {
+                        symbol: selectedCoin ? selectedCoin.symbol : null,
+                        price: price,
+                    }
+                }));
+            } catch(e) { /* старые браузеры — игнорируем */ }
+
             // Хелпер: безопасный .update() — если lightweight-charts бросит
             // "Value is null" или "time must be greater than..." — ловим и не
             // даём одному битому тику сломать весь график (без этого после
@@ -12383,42 +12367,12 @@
                 const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                 lwChart.applyOptions({
                     localization: {
-                        // Используем ЛОКАЛЬНОЕ время (как в основном форматтере выше).
                         tickMarkFormatter: (time) => {
-                            let date;
-                            if (typeof time === 'object' && time.year) {
-                                date = new Date(time.year, time.month - 1, time.day || 1);
-                            } else {
-                                date = new Date(time * 1000);
-                            }
-                            if (isNaN(date.getTime())) return '';
-                            const m = date.getMonth();
-                            const d = date.getDate();
-                            const y = date.getFullYear();
-                            const h = String(date.getHours()).padStart(2, '0');
-                            const min = String(date.getMinutes()).padStart(2, '0');
-                            const cp = typeof currentPeriod !== 'undefined' ? currentPeriod : 1;
-                            if (cp <= 0.04) return h + ':' + min;
-                            if (cp <= 0.17) return d + ' ' + (lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m]) + ' ' + h + ':' + min;
-                            if (m === 0 && d === 1) return String(y);
-                            return d + ' ' + (lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m]);
-                        },
-                        // Плашка кроссхера тоже в локальном времени.
-                        timeFormatter: (time) => {
-                            let date;
-                            if (typeof time === 'object' && time.year) {
-                                date = new Date(time.year, time.month - 1, time.day || 1);
-                            } else {
-                                date = new Date(time * 1000);
-                            }
-                            if (isNaN(date.getTime())) return '';
-                            const m = date.getMonth();
-                            const d = date.getDate();
-                            const y = date.getFullYear();
-                            const h = String(date.getHours()).padStart(2, '0');
-                            const min = String(date.getMinutes()).padStart(2, '0');
-                            const monthName = lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m];
-                            return d + ' ' + monthName + ' ' + y + '  ' + h + ':' + min;
+                            const date = new Date(time * 1000);
+                            const m = date.getUTCMonth();
+                            const y = date.getUTCFullYear();
+                            if (m === 0) return String(y);
+                            return lang === 'ru' ? MONTHS_RU[m] : MONTHS_EN[m];
                         },
                     },
                 });
@@ -15893,54 +15847,6 @@
             crosshair: { mode: 0, vertLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 }, horzLine: { color: 'rgba(99,102,241,0.3)', width: 1, style: 2 } },
             timeScale: { timeVisible: true, secondsVisible: false, borderColor: 'rgba(255,255,255,0.06)' },
             rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.08, bottom: 0.25 } },
-            // ЛОКАЛЬНОЕ время на оси и в плашке кроссхера (по умолчанию был UTC).
-            localization: {
-                tickMarkFormatter: (time) => {
-                    try {
-                        const MONTHS_RU = ['янв.','фев.','мар.','апр.','май','июн.','июл.','авг.','сен.','окт.','ноя.','дек.'];
-                        const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                        let date;
-                        if (typeof time === 'object' && time.year) {
-                            date = new Date(time.year, time.month - 1, time.day || 1);
-                        } else {
-                            date = new Date(time * 1000);
-                        }
-                        if (isNaN(date.getTime())) return '';
-                        const m = date.getMonth();
-                        const d = date.getDate();
-                        const y = date.getFullYear();
-                        const h = String(date.getHours()).padStart(2, '0');
-                        const min = String(date.getMinutes()).padStart(2, '0');
-                        const months = (typeof currentLang !== 'undefined' && currentLang === 'ru') ? MONTHS_RU : MONTHS_EN;
-                        // Внутридневные тики -> часы, иначе дата.
-                        // У fs-графика нет переменной currentPeriod, поэтому опираемся на fsCurrentDays.
-                        const isIntraday = (typeof fsCurrentDays !== 'undefined') ? (fsCurrentDays <= 7) : true;
-                        if (isIntraday) return h + ':' + min;
-                        if (m === 0 && d === 1) return String(y);
-                        return d + ' ' + months[m];
-                    } catch(e) { return ''; }
-                },
-                timeFormatter: (time) => {
-                    try {
-                        const MONTHS_RU = ['янв.','фев.','мар.','апр.','май','июн.','июл.','авг.','сен.','окт.','ноя.','дек.'];
-                        const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                        let date;
-                        if (typeof time === 'object' && time.year) {
-                            date = new Date(time.year, time.month - 1, time.day || 1);
-                        } else {
-                            date = new Date(time * 1000);
-                        }
-                        if (isNaN(date.getTime())) return '';
-                        const m = date.getMonth();
-                        const d = date.getDate();
-                        const y = date.getFullYear();
-                        const h = String(date.getHours()).padStart(2, '0');
-                        const min = String(date.getMinutes()).padStart(2, '0');
-                        const months = (typeof currentLang !== 'undefined' && currentLang === 'ru') ? MONTHS_RU : MONTHS_EN;
-                        return d + ' ' + months[m] + ' ' + y + '  ' + h + ':' + min;
-                    } catch(e) { return ''; }
-                },
-            },
         });
         fsCandleSeries = fsChart.addCandlestickSeries({
             upColor: '#10B981', downColor: '#EF4444',

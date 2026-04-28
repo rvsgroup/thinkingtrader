@@ -15,9 +15,13 @@
         paused: false,
         modalStep: 0,
         completedSteps: [],
+        // ── Live mode: API ключи Binance Futures ──
+        // Заполняются только когда выбран mode='live'. На сервер отправляются
+        // отдельным запросом и хранятся в зашифрованном виде.
         apiKey: '',
         apiSecret: '',
-        apiConnected: false,
+        apiTestnet: false,        // true → testnet.binancefuture.com
+        apiConnected: false,      // true после успешной проверки ключей
         pair: 'BTC/USDT',
         pairs: ['BTC/USDT'],
         riskPct: '2',
@@ -111,7 +115,7 @@
             var group = document.getElementById(groupId);
             if (group) group.style.display = any ? '' : 'none';
         }
-        toggle('botMarketGroup',  ['botAtrSection', 'botRegimeSection', 'botClusterSection']);
+        toggle('botMarketGroup',  ['botAtrSection', 'botRegimeSection', 'botWindowSection', 'botClusterSection']);
         toggle('botTradingGroup', ['botManualBtnsSection', 'botWidgetPositionSection']);
     }
 
@@ -173,6 +177,12 @@
                         <rect x="0.5" y="0.5" width="8" height="8" rx="1"/>\
                     </svg>\
                     STOP\
+                </span>\
+                <span id="botStopAllLiveBtn" title="Аварийно закрыть все Live-позиции и остановить Live-ботов" style="cursor:pointer;margin-left:4px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid rgba(239,68,68,0.7);border-radius:4px;background:rgba(239,68,68,0.1);color:#EF4444;font-size:10px;font-weight:700;letter-spacing:0.5px;opacity:0.85;transition:opacity 0.2s, background 0.2s;" onmouseover="this.style.opacity=1;this.style.background=\'rgba(239,68,68,0.18)\'" onmouseout="this.style.opacity=0.85;this.style.background=\'rgba(239,68,68,0.1)\'">\
+                    <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor" xmlns="http://www.w3.org/2000/svg">\
+                        <circle cx="5" cy="5" r="4.5"/>\
+                    </svg>\
+                    LIVE\
                 </span>\
                 <span class="bot-w-badge idle" id="botWidgetBadge">ВЫКЛ</span>\
                 <span id="botJournalBtn" title="Журнал сделок" style="cursor:pointer;margin-left:6px;opacity:0.5;transition:opacity 0.2s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">\
@@ -254,6 +264,31 @@
                         </div>\
                     </div>\
                     \
+                    <div class="bot-w-section" id="botWindowSection" style="display:none;">\
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">\
+                            <span style="font-size:11px;color:#94A3B8;">Окно торговли (UTC)</span>\
+                            <span id="botWindowStatusLabel" style="font-size:10px;color:#636B76;">все часы</span>\
+                        </div>\
+                        \
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-top:1px solid rgba(255,255,255,0.04);">\
+                            <span style="font-size:10px;color:#9598A1;">Европа · 07:05–11:55</span>\
+                            <label style="position:relative;width:26px;height:14px;cursor:pointer;flex-shrink:0;margin-left:8px;">\
+                                <input type="checkbox" id="botWindowEUToggle" style="opacity:0;width:0;height:0;">\
+                                <span style="position:absolute;inset:0;background:rgba(255,255,255,0.10);border-radius:7px;transition:0.2s;"></span>\
+                                <span style="position:absolute;top:2px;left:2px;width:10px;height:10px;background:#636B76;border-radius:50%;transition:0.2s;" id="botWindowEUDot"></span>\
+                            </label>\
+                        </div>\
+                        \
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-top:1px solid rgba(255,255,255,0.04);">\
+                            <span style="font-size:10px;color:#9598A1;">US Open · 13:05–16:55</span>\
+                            <label style="position:relative;width:26px;height:14px;cursor:pointer;flex-shrink:0;margin-left:8px;">\
+                                <input type="checkbox" id="botWindowUSToggle" style="opacity:0;width:0;height:0;">\
+                                <span style="position:absolute;inset:0;background:rgba(255,255,255,0.10);border-radius:7px;transition:0.2s;"></span>\
+                                <span style="position:absolute;top:2px;left:2px;width:10px;height:10px;background:#636B76;border-radius:50%;transition:0.2s;" id="botWindowUSDot"></span>\
+                            </label>\
+                        </div>\
+                    </div>\
+                    \
                     <div class="bot-w-section" id="botClusterSection" style="display:none;">\
                         <div id="botClusterContainer"></div>\
                         <div id="botClusterToggleWrap" class="bot-w-mini-toggle-wrap" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:space-between;">\
@@ -323,6 +358,8 @@
         widget.querySelector('#botJournalBtn').onclick = openJournal;
         var stopAllBtn = widget.querySelector('#botStopAllBtn');
         if (stopAllBtn) stopAllBtn.onclick = confirmStopAll;
+        var stopAllLiveBtn = widget.querySelector('#botStopAllLiveBtn');
+        if (stopAllLiveBtn) stopAllLiveBtn.onclick = confirmStopAllLive;
         widget.querySelector('#botClusterEntryToggle').onchange = function() {
             var on = this.checked;
             var dot = document.getElementById('botClusterToggleDot');
@@ -355,6 +392,60 @@
                 body: JSON.stringify({ uid: uid, botId: _state.botId, regimeFilterEnabled: on })
             }).then(function() { loadBotList(); }).catch(function() {});
         };
+
+        // ── Окно торговли — Европа ──
+        var euT = widget.querySelector('#botWindowEUToggle');
+        if (euT) {
+            euT.onchange = function() {
+                var on = this.checked;
+                var dot = document.getElementById('botWindowEUDot');
+                if (dot) {
+                    dot.style.left = on ? '14px' : '2px';
+                    dot.style.background = on ? '#26a69a' : '#636B76';
+                    dot.parentElement.querySelector('span').style.background = on ? 'rgba(38,166,154,0.30)' : 'rgba(255,255,255,0.10)';
+                }
+                _state.tradingWindowEU = on;
+                updateWindowStatusLabel();
+                var uid = getUid();
+                fetch('/api/bot/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uid: uid, botId: _state.botId, tradingWindowEU: on })
+                }).then(function() { loadBotList(); }).catch(function() {});
+            };
+        }
+        // ── Окно торговли — US Open ──
+        var usT = widget.querySelector('#botWindowUSToggle');
+        if (usT) {
+            usT.onchange = function() {
+                var on = this.checked;
+                var dot = document.getElementById('botWindowUSDot');
+                if (dot) {
+                    dot.style.left = on ? '14px' : '2px';
+                    dot.style.background = on ? '#26a69a' : '#636B76';
+                    dot.parentElement.querySelector('span').style.background = on ? 'rgba(38,166,154,0.30)' : 'rgba(255,255,255,0.10)';
+                }
+                _state.tradingWindowUS = on;
+                updateWindowStatusLabel();
+                var uid = getUid();
+                fetch('/api/bot/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uid: uid, botId: _state.botId, tradingWindowUS: on })
+                }).then(function() { loadBotList(); }).catch(function() {});
+            };
+        }
+        // Хелпер: обновляет лейбл статуса окна
+        function updateWindowStatusLabel() {
+            var label = document.getElementById('botWindowStatusLabel');
+            if (!label) return;
+            var eu = !!_state.tradingWindowEU;
+            var us = !!_state.tradingWindowUS;
+            if (!eu && !us) { label.textContent = 'все часы'; label.style.color = '#636B76'; }
+            else if (eu && us) { label.textContent = 'EU + US'; label.style.color = '#26a69a'; }
+            else if (eu) { label.textContent = 'только EU'; label.style.color = '#26a69a'; }
+            else { label.textContent = 'только US'; label.style.color = '#26a69a'; }
+        }
         widget.querySelector('#botAtrEntryToggle').onchange = function() {
             var on = this.checked;
             var dot = document.getElementById('botAtrToggleDot');
@@ -384,6 +475,15 @@
             var cb = document.getElementById(targetId);
             if (!cb) return;
             cb.checked = !cb.checked;
+            // Моментально обновляем визуальное состояние самого inline-toggle,
+            // чтобы не ждать пока вернётся ответ /api/bot/list и перерисуется виджет.
+            var on = cb.checked;
+            var spans = label.querySelectorAll('span');
+            if (spans.length >= 2) {
+                spans[0].style.background = on ? 'rgba(38,166,154,0.30)' : 'rgba(255,255,255,0.10)';
+                spans[1].style.left       = on ? '14px' : '2px';
+                spans[1].style.background = on ? '#26a69a' : '#636B76';
+            }
             cb.dispatchEvent(new Event('change'));
         });
         widget.querySelector('#botWidgetStop').onclick  = stopBot;
@@ -539,6 +639,50 @@
                 }
             }
             _state.regimeFilterEnabled = !!data.regimeFilterEnabled;
+        }
+        // Окно торговли — Европа
+        if (data.tradingWindowEU !== undefined) {
+            var euT2 = document.getElementById('botWindowEUToggle');
+            var euD2 = document.getElementById('botWindowEUDot');
+            if (euT2) euT2.checked = !!data.tradingWindowEU;
+            if (euD2) {
+                var onEU = !!data.tradingWindowEU;
+                euD2.style.left = onEU ? '14px' : '2px';
+                euD2.style.background = onEU ? '#26a69a' : '#636B76';
+                if (euD2.parentElement) {
+                    var trackEU = euD2.parentElement.querySelector('span');
+                    if (trackEU) trackEU.style.background = onEU ? 'rgba(38,166,154,0.30)' : 'rgba(255,255,255,0.10)';
+                }
+            }
+            _state.tradingWindowEU = !!data.tradingWindowEU;
+        }
+        // Окно торговли — US
+        if (data.tradingWindowUS !== undefined) {
+            var usT2 = document.getElementById('botWindowUSToggle');
+            var usD2 = document.getElementById('botWindowUSDot');
+            if (usT2) usT2.checked = !!data.tradingWindowUS;
+            if (usD2) {
+                var onUS = !!data.tradingWindowUS;
+                usD2.style.left = onUS ? '14px' : '2px';
+                usD2.style.background = onUS ? '#26a69a' : '#636B76';
+                if (usD2.parentElement) {
+                    var trackUS = usD2.parentElement.querySelector('span');
+                    if (trackUS) trackUS.style.background = onUS ? 'rgba(38,166,154,0.30)' : 'rgba(255,255,255,0.10)';
+                }
+            }
+            _state.tradingWindowUS = !!data.tradingWindowUS;
+        }
+        // Показываем секцию окна торговли и обновляем лейбл статуса
+        var winSec = document.getElementById('botWindowSection');
+        if (winSec) winSec.style.display = '';
+        var winLbl = document.getElementById('botWindowStatusLabel');
+        if (winLbl) {
+            var euOn = !!_state.tradingWindowEU;
+            var usOn = !!_state.tradingWindowUS;
+            if (!euOn && !usOn) { winLbl.textContent = 'все часы'; winLbl.style.color = '#636B76'; }
+            else if (euOn && usOn) { winLbl.textContent = 'EU + US'; winLbl.style.color = '#26a69a'; }
+            else if (euOn) { winLbl.textContent = 'только EU'; winLbl.style.color = '#26a69a'; }
+            else { winLbl.textContent = 'только US'; winLbl.style.color = '#26a69a'; }
         }
         // Обновляем тумблер ATR-фильтра из данных бота
         if (data.atrFilterEnabled !== undefined) {
@@ -1317,34 +1461,45 @@
         function colorFor(v){ return v==='up' ? '#26a69a' : v==='down' ? '#ef5350' : '#F59E0B'; }
         function labelFor(v){ return v==='up' ? 'Up' : v==='down' ? 'Down' : 'Flat'; }
 
-        var allowed = r.allowed || 'BOTH';
-        var allowedColor = allowed === 'LONG' ? '#26a69a' : allowed === 'SHORT' ? '#ef5350' : '#F59E0B';
+        var allowed = r.allowed || 'BLOCK';
+        var allowedColor =
+            allowed === 'LONG'  ? '#26a69a' :
+            allowed === 'SHORT' ? '#ef5350' :
+            allowed === 'BLOCK' ? '#9ca3af' : '#F59E0B';
 
-        var tfHigher = r.tfHigher || '1h';
-        var tfMain   = r.tfMain   || '15m';
+        // V2: tf4h / tf15m / tf5m (новый формат). Старый формат — fallback.
+        var s4  = (r.tf4h  && r.tf4h.state)  || r.higher || 'flat';
+        var s15 = (r.tf15m && r.tf15m.state) || r.main   || 'flat';
+        var s5  = (r.tf5m  && r.tf5m.state)  || 'flat';
 
-        var colorH = colorFor(r.higher);
-        var colorM = colorFor(r.main);
+        var c4  = colorFor(s4);
+        var c15 = colorFor(s15);
+        var c5  = colorFor(s5);
+
+        var adxText = (r.tf15m && r.tf15m.adx != null) ? ' · ADX ' + r.tf15m.adx.toFixed(0) : '';
+        var moveText = (r.tf5m && r.tf5m.move != null) ? ' · ' + (r.tf5m.move >= 0 ? '+' : '') + r.tf5m.move.toFixed(2) + '%' : '';
 
         var isManual = _state.strategy === 'manual';
         var toggleHtml = isManual ? '' : renderInlineToggle(!!_state.regimeFilterEnabled, 'botRegimeEntryToggle');
 
         container.innerHTML =
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
-                '<span style="font-size:11px;color:#94A3B8;">Режим рынка (' + tfHigher + ' · ' + tfMain + ')</span>' +
+                '<span style="font-size:11px;color:#94A3B8;">Режим рынка (4h · 15m · 5m)</span>' +
                 '<span style="display:flex;align-items:center;">' +
                     '<span style="color:' + allowedColor + ';font-weight:600;letter-spacing:0.5px;font-size:10px;">→ ' + allowed + '</span>' +
                     toggleHtml +
                 '</span>' +
             '</div>' +
             '<div style="height:5px;border-radius:3px;background:linear-gradient(to right,' +
-                colorH + ' 0%,' +
-                colorH + ' 42%,' +
-                colorM + ' 58%,' +
-                colorM + ' 100%);"></div>' +
+                c4  + ' 0%,'  + c4  + ' 33%,' +
+                c15 + ' 33%,' + c15 + ' 66%,' +
+                c5  + ' 66%,' + c5  + ' 100%);"></div>' +
             '<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:#636B76;">' +
-                '<span>' + tfHigher + ' <span style="color:' + colorH + ';font-weight:700;">' + arrowGlyph(r.higher) + ' ' + labelFor(r.higher) + '</span></span>' +
-                '<span>' + tfMain + ' <span style="color:' + colorM + ';font-weight:700;">' + arrowGlyph(r.main) + ' ' + labelFor(r.main) + '</span></span>' +
+                '<span>4h <span style="color:' + c4  + ';font-weight:700;">' + arrowGlyph(s4)  + ' ' + labelFor(s4)  + '</span></span>' +
+                '<span>15m <span style="color:' + c15 + ';font-weight:700;">' + arrowGlyph(s15) + ' ' + labelFor(s15) + '</span>' +
+                    '<span style="color:#4A5060;">' + adxText + '</span></span>' +
+                '<span>5m <span style="color:' + c5  + ';font-weight:700;">' + arrowGlyph(s5)  + ' ' + labelFor(s5)  + '</span>' +
+                    '<span style="color:#4A5060;">' + moveText + '</span></span>' +
             '</div>';
 
         section.style.display = '';
@@ -1534,12 +1689,8 @@
 
     /* ══════════════════════════════════════════
        МОДАЛЬНОЕ ОКНО
-       Шаги:
-       0 — Приветствие (выбор Paper/Live)
-       1 — API ключи Bybit (только для Live)
-       2 — Настройки алгоритма (пара, рынок, объём)
-       3 — Риск-менеджмент
-       4 — Готово + запуск
+       Одностраничная модалка со всеми настройками бота.
+       Если выбран режим Live — появляется секция API ключей Binance Futures.
     ══════════════════════════════════════════ */
 
     function createBotModal() {
@@ -1951,6 +2102,45 @@
                     </div>\
                 </div>\
                 \
+                <!-- API КЛЮЧИ BINANCE FUTURES (видна только в Live) -->\
+                <div class="bst-section" id="bstApiSection" style="' + (_state.mode === 'live' ? '' : 'display:none;') + '">\
+                    <div class="bst-section-title">\
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="vertical-align:-2px;margin-right:6px;">\
+                            <rect x="2" y="5" width="8" height="6" rx="1" stroke="#fbbf24" stroke-width="1" fill="none"/>\
+                            <path d="M4 5 V3.5 a2 2 0 0 1 4 0 V5" stroke="#fbbf24" stroke-width="1" fill="none"/>\
+                        </svg>\
+                        API ключи Binance Futures\
+                    </div>\
+                    <div style="font-size:11px;color:rgba(226,232,240,0.55);line-height:1.4;margin-bottom:10px;">\
+                        Ключи нужны для отправки реальных ордеров. Хранятся в зашифрованном виде на сервере. Создать можно в Binance → API Management. Обязательные права: Enable Reading, Enable Futures.\
+                    </div>\
+                    <div id="bstApiStatus" style="display:none;margin-bottom:10px;padding:7px 10px;border-radius:5px;background:rgba(38,166,154,0.1);border:0.5px solid rgba(38,166,154,0.3);font-size:11px;color:#26a69a;line-height:1.4;"></div>\
+                    <div class="bst-col" style="margin-bottom:8px;">\
+                        <div class="bst-lbl">API Key</div>\
+                        <input class="bst-input" id="bstApiKey" type="text" autocomplete="off" spellcheck="false" placeholder="64 символа" value="' + (_state.apiKey || '') + '">\
+                    </div>\
+                    <div class="bst-col" style="margin-bottom:8px;">\
+                        <div class="bst-lbl">API Secret</div>\
+                        <input class="bst-input" id="bstApiSecret" type="password" autocomplete="off" spellcheck="false" placeholder="64 символа" value="' + (_state.apiSecret || '') + '">\
+                    </div>\
+                    <div class="bst-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;">\
+                        <div style="flex:1;min-width:0;">\
+                            <div style="font-size:13px;color:#E2E8F0;font-weight:500;line-height:1.3;">Testnet</div>\
+                            <div style="font-size:11px;color:rgba(226,232,240,0.5);line-height:1.3;margin-top:2px;">Сначала проверить на testnet.binancefuture.com</div>\
+                        </div>\
+                        <label class="bst-switch" style="position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0;">\
+                            <input type="checkbox" id="bstApiTestnet"' + (_state.apiTestnet ? ' checked' : '') + ' style="opacity:0;width:0;height:0;">\
+                            <span class="bst-switch-slider" style="position:absolute;cursor:pointer;inset:0;background:' + (_state.apiTestnet ? '#fbbf24' : 'rgba(255,255,255,0.12)') + ';border-radius:24px;transition:background 0.2s;"><span style="position:absolute;height:18px;width:18px;left:' + (_state.apiTestnet ? '21px' : '3px') + ';top:3px;background:#E2E8F0;border-radius:50%;transition:left 0.2s;display:block;"></span></span>\
+                        </label>\
+                    </div>\
+                    <div style="display:flex;gap:8px;margin-top:10px;">\
+                        <div id="bstApiTestBtn" style="flex:1;padding:8px 12px;border:0.5px solid rgba(251,191,36,0.3);border-radius:5px;background:rgba(251,191,36,0.05);font-size:12px;color:#fbbf24;text-align:center;cursor:pointer;user-select:none;transition:border-color 0.15s, background 0.15s;">Проверить</div>\
+                        <div id="bstApiSaveBtn" style="flex:1;padding:8px 12px;border:0.5px solid rgba(38,166,154,0.4);border-radius:5px;background:rgba(38,166,154,0.1);font-size:12px;color:#26a69a;text-align:center;cursor:pointer;user-select:none;transition:border-color 0.15s, background 0.15s;">Сохранить</div>\
+                    </div>\
+                    <div id="bstApiTestResult" style="margin-top:8px;font-size:11px;line-height:1.4;text-align:center;min-height:14px;"></div>\
+                    <div id="bstApiDeleteBtn" style="display:none;margin-top:8px;padding:6px 10px;border:0.5px solid rgba(239,83,80,0.25);border-radius:5px;background:transparent;font-size:11px;color:rgba(239,83,80,0.8);text-align:center;cursor:pointer;user-select:none;">Удалить сохранённые ключи</div>\
+                </div>\
+                \
                 <!-- Push-уведомления -->\
                 <div class="bst-section">\
                     <div class="bst-notif-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 0;">\
@@ -2025,7 +2215,270 @@
         bindToggleGroup('bstTfSeg', 'timeframe');
         bindToggleGroup('bstDirSeg', 'direction');
         bindToggleGroup('bstEntrySeg', 'entryMode');
-        bindToggleGroup('bstModeSeg', 'mode', function(v) { setMode(v); });
+        bindToggleGroup('bstModeSeg', 'mode', function(v) {
+            setMode(v);
+            // Показываем/скрываем секцию API ключей при переключении режима
+            var apiSec = document.getElementById('bstApiSection');
+            if (apiSec) apiSec.style.display = (v === 'live') ? '' : 'none';
+            // При переключении в Live — обязательно перезапросить статус ключей,
+            // чтобы плашка "Ключи сохранены" появилась.
+            if (v === 'live' && typeof refreshApiKeysStatus === 'function') {
+                refreshApiKeysStatus();
+            }
+        });
+
+        // ── API ключи Binance: ввод ──
+        var apiKeyInput = body.querySelector('#bstApiKey');
+        if (apiKeyInput) {
+            apiKeyInput.addEventListener('input', function() {
+                _state.apiKey = this.value.trim();
+                _state.apiConnected = false; // изменили ключ — нужна повторная проверка
+            });
+        }
+        var apiSecretInput = body.querySelector('#bstApiSecret');
+        if (apiSecretInput) {
+            apiSecretInput.addEventListener('input', function() {
+                _state.apiSecret = this.value.trim();
+                _state.apiConnected = false;
+            });
+        }
+
+        // ── API ключи Binance: чекбокс testnet ──
+        var apiTestnetInput = body.querySelector('#bstApiTestnet');
+        if (apiTestnetInput) {
+            apiTestnetInput.addEventListener('change', function() {
+                _state.apiTestnet = this.checked;
+                _state.apiConnected = false;
+                // Перерисуем слайдер (цвет и позиция)
+                var slider = this.parentElement.querySelector('.bst-switch-slider');
+                if (slider) {
+                    slider.style.background = this.checked ? '#fbbf24' : 'rgba(255,255,255,0.12)';
+                    var knob = slider.querySelector('span');
+                    if (knob) knob.style.left = this.checked ? '21px' : '3px';
+                }
+            });
+        }
+
+        // ══════════════════════════════════════════════════════════
+        // API ключи Binance: проверка / сохранение / удаление
+        // ══════════════════════════════════════════════════════════
+        var apiTestBtn     = body.querySelector('#bstApiTestBtn');
+        var apiSaveBtn     = body.querySelector('#bstApiSaveBtn');
+        var apiDeleteBtn   = body.querySelector('#bstApiDeleteBtn');
+        var apiStatus      = body.querySelector('#bstApiStatus');
+        var apiTestResult  = body.querySelector('#bstApiTestResult');
+        var apiKeyField    = body.querySelector('#bstApiKey');
+        var apiSecretField = body.querySelector('#bstApiSecret');
+
+        // Установить визуальный статус "ключи сохранены" / спрятать
+        function setApiSavedUI(saved, info) {
+            if (saved && apiStatus && apiKeyField && apiSecretField) {
+                var net = (info && info.testnet) ? 'TESTNET' : 'MAINNET';
+                var when = '';
+                if (info && info.updatedAt) {
+                    var d = new Date(info.updatedAt);
+                    when = ' · ' + d.toLocaleString();
+                }
+                apiStatus.style.display = '';
+                apiStatus.textContent = 'Ключи сохранены · ' + net + when;
+                apiKeyField.placeholder = '••• сохранены — введите новые чтобы заменить';
+                apiSecretField.placeholder = '••• сохранены — введите новые чтобы заменить';
+                if (apiDeleteBtn) apiDeleteBtn.style.display = '';
+            } else {
+                if (apiStatus) apiStatus.style.display = 'none';
+                if (apiKeyField) apiKeyField.placeholder = '64 символа';
+                if (apiSecretField) apiSecretField.placeholder = '64 символа';
+                if (apiDeleteBtn) apiDeleteBtn.style.display = 'none';
+            }
+        }
+
+        // Запросить статус сохранённых ключей и обновить UI.
+        // Вызывается: 1) при первом рендере если уже Live, 2) при переключении в Live.
+        // botId по умолчанию 'default' (как в остальном коде через _state.botId || 'default').
+        function refreshApiKeysStatus() {
+            var statusBotId = _state.botId || 'default';
+            console.log('[BOT] refreshApiKeysStatus uid=' + getUid() + ' botId=' + statusBotId);
+            fetch('/api/bot/binance-keys-status?uid=' + encodeURIComponent(getUid()) +
+                  '&botId=' + encodeURIComponent(statusBotId))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    console.log('[BOT] keys-status response:', data);
+                    if (data && data.saved) {
+                        // Подтянем testnet-флаг из сохранённого состояния
+                        if (typeof data.testnet === 'boolean') {
+                            _state.apiTestnet = data.testnet;
+                            var tn = body.querySelector('#bstApiTestnet');
+                            if (tn) {
+                                tn.checked = data.testnet;
+                                var slider = tn.parentElement.querySelector('.bst-switch-slider');
+                                if (slider) {
+                                    slider.style.background = data.testnet ? '#fbbf24' : 'rgba(255,255,255,0.12)';
+                                    var knob = slider.querySelector('span');
+                                    if (knob) knob.style.left = data.testnet ? '21px' : '3px';
+                                }
+                            }
+                        }
+                        setApiSavedUI(true, data);
+                    } else {
+                        setApiSavedUI(false);
+                    }
+                })
+                .catch(function(err) {
+                    console.error('[BOT] keys-status fetch failed:', err);
+                    setApiSavedUI(false);
+                });
+        }
+
+        // Первый запрос при рендере — если уже выбран Live
+        if (_state.mode === 'live') {
+            refreshApiKeysStatus();
+        }
+
+        // ── Кнопка "Проверить" ──
+        if (apiTestBtn && apiTestResult) {
+            apiTestBtn.addEventListener('click', function() {
+                if (!_state.apiKey || !_state.apiSecret) {
+                    apiTestResult.style.color = '#ef5350';
+                    apiTestResult.textContent = 'Введите API Key и API Secret';
+                    return;
+                }
+                if (apiTestBtn.dataset.busy === '1') return;
+                apiTestBtn.dataset.busy = '1';
+                apiTestBtn.style.opacity = '0.6';
+                apiTestResult.style.color = 'rgba(226,232,240,0.55)';
+                apiTestResult.textContent = 'Проверяю...';
+
+                fetch('/api/bot/test-binance-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        apiKey:    _state.apiKey,
+                        apiSecret: _state.apiSecret,
+                        testnet:   !!_state.apiTestnet,
+                    }),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data && data.ok) {
+                        _state.apiConnected = true;
+                        var net = data.testnet ? 'TESTNET' : 'MAINNET';
+                        var bal = (data.availableBalance != null)
+                            ? (Math.round(data.availableBalance * 100) / 100) + ' USDT'
+                            : '—';
+                        var canTrade = data.canTrade ? '' : ' Внимание: canTrade=false (нет прав на торговлю)';
+                        apiTestResult.style.color = '#26a69a';
+                        apiTestResult.textContent = 'OK · ' + net + ' · доступный баланс: ' + bal + canTrade;
+                    } else {
+                        _state.apiConnected = false;
+                        apiTestResult.style.color = '#ef5350';
+                        apiTestResult.textContent = (data && data.error) ? data.error : 'Ошибка проверки';
+                    }
+                })
+                .catch(function(err) {
+                    _state.apiConnected = false;
+                    apiTestResult.style.color = '#ef5350';
+                    apiTestResult.textContent = 'Сетевая ошибка: ' + (err && err.message ? err.message : 'неизвестно');
+                })
+                .finally(function() {
+                    apiTestBtn.dataset.busy = '0';
+                    apiTestBtn.style.opacity = '';
+                });
+            });
+        }
+
+        // ── Кнопка "Сохранить" ──
+        // Шифрует ключи на сервере. Сначала обязательно проверяет их через Binance —
+        // невалидные не сохраняются. После успеха очищает поля ввода (ключи живут
+        // только в зашифрованном виде на сервере, в браузере не остаются).
+        if (apiSaveBtn && apiTestResult) {
+            apiSaveBtn.addEventListener('click', function() {
+                if (!_state.apiKey || !_state.apiSecret) {
+                    apiTestResult.style.color = '#ef5350';
+                    apiTestResult.textContent = 'Введите API Key и API Secret';
+                    return;
+                }
+                var saveBotId = _state.botId || 'default';
+                if (apiSaveBtn.dataset.busy === '1') return;
+                apiSaveBtn.dataset.busy = '1';
+                apiSaveBtn.style.opacity = '0.6';
+                apiTestResult.style.color = 'rgba(226,232,240,0.55)';
+                apiTestResult.textContent = 'Сохраняю...';
+
+                fetch('/api/bot/save-binance-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        uid:       getUid(),
+                        botId:     saveBotId,
+                        apiKey:    _state.apiKey,
+                        apiSecret: _state.apiSecret,
+                        testnet:   !!_state.apiTestnet,
+                    }),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data && data.ok) {
+                        _state.apiConnected = true;
+                        // Чистим поля ввода — ключи теперь только на сервере
+                        _state.apiKey    = '';
+                        _state.apiSecret = '';
+                        if (apiKeyField)    apiKeyField.value    = '';
+                        if (apiSecretField) apiSecretField.value = '';
+                        apiTestResult.style.color = '#26a69a';
+                        apiTestResult.textContent = 'Ключи сохранены — больше вводить не нужно';
+                        setApiSavedUI(true, { testnet: _state.apiTestnet, updatedAt: data.savedAt || Date.now() });
+                    } else {
+                        apiTestResult.style.color = '#ef5350';
+                        apiTestResult.textContent = (data && data.error) ? data.error : 'Не удалось сохранить';
+                    }
+                })
+                .catch(function(err) {
+                    apiTestResult.style.color = '#ef5350';
+                    apiTestResult.textContent = 'Сетевая ошибка: ' + (err && err.message ? err.message : 'неизвестно');
+                })
+                .finally(function() {
+                    apiSaveBtn.dataset.busy = '0';
+                    apiSaveBtn.style.opacity = '';
+                });
+            });
+        }
+
+        // ── Кнопка "Удалить сохранённые ключи" ──
+        if (apiDeleteBtn && apiTestResult) {
+            apiDeleteBtn.addEventListener('click', function() {
+                var delBotId = _state.botId || 'default';
+                if (!confirm('Удалить сохранённые ключи Binance? Бот в Live-режиме без них запуститься не сможет.')) return;
+                if (apiDeleteBtn.dataset.busy === '1') return;
+                apiDeleteBtn.dataset.busy = '1';
+                apiDeleteBtn.style.opacity = '0.6';
+
+                fetch('/api/bot/delete-binance-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uid: getUid(), botId: delBotId }),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data && data.ok) {
+                        _state.apiConnected = false;
+                        apiTestResult.style.color = 'rgba(226,232,240,0.55)';
+                        apiTestResult.textContent = 'Сохранённые ключи удалены';
+                        setApiSavedUI(false);
+                    } else {
+                        apiTestResult.style.color = '#ef5350';
+                        apiTestResult.textContent = (data && data.error) ? data.error : 'Не удалось удалить';
+                    }
+                })
+                .catch(function(err) {
+                    apiTestResult.style.color = '#ef5350';
+                    apiTestResult.textContent = 'Сетевая ошибка: ' + (err && err.message ? err.message : 'неизвестно');
+                })
+                .finally(function() {
+                    apiDeleteBtn.dataset.busy = '0';
+                    apiDeleteBtn.style.opacity = '';
+                });
+            });
+        }
 
         // Pair select (кастомный с поиском, МУЛЬТИ-ВЫБОР)
         (function initPairSelect() {
@@ -2469,6 +2922,24 @@
         footer.querySelector('#bstLaunchBtn').onclick = function() {
             // Ensure mode is set
             if (!_state.mode) _state.mode = 'paper';
+
+            // ── Live-guard: не пускаем без сохранённых ключей ──
+            // Серверный guard это перепроверит, но UX лучше — сразу понятно почему не стартует.
+            if (_state.mode === 'live') {
+                var apiSt = document.getElementById('bstApiStatus');
+                var keysSaved = apiSt && apiSt.style.display !== 'none';
+                if (!keysSaved) {
+                    var apiRes = document.getElementById('bstApiTestResult');
+                    if (apiRes) {
+                        apiRes.style.color = '#ef5350';
+                        apiRes.textContent = 'Сначала сохраните API ключи (введите → Проверить → Сохранить)';
+                    }
+                    var sec = document.getElementById('bstApiSection');
+                    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    return;
+                }
+            }
+
             // Защита от двойного клика
             var btn = this;
             if (btn._busy) return;
@@ -2925,10 +3396,154 @@
     }
 
     /* ══════════════════════════════════════════
-       УДАЛЕНИЕ ВСЕХ БОТОВ ПОЛЬЗОВАТЕЛЯ
-       - confirmDeleteAllBots: модалка подтверждения
-       - doDeleteAllBots: последовательное удаление с прогрессом
+       АВАРИЙНЫЙ СТОП ТОЛЬКО ДЛЯ LIVE-БОТОВ
+       Закрывает все открытые Live-позиции через market reduceOnly,
+       отменяет все алго-ордера на бирже, и останавливает Live-ботов.
+       Paper-боты не трогает.
     ══════════════════════════════════════════ */
+    function confirmStopAllLive() {
+        var old = document.getElementById('botStopAllLiveModal');
+        if (old) old.remove();
+
+        // Только запущенные live-боты
+        var liveRunning = (_state.bots || []).filter(function(b) { return b.running && b.mode === 'live'; });
+        var count = liveRunning.length;
+        var withPositions = liveRunning.filter(function(b) { return !!b.position; }).length;
+
+        if (count === 0) {
+            // Если live-ботов нет — мигаем кнопкой и выходим
+            var btn = document.getElementById('botStopAllLiveBtn');
+            if (btn) {
+                btn.style.opacity = '1';
+                setTimeout(function() { btn.style.opacity = '0.85'; }, 800);
+            }
+            return;
+        }
+
+        var dayPnlTotal = liveRunning.reduce(function(s, b) { return s + (b.dayPnl || 0); }, 0);
+        var pnlSign = dayPnlTotal >= 0 ? '+' : '−';
+        var pnlAbs = Math.abs(dayPnlTotal).toFixed(2);
+        var word = pluralBotsRu(count);
+
+        var modal = document.createElement('div');
+        modal.id = 'botStopAllLiveModal';
+        modal.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        modal.innerHTML = '\
+            <div style="background:#1A1D23;border-radius:12px;border:1px solid rgba(239,68,68,0.4);width:90%;max-width:400px;padding:20px;">\
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">\
+                    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">\
+                        <circle cx="11" cy="11" r="10" stroke="#EF4444" stroke-width="1.5" fill="none"/>\
+                        <path d="M11 6 L11 12 M11 14.5 L11 16" stroke="#EF4444" stroke-width="1.8" stroke-linecap="round"/>\
+                    </svg>\
+                    <span style="font-size:14px;font-weight:700;color:#EF4444;">Аварийный стоп Live</span>\
+                </div>\
+                <div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:14px;">\
+                    Будет аварийно закрыто <span style="color:#E2E8F0;font-weight:600;">' + count + ' Live-' + word + '</span>' + (withPositions > 0 ? ' (с позициями: <span style="color:#FBBF24;font-weight:600;">' + withPositions + '</span>)' : '') + '.<br>\
+                    Открытые позиции будут <span style="color:#EF4444;font-weight:600;">закрыты по рынку</span>, все алго-ордера отменены.<br>\
+                    P&L Live за сегодня: <span style="color:' + (dayPnlTotal >= 0 ? '#10B981' : '#EF4444') + ';font-weight:600;">' + pnlSign + '$' + pnlAbs + '</span>\
+                </div>\
+                <div style="font-size:11px;color:#FBBF24;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:4px;padding:8px 10px;margin-bottom:16px;line-height:1.4;">\
+                    ⚠ Это действие нельзя отменить. Paper-боты не затрагиваются.\
+                </div>\
+                <div id="botStopAllLiveProgress" style="display:none;margin-bottom:14px;">\
+                    <div style="font-size:12px;color:#94A3B8;margin-bottom:6px;">Закрываю: <span id="botStopAllLiveCounter">0 / ' + count + '</span></div>\
+                    <div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">\
+                        <div id="botStopAllLiveBar" style="height:100%;width:0%;background:#EF4444;transition:width 0.2s;"></div>\
+                    </div>\
+                </div>\
+                <div style="display:flex;gap:8px;justify-content:flex-end;" id="botStopAllLiveActions">\
+                    <button id="botStopAllLiveCancel" style="padding:8px 14px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:#94A3B8;font-size:12px;cursor:pointer;">Отмена</button>\
+                    <button id="botStopAllLiveConfirm" style="padding:8px 14px;background:#EF4444;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Закрыть и остановить</button>\
+                </div>\
+            </div>';
+
+        var leftCol = document.querySelector('.left-col') || document.body;
+        if (leftCol) { leftCol.style.position = 'relative'; leftCol.appendChild(modal); }
+
+        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+        modal.querySelector('#botStopAllLiveCancel').onclick = function() { modal.remove(); };
+        modal.querySelector('#botStopAllLiveConfirm').onclick = function() {
+            doStopAllLive(liveRunning, modal);
+        };
+    }
+
+    function doStopAllLive(runningBots, modal) {
+        var uid = getUid();
+        var total = runningBots.length;
+        var dayPnlTotal = runningBots.reduce(function(s, b) { return s + (b.dayPnl || 0); }, 0);
+
+        modal.querySelector('#botStopAllLiveProgress').style.display = 'block';
+        modal.querySelector('#botStopAllLiveActions').style.display = 'none';
+
+        var counterEl = modal.querySelector('#botStopAllLiveCounter');
+        var barEl = modal.querySelector('#botStopAllLiveBar');
+
+        var failures = [];
+        var i = 0;
+        function stopNext() {
+            if (i >= total) {
+                fetch('/api/bot/notify-summary', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uid: uid, count: total, dayPnlTotal: dayPnlTotal, emergency: true })
+                }).catch(function() {});
+
+                if (_state.running && _state.mode === 'live') {
+                    _state.running = false;
+                    _state.paused = false;
+                    _state.position = null;
+                    updateBadge();
+                    updateButtons();
+                    renderPosition();
+                    stopStatusPolling();
+                    if (typeof window._stopBotLevels === 'function') window._stopBotLevels();
+                }
+                loadBotList();
+
+                // Если что-то упало — оставляем модалку открытой с отчётом, иначе закрываем
+                if (failures.length > 0) {
+                    var actions = modal.querySelector('#botStopAllLiveActions');
+                    var progress = modal.querySelector('#botStopAllLiveProgress');
+                    if (progress) progress.style.display = 'none';
+                    if (actions) {
+                        actions.style.display = 'flex';
+                        actions.innerHTML = '<div style="font-size:12px;color:#EF4444;flex:1;">⚠ ' + failures.length + ' из ' + total + ' закрылись с ошибкой. Проверь Binance вручную.</div>\
+                            <button id="botStopAllLiveClose" style="padding:8px 14px;background:#EF4444;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">OK</button>';
+                        var closeBtn = actions.querySelector('#botStopAllLiveClose');
+                        if (closeBtn) closeBtn.onclick = function() { modal.remove(); };
+                    }
+                } else {
+                    setTimeout(function() { if (modal.parentNode) modal.remove(); }, 500);
+                }
+                return;
+            }
+
+            var bot = runningBots[i];
+            fetch('/api/bot/emergency-close-live', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid, botId: bot.botId, silent: true })
+            })
+            .then(function(r) { return r.json().catch(function() { return {}; }); })
+            .then(function(res) {
+                if (res && res.ok === false) {
+                    failures.push({ botId: bot.botId, error: res.error });
+                    console.warn('[BOT] emergency-close error for', bot.botId, res.error);
+                }
+            })
+            .catch(function(e) {
+                failures.push({ botId: bot.botId, error: e.message });
+                console.warn('[BOT] emergency-close fetch failed for', bot.botId, e);
+            })
+            .finally(function() {
+                i++;
+                if (counterEl) counterEl.textContent = i + ' / ' + total;
+                if (barEl) barEl.style.width = (i / total * 100) + '%';
+                setTimeout(stopNext, 300);
+            });
+        }
+        stopNext();
+    }
     function confirmDeleteAllBots() {
         var old = document.getElementById('botDeleteAllModal');
         if (old) old.remove();
@@ -3218,6 +3833,23 @@
 
     function manualClose() {
         var uid = getUid();
+        var btn = document.getElementById('botManualClose');
+        // Защита от двойного клика — если уже идёт запрос, выходим тихо
+        if (btn && btn.dataset.busy === '1') return;
+        if (btn) {
+            btn.dataset.busy = '1';
+            btn.dataset.origText = btn.textContent;
+            btn.textContent = 'Закрывается...';
+            btn.style.opacity = '0.6';
+            btn.style.pointerEvents = 'none';
+        }
+        function restoreBtn() {
+            if (!btn) return;
+            btn.dataset.busy = '0';
+            if (btn.dataset.origText) btn.textContent = btn.dataset.origText;
+            btn.style.opacity = '';
+            btn.style.pointerEvents = '';
+        }
         fetch('/api/bot/manual-close', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3230,11 +3862,26 @@
                 renderManualButtons();
                 renderPosition();
                 pollStatus(uid);
+                // В Live кнопка снимется когда renderPosition увидит position=null после polled ответа.
+                // Для надёжности всё равно восстановим через таймер.
+                setTimeout(restoreBtn, 1500);
             } else {
-                alert('Ошибка закрытия: ' + (data.error || 'unknown'));
+                // "Позиция уже закрывается" — это нормальное состояние при гонке
+                // (например пользователь уже кликнул раньше). Не показываем alert,
+                // только восстанавливаем кнопку.
+                var msg = data.error || 'unknown';
+                if (msg.indexOf('уже закрывается') !== -1) {
+                    console.log('[BOT] manual-close: ' + msg);
+                } else {
+                    alert('Ошибка закрытия: ' + msg);
+                }
+                restoreBtn();
             }
         })
-        .catch(function(e) { alert('Ошибка закрытия: ' + e.message); });
+        .catch(function(e) {
+            alert('Ошибка закрытия: ' + e.message);
+            restoreBtn();
+        });
     }
 
 
@@ -3311,7 +3958,7 @@
         // Строим содержимое — таблица для десктопа, карточки для мобилы
         var rowsHtml = '';
         var cardsHtml = '';
-        var colSpan = 11;
+        var colSpan = 12;
         if (trades.length === 0) {
             rowsHtml = '<tr><td colspan="' + colSpan + '" style="text-align:center;color:#475569;padding:20px;">Сделок пока нет</td></tr>';
             cardsHtml = '<div style="text-align:center;color:#475569;padding:40px 20px;font-size:13px;">Сделок пока нет</div>';
@@ -3350,8 +3997,17 @@
                 if (t.entryRegime && t.entryRegime.allowed) {
                     var reg = t.entryRegime;
                     function regArrow(v){ return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
-                    g1.push('Режим ' + (reg.tfHigher || '1h') + regArrow(reg.higher) + ' ' +
-                           (reg.tfMain || '15m') + regArrow(reg.main) + ' →' + reg.allowed);
+                    if (reg.tf4hState != null || reg.tf15mState != null || reg.tf5mState != null) {
+                        // V2: 4h + 15m + 5m
+                        g1.push('Режим 4h' + regArrow(reg.tf4hState) +
+                                ' 15m' + regArrow(reg.tf15mState) +
+                                ' 5m' + regArrow(reg.tf5mState) +
+                                ' →' + reg.allowed);
+                    } else {
+                        // Старый формат (совместимость)
+                        g1.push('Режим ' + (reg.tfHigher || '1h') + regArrow(reg.higher) + ' ' +
+                               (reg.tfMain || '15m') + regArrow(reg.main) + ' →' + reg.allowed);
+                    }
                 }
 
                 // Группа 2 — "Путь": как развивалась сделка
@@ -3430,6 +4086,7 @@
                     '<td style="padding:6px 4px;vertical-align:top;"><span style="color:' + sideColor + ';font-weight:600;font-size:10px;">' + (t.side || '—') + '</span></td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:' + entryColor + ';vertical-align:top;">' + entryLabel + '</td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;">' + entryP + ' → ' + exitP + '</td>' +
+                    '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;white-space:nowrap;">$' + (t.size != null ? t.size.toFixed(0) : '—') + '</td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:' + pnlColor + ';font-weight:600;vertical-align:top;">' + pnlStr + ' <span style="font-weight:400;font-size:9px;">' + pnlPct + '</span></td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:#636B76;vertical-align:top;">$' + (t.fee || 0).toFixed(2) + '</td>' +
                     '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;max-width:260px;white-space:normal;word-break:break-word;">' + reason + detailsHtml + '</td>' +
@@ -3500,18 +4157,38 @@
                     var regM = t.entryRegime;
                     function regArrowM(v){ return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
                     function regColorM(v){ return v==='up'?'#26a69a':v==='down'?'#ef5350':'#F59E0B'; }
-                    var allowedColorM = regM.allowed==='LONG'?'#26a69a':regM.allowed==='SHORT'?'#ef5350':'#F59E0B';
-                    expandedRows +=
-                        '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Режим рынка</span>' +
-                        '<span>' +
+                    var allowedColorM =
+                        regM.allowed==='LONG'  ? '#26a69a' :
+                        regM.allowed==='SHORT' ? '#ef5350' :
+                        regM.allowed==='BLOCK' ? '#9ca3af' : '#F59E0B';
+                    var regimeInner;
+                    if (regM.tf4hState != null || regM.tf15mState != null || regM.tf5mState != null) {
+                        // V2: 4h + 15m + 5m
+                        regimeInner =
+                            '<span style="color:#94A3B8;">4h </span>' +
+                            '<span style="color:' + regColorM(regM.tf4hState) + ';font-weight:600;">' + regArrowM(regM.tf4hState) + '</span>' +
+                            '<span style="color:#636B76;"> · </span>' +
+                            '<span style="color:#94A3B8;">15m </span>' +
+                            '<span style="color:' + regColorM(regM.tf15mState) + ';font-weight:600;">' + regArrowM(regM.tf15mState) + '</span>' +
+                            '<span style="color:#636B76;"> · </span>' +
+                            '<span style="color:#94A3B8;">5m </span>' +
+                            '<span style="color:' + regColorM(regM.tf5mState) + ';font-weight:600;">' + regArrowM(regM.tf5mState) + '</span>' +
+                            '<span style="color:#636B76;"> → </span>' +
+                            '<span style="color:' + allowedColorM + ';font-weight:600;">' + regM.allowed + '</span>';
+                    } else {
+                        // Старый формат
+                        regimeInner =
                             '<span style="color:#94A3B8;">' + (regM.tfHigher || '1h') + ' </span>' +
                             '<span style="color:' + regColorM(regM.higher) + ';font-weight:600;">' + regArrowM(regM.higher) + '</span>' +
                             '<span style="color:#636B76;"> · </span>' +
                             '<span style="color:#94A3B8;">' + (regM.tfMain || '15m') + ' </span>' +
                             '<span style="color:' + regColorM(regM.main) + ';font-weight:600;">' + regArrowM(regM.main) + '</span>' +
                             '<span style="color:#636B76;"> → </span>' +
-                            '<span style="color:' + allowedColorM + ';font-weight:600;">' + regM.allowed + '</span>' +
-                        '</span></div>';
+                            '<span style="color:' + allowedColorM + ';font-weight:600;">' + regM.allowed + '</span>';
+                    }
+                    expandedRows +=
+                        '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Режим рынка</span>' +
+                        '<span>' + regimeInner + '</span></div>';
                 }
 
                 cardsHtml += '<div class="bjm-card" style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;">' +
@@ -3570,6 +4247,7 @@
                             <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">Напр.</th>\
                             <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">Вход</th>\
                             <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">Цена</th>\
+                            <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">Размер</th>\
                             <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">P&L</th>\
                             <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">Ком.</th>\
                             <th style="padding:8px 4px;font-size:9px;color:#475569;text-align:left;font-weight:600;">Выход по</th>\
@@ -3680,7 +4358,20 @@
         function regimeStr(r) {
             if (!r) return '';
             function arr(v) { return v==='up'?'↑':v==='down'?'↓':'↑↓'; }
+            // V2: 4h + 15m + 5m
+            if (r.tf4hState != null || r.tf15mState != null || r.tf5mState != null) {
+                return '4h' + arr(r.tf4hState) + ' 15m' + arr(r.tf15mState) + ' 5m' + arr(r.tf5mState) + ' →' + (r.allowed || 'BLOCK');
+            }
+            // Старый формат
             return (r.tfHigher || '1h') + arr(r.higher) + ' ' + (r.tfMain || '15m') + arr(r.main) + ' →' + (r.allowed || 'BOTH');
+        }
+        function regimeAdx(r) {
+            if (!r || r.tf15mAdx == null) return '';
+            return Number(r.tf15mAdx).toFixed(1);
+        }
+        function regime5mMove(r) {
+            if (!r || r.tf5mMove == null) return '';
+            return Number(r.tf5mMove).toFixed(2);
         }
         // Дельта в минутах от входа до события
         function deltaMinN(fromTs, toTs) {
@@ -3702,7 +4393,8 @@
             'Кластер вход %','Кластер выход %','Δ Кластер','Кластерный фильтр',
             'Трейлинг активирован','Трейлинг активирован через (мин)','Трейлинг активирован на ($)','Трейлинг активирован @ цене',
             'Step TP активирован','Step TP активирован через (мин)','Step TP активирован на ($)','Step TP финальный стоп ($)',
-            'Режим рынка','Касаний уровня','Выход по'
+            'Режим рынка','ADX 15m','5m move %','Касаний уровня','Выход по',
+            'Окно при входе','Час UTC','Минута UTC'
         ];
         var lines = [headers.map(csvCell).join(',')];
 
@@ -3785,8 +4477,13 @@
                 n(t.stepTpActivatedPnl),
                 n(t.stepTpMaxLevel),
                 regimeStr(t.entryRegime),
+                regimeAdx(t.entryRegime),
+                regime5mMove(t.entryRegime),
                 t.levelTouches != null ? t.levelTouches : '',
-                reason
+                reason,
+                t.tradingWindowAtEntry || '',
+                t.entryHourUTC != null ? t.entryHourUTC : '',
+                t.entryMinuteUTC != null ? t.entryMinuteUTC : ''
             ];
             lines.push(row.map(csvCell).join(','));
         });
@@ -3976,11 +4673,19 @@
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
         var regime = bot.regimeFilterEnabled ? ' ' + s + ' R' : '';
         var atr = bot.atrFilterEnabled ? ' ' + s + ' A' : '';
+        var windowTag = '';
+        if (bot.tradingWindowEU || bot.tradingWindowUS) {
+            var wT = 'W';
+            if (bot.tradingWindowEU && bot.tradingWindowUS) wT = 'W12-17';
+            else if (bot.tradingWindowEU) wT = 'W12';
+            else if (bot.tradingWindowUS) wT = 'W17';
+            windowTag = ' ' + s + ' ' + wT;
+        }
         var rsiStr = '';
         if (bot.rsiOversold || bot.rsiOverbought) {
             rsiStr = ' ' + s + ' ' + (bot.rsiOversold || 35) + '/' + (bot.rsiOverbought || 65);
         }
-        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + rsiStr;
+        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + windowTag + rsiStr;
     }
 
     function updateBotSelector() {
@@ -4265,6 +4970,15 @@
         updateBotSelector();
         var uid = getUid();
         pollStatus(uid);
+        // Гарантируем что интервал поллинга запущен. Если пользователь переключился
+        // на running-бота, а polling раньше не стартовал (например default-бот не был
+        // запущен в момент загрузки страницы) — без этой строки карточка позиции
+        // обновлялась бы только при ручном переключении ботов, а не в реальном времени.
+        // startStatusPolling сам делает clearInterval перед setInterval, так что
+        // повторные вызовы безопасны.
+        if (bot && (bot.running || bot.paused)) {
+            startStatusPolling(uid);
+        }
         updateButtons();
     }
 
@@ -4424,45 +5138,68 @@
             return _state.strategy || null;
         };
 
-        // При загрузке страницы проверяем — может бот уже запущен на сервере
+        // При загрузке страницы проверяем — может бот уже запущен на сервере.
+        // ВАЖНО: запрашиваем СПИСОК всех ботов пользователя (а не только 'default'),
+        // потому что у пользователя может быть много ботов и активным может быть
+        // не default, а bot_1777xxx. Раньше fetch шёл на /api/bot/status без botId →
+        // сервер всегда возвращал default-сессию → если default не running, polling
+        // не запускался, и карточка позиции активного бота "замерзала" (была
+        // отрендерена один раз и больше не обновлялась, т.к. setInterval нигде
+        // не запускался).
         setTimeout(function() {
             var uid = getUid();
-            fetch('/api/bot/status?uid=' + uid)
+            fetch('/api/bot/list?uid=' + uid)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    if (data.running || data.paused) {
-                        // Бот уже работает — восстанавливаем виджет
-                        _state.running = data.running;
-                        _state.paused = data.paused;
-                        _state.mode = data.mode || 'paper';
-                        _state.market = data.market || 'futures';
-                        _state.pair = data.pair || 'BTC/USDT';
-                        _state.pairs = [_state.pair];
+                    var bots = (data && data.bots) || [];
+                    _state.bots = bots;
 
-                        // Обновляем виджет данными (включая точки-индикаторы в шапке и у селектора бота).
-                        updateWidgetFromStatus(data);
-                        updateWidgetMode();
-
-                        // Запускаем поллинг
-                        startStatusPolling(uid);
-
-                        // Рисуем уровни бота на графике (только для scalper/MR)
-                        window._botCurrentBotId = _state.botId;
-                        syncBotLevelsVisibility();
-
-                        // Запоминаем целевой ТФ бота (для подсветки кнопки на графике).
-                        // НЕ переключаем график автоматически при перезагрузке страницы —
-                        // пусть юзер сам решает. Просто подсвечиваем нужную кнопку.
-                        if (_state.timeframe) {
-                            window._botActiveTimeframe = _state.timeframe;
-                            if (typeof window._updateBotTimeframeHighlight === 'function') {
-                                window._updateBotTimeframeHighlight();
-                            }
-                        }
-
-                        // Подгружаем историю сделок
-                        if (data.tradeCount > 0) fetchTrades(uid);
+                    // Ищем первого running/paused бота — он и будет активным.
+                    // Если несколько running — берём первого; пользователь сам переключится
+                    // на нужного через выпадающий список (уже привычный UX).
+                    var activeBot = bots.find(function(b) { return b.running || b.paused; });
+                    if (!activeBot) {
+                        // Нет ни одного активного — просто обновим селектор и выйдем.
+                        // polling не нужен: незачем долбить сервер каждые 5 сек если ничего не торгуется.
+                        updateBotSelector();
+                        return;
                     }
+
+                    // Переключаем _state на активного бота
+                    _state.botId    = activeBot.botId;
+                    _state.pair     = activeBot.pair || 'BTC/USDT';
+                    _state.pairs    = [_state.pair];
+                    _state.timeframe = activeBot.timeframe || _state.timeframe;
+                    _state.strategy = activeBot.strategy || _state.strategy;
+                    _state.running  = !!activeBot.running;
+                    _state.paused   = !!activeBot.paused;
+
+                    // Тянем полный статус именно для активного бота
+                    fetch('/api/bot/status?uid=' + uid + '&botId=' + activeBot.botId)
+                        .then(function(r) { return r.json(); })
+                        .then(function(status) {
+                            _state.mode   = status.mode   || 'paper';
+                            _state.market = status.market || 'futures';
+                            updateWidgetFromStatus(status);
+                            updateWidgetMode();
+                            updateBotSelector();
+
+                            // Запускаем поллинг — это и есть то чего раньше не происходило
+                            startStatusPolling(uid);
+
+                            window._botCurrentBotId = _state.botId;
+                            syncBotLevelsVisibility();
+
+                            if (_state.timeframe) {
+                                window._botActiveTimeframe = _state.timeframe;
+                                if (typeof window._updateBotTimeframeHighlight === 'function') {
+                                    window._updateBotTimeframeHighlight();
+                                }
+                            }
+
+                            if (status.tradeCount > 0) fetchTrades(uid);
+                        })
+                        .catch(function() {});
                 })
                 .catch(function() {});
         }, 1500); // Даём Firebase auth время инициализироваться

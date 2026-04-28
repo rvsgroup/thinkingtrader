@@ -18,6 +18,8 @@
 const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
+const { createClient: createBinanceClient } = require('./binance-client');
+const credsStore = require('./credentials-store');
 
 module.exports = function(app) {
 
@@ -56,9 +58,13 @@ module.exports = function(app) {
         'atrFilterEnabled', 'atrFilterThreshold',
         'clusterEntryFilter', 'clusterThreshold', 'clusterLookback', 'clusterExitConfirm',
         'regimeFilterEnabled',
+        'tradingWindowEU', 'tradingWindowUS',
         'rsiPeriod', 'rsiOversold', 'rsiOverbought',
         'bbPeriod', 'bbMultiplier',
         'levelTouches', 'levelTolerance',
+        // ── Live mode (API ключи НЕ персистим — только флаги) ──
+        // apiKey/apiSecret хранятся отдельно в зашифрованном виде (см. credentials store)
+        'mode', 'apiTestnet',
     ];
 
     function serializeSession(session) {
@@ -154,6 +160,14 @@ module.exports = function(app) {
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
         if (session.atrFilterEnabled) extra += ` ${s} A`;
+        // Окно торговли (W12 = только EU, W17 = только US, W12-17 = оба)
+        if (session.tradingWindowEU || session.tradingWindowUS) {
+            let wTag = 'W';
+            if (session.tradingWindowEU && session.tradingWindowUS) wTag = 'W12-17';
+            else if (session.tradingWindowEU) wTag = 'W12';
+            else if (session.tradingWindowUS) wTag = 'W17';
+            extra += ` ${s} ${wTag}`;
+        }
         if (session.rsiOversold || session.rsiOverbought) {
             extra += ` ${s} ${session.rsiOversold || 35}/${session.rsiOverbought || 65}`;
         }
@@ -190,6 +204,8 @@ module.exports = function(app) {
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
                     regimeFilterEnabled: session.regimeFilterEnabled || false,
+                    tradingWindowEU: !!session.tradingWindowEU,
+                    tradingWindowUS: !!session.tradingWindowUS,
                     atrFilterEnabled: session.atrFilterEnabled || false,
                     bbExitEnabled: session.bbExitEnabled || false,
                     notifyEnabled: session.notifyEnabled !== false,
@@ -259,6 +275,13 @@ module.exports = function(app) {
             if (session.clusterEntryFilter)  tagParts.push('CL');
             if (session.regimeFilterEnabled) tagParts.push('R');
             if (session.bbExitEnabled)       tagParts.push('BB');
+            if (session.tradingWindowEU || session.tradingWindowUS) {
+                let wTag = 'W';
+                if (session.tradingWindowEU && session.tradingWindowUS) wTag = 'W12-17';
+                else if (session.tradingWindowEU) wTag = 'W12';
+                else if (session.tradingWindowUS) wTag = 'W17';
+                tagParts.push(wTag);
+            }
             const botTag = tagParts.join(' ');
 
             // Убираем /USDT из пары — и так понятно что котировка к USDT
@@ -309,6 +332,30 @@ module.exports = function(app) {
             });
         } catch (e) {
             console.warn('[BOT] push stop error:', e.message);
+        }
+    }
+
+    /**
+     * Push о критическом расхождении биржи и сайта.
+     * Используется когда мы не смогли закрыть позицию даже после повторной попытки,
+     * или обнаружили рассинхрон который не можем починить автоматически.
+     * Это ВАЖНОЕ уведомление — должно дойти даже если notifyEnabled=false для торговых.
+     */
+    async function pushDesyncAlert(session, message) {
+        if (!session) return;
+        if (typeof global.sendPushToUser !== 'function') return;
+        if (!session.uid) return;
+        try {
+            const title = '🚨 Критическая ошибка торговли';
+            const subtitle = getFullBotLabel(session);
+            await global.sendPushToUser(session.uid, title, message, {
+                subtitle,
+                link: '/app#journal',
+                tag:  `bot-desync-${session.botId}-${Date.now()}`,
+                priority: 'high',
+            });
+        } catch (e) {
+            console.warn('[BOT] push desync error:', e.message);
         }
     }
 
@@ -409,9 +456,28 @@ module.exports = function(app) {
                 wsReconnectTimer: null,
                 lastCandleTime: 0,          // время последней закрытой свечи
 
-                // ── Bybit API (для live) ──
+                // ── Binance Futures API (для live) ──
                 apiKey:        '',
                 apiSecret:     '',
+                apiTestnet:    false,    // если true — используем testnet.binancefuture.com
+                apiConnected:  false,    // подтверждено что ключи рабочие (после теста)
+
+                // ── Live runtime state ──
+                // Содержит cached binance-client (создаётся лениво при первом ордере)
+                // и Set символов для которых уже выставлены leverage/margin/positionMode.
+                // Не персистится — всё пересоздаётся при старте бота.
+                _binanceClient:        null,
+                _exchangeConfigured:   new Set(),
+                _liveSymbolFilters:    null,  // кеш фильтров символа
+                _liveSyncInterval:     null,  // setInterval для синхронизации с биржей
+                _syncInFlight:         false, // защита от наложения sync-итераций
+                _syncBusy:             false, // дебаунс: sync делает «тяжёлое» (закрытие phantom, переподнятие стопа)
+                _syncLastActionAt:     0,     // timestamp последнего «тяжёлого» действия sync (anti-flap)
+                _zombieWarnedAt:       0,     // throttle для повторных предупреждений о zombie-позициях
+                _syncSizeWarnedAt:     0,     // throttle для предупреждений о расхождении размеров
+                _syncStopWarnedAt:     0,     // throttle для предупреждений об отсутствии стопа
+                exchangeMarkPrice:     null,  // последний markPrice с биржи (обновляется в sync)
+                exchangeUnrealizedPnl: 0,     // последний unrealized P&L с биржи
             });
         }
         return sessions.get(key);
@@ -903,6 +969,278 @@ module.exports = function(app) {
         return ema;
     }
 
+    /* ════════════════════════════════════════════════════════════
+       НОВЫЙ ДЕТЕКТОР РЕЖИМА РЫНКА (V2) — три таймфрейма
+
+       Архитектура:
+       - 4h  (контекст): EMA50/EMA200 + наклон EMA50 за 10 баров
+       - 15m (тренд):    EMA21/EMA55 + ADX(14) для отсева флэта
+       - 5m  (пульс):    EMA9/EMA21 + сдвиг цены за последние 12 свечей
+
+       Каждый ТФ возвращает 'up' | 'down' | 'flat'.
+
+       Решающее правило:
+       - все три согласны вверх  → LONG
+       - все три согласны вниз   → SHORT
+       - любое расхождение/флэт  → BLOCK (полный запрет торговли)
+       ════════════════════════════════════════════════════════════ */
+
+    /**
+     * ADX(14) — Average Directional Index по Уэллсу Уайлдеру.
+     * Измеряет силу тренда независимо от направления.
+     * < 20 — слабый тренд / флэт; > 25 — настоящий тренд.
+     *
+     * @returns {number|null} последнее значение ADX или null если недостаточно данных
+     */
+    function calcADX(candles, period = 14) {
+        if (!candles || candles.length < period * 2 + 1) return null;
+
+        const len = candles.length;
+        const tr = new Array(len);
+        const plusDM = new Array(len);
+        const minusDM = new Array(len);
+
+        tr[0] = candles[0].high - candles[0].low;
+        plusDM[0] = 0;
+        minusDM[0] = 0;
+
+        for (let i = 1; i < len; i++) {
+            const c = candles[i];
+            const p = candles[i - 1];
+            const upMove = c.high - p.high;
+            const downMove = p.low - c.low;
+
+            plusDM[i]  = (upMove > downMove && upMove > 0)   ? upMove   : 0;
+            minusDM[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
+
+            const tr1 = c.high - c.low;
+            const tr2 = Math.abs(c.high - p.close);
+            const tr3 = Math.abs(c.low  - p.close);
+            tr[i] = Math.max(tr1, tr2, tr3);
+        }
+
+        // Сглаживание Wilder (RMA): первое значение = SMA, дальше — рекуррентно
+        let trS = 0, plusS = 0, minusS = 0;
+        for (let i = 1; i <= period; i++) {
+            trS    += tr[i];
+            plusS  += plusDM[i];
+            minusS += minusDM[i];
+        }
+
+        const dx = [];
+        for (let i = period + 1; i < len; i++) {
+            trS    = trS    - (trS / period)    + tr[i];
+            plusS  = plusS  - (plusS / period)  + plusDM[i];
+            minusS = minusS - (minusS / period) + minusDM[i];
+
+            const plusDI  = trS === 0 ? 0 : (plusS  / trS) * 100;
+            const minusDI = trS === 0 ? 0 : (minusS / trS) * 100;
+            const sum = plusDI + minusDI;
+            const dxVal = sum === 0 ? 0 : (Math.abs(plusDI - minusDI) / sum) * 100;
+            dx.push(dxVal);
+        }
+
+        if (dx.length < period) return null;
+
+        // ADX = RMA от DX
+        let adx = 0;
+        for (let i = 0; i < period; i++) adx += dx[i];
+        adx = adx / period;
+        for (let i = period; i < dx.length; i++) {
+            adx = (adx * (period - 1) + dx[i]) / period;
+        }
+
+        return adx;
+    }
+
+    /**
+     * Анализ 4ч-таймфрейма (контекст).
+     * EMA50/EMA200 — направление + наклон EMA50 за последние 10 баров.
+     */
+    function analyzeRegime4h(candles) {
+        if (!candles || candles.length < 210) return { state: 'flat', reason: 'not_enough_data' };
+
+        const closes = candles.map(c => c.close);
+        const ema50 = calcEMA(closes, 50);
+        const ema200 = calcEMA(closes, 200);
+
+        const last = closes.length - 1;
+        const e50 = ema50[last];
+        const e200 = ema200[last];
+        const e50Prev = ema50[last - 10];
+        if (e50 == null || e200 == null || e50Prev == null) return { state: 'flat', reason: 'no_ema' };
+
+        const gap = Math.abs(e50 - e200) / e200 * 100;
+        const slope = (e50 - e50Prev) / e50Prev * 100;
+
+        // Гэп между EMA50 и EMA200 слишком мал → флэт
+        if (gap < 0.15) return { state: 'flat', reason: 'ema_tangled', gap, slope };
+
+        if (e50 > e200 && slope > 0.05) return { state: 'up',   reason: 'ok', gap, slope };
+        if (e50 < e200 && slope < -0.05) return { state: 'down', reason: 'ok', gap, slope };
+
+        return { state: 'flat', reason: 'mixed', gap, slope };
+    }
+
+    /**
+     * Анализ 15m-таймфрейма (тренд).
+     * EMA21/EMA55 + ADX(14). При ADX < 20 считаем что тренда нет.
+     */
+    function analyzeRegime15m(candles) {
+        if (!candles || candles.length < 60) return { state: 'flat', reason: 'not_enough_data' };
+
+        const closes = candles.map(c => c.close);
+        const ema21 = calcEMA(closes, 21);
+        const ema55 = calcEMA(closes, 55);
+
+        const last = closes.length - 1;
+        const e21 = ema21[last];
+        const e55 = ema55[last];
+        if (e21 == null || e55 == null) return { state: 'flat', reason: 'no_ema' };
+
+        const adx = calcADX(candles, 14);
+        if (adx == null) return { state: 'flat', reason: 'no_adx' };
+
+        // ADX < 20 → нет тренда (флэт)
+        if (adx < 20) return { state: 'flat', reason: 'low_adx', adx };
+
+        if (e21 > e55) return { state: 'up',   reason: 'ok', adx };
+        if (e21 < e55) return { state: 'down', reason: 'ok', adx };
+
+        return { state: 'flat', reason: 'ema_equal', adx };
+    }
+
+    /**
+     * Анализ 5m-таймфрейма (пульс).
+     * EMA9/EMA21 + куда сдвинулась цена за последние 12 свечей (час).
+     * Оба сигнала должны согласоваться.
+     */
+    function analyzeRegime5m(candles) {
+        if (!candles || candles.length < 25) return { state: 'flat', reason: 'not_enough_data' };
+
+        const closes = candles.map(c => c.close);
+        const ema9  = calcEMA(closes, 9);
+        const ema21 = calcEMA(closes, 21);
+
+        const last = closes.length - 1;
+        const e9 = ema9[last];
+        const e21 = ema21[last];
+        if (e9 == null || e21 == null) return { state: 'flat', reason: 'no_ema' };
+
+        // Сдвиг цены за последние 12 свечей (1 час на 5m)
+        if (last < 12) return { state: 'flat', reason: 'no_history' };
+        const priceNow = closes[last];
+        const priceHourAgo = closes[last - 12];
+        const moveP = (priceNow - priceHourAgo) / priceHourAgo * 100;
+
+        // Чтобы избежать шума требуем минимальный сдвиг 0.1%
+        const emaUp = e9 > e21;
+        const emaDown = e9 < e21;
+        const moveUp = moveP > 0.1;
+        const moveDown = moveP < -0.1;
+
+        if (emaUp && moveUp) return { state: 'up',   reason: 'ok', move: moveP };
+        if (emaDown && moveDown) return { state: 'down', reason: 'ok', move: moveP };
+
+        return { state: 'flat', reason: 'ema_move_disagree', move: moveP };
+    }
+
+    /**
+     * Кэши для V2-детектора с разной частотой обновления:
+     * - 4h:  раз в час
+     * - 15m: раз в 10 минут
+     * - 5m:  раз в 5 минут
+     * Ключ кэша: symbol.
+     */
+    const _regimeCacheV2 = {
+        h4:  new Map(),  // { state, reason, ... , updatedAt }
+        m15: new Map(),
+        m5:  new Map(),
+    };
+    const REGIME_V2_TTL = {
+        h4:  60 * 60 * 1000,  // 1 час
+        m15: 10 * 60 * 1000,  // 10 минут
+        m5:  5  * 60 * 1000,  // 5 минут
+    };
+
+    /**
+     * Главный оркестратор V2: возвращает разрешённое направление по правилу
+     * «все три согласны или блок».
+     *
+     * @returns объект:
+     * {
+     *   tf4h: { state, reason, ... },
+     *   tf15m: { state, reason, ..., adx },
+     *   tf5m: { state, reason, ..., move },
+     *   allowed: 'LONG' | 'SHORT' | 'BLOCK',
+     *   updatedAt: number,
+     * }
+     */
+    async function detectMarketRegimeV2(symbol) {
+        const now = Date.now();
+
+        // 4h — берём из кэша или загружаем
+        let tf4h;
+        const c4 = _regimeCacheV2.h4.get(symbol);
+        if (c4 && now - c4.updatedAt < REGIME_V2_TTL.h4) {
+            tf4h = c4.data;
+        } else {
+            try {
+                const candles4h = await loadHistoricalCandles(symbol, '4h', 250);
+                tf4h = analyzeRegime4h(candles4h);
+                tf4h.updatedAt = now;
+                _regimeCacheV2.h4.set(symbol, { data: tf4h, updatedAt: now });
+            } catch (e) {
+                tf4h = { state: 'flat', reason: 'fetch_error', error: e.message, updatedAt: now };
+            }
+        }
+
+        // 15m
+        let tf15m;
+        const c15 = _regimeCacheV2.m15.get(symbol);
+        if (c15 && now - c15.updatedAt < REGIME_V2_TTL.m15) {
+            tf15m = c15.data;
+        } else {
+            try {
+                const candles15m = await loadHistoricalCandles(symbol, '15m', 100);
+                tf15m = analyzeRegime15m(candles15m);
+                tf15m.updatedAt = now;
+                _regimeCacheV2.m15.set(symbol, { data: tf15m, updatedAt: now });
+            } catch (e) {
+                tf15m = { state: 'flat', reason: 'fetch_error', error: e.message, updatedAt: now };
+            }
+        }
+
+        // 5m
+        let tf5m;
+        const c5 = _regimeCacheV2.m5.get(symbol);
+        if (c5 && now - c5.updatedAt < REGIME_V2_TTL.m5) {
+            tf5m = c5.data;
+        } else {
+            try {
+                const candles5m = await loadHistoricalCandles(symbol, '5m', 50);
+                tf5m = analyzeRegime5m(candles5m);
+                tf5m.updatedAt = now;
+                _regimeCacheV2.m5.set(symbol, { data: tf5m, updatedAt: now });
+            } catch (e) {
+                tf5m = { state: 'flat', reason: 'fetch_error', error: e.message, updatedAt: now };
+            }
+        }
+
+        // Решающее правило: все три согласны → разрешаем направление; иначе блок
+        let allowed = 'BLOCK';
+        if (tf4h.state === 'up'   && tf15m.state === 'up'   && tf5m.state === 'up')   allowed = 'LONG';
+        if (tf4h.state === 'down' && tf15m.state === 'down' && tf5m.state === 'down') allowed = 'SHORT';
+
+        return {
+            tf4h:    tf4h,
+            tf15m:   tf15m,
+            tf5m:    tf5m,
+            allowed: allowed,
+            updatedAt: now,
+        };
+    }
+
     /**
      * Определяет режим по EMA50 и EMA200 на одном таймфрейме.
      *
@@ -946,6 +1284,84 @@ module.exports = function(app) {
 
         // Переплетение или противоречие направления и наклона
         return 'flat';
+    }
+
+    /* ──────────────────────────────────────────────
+       ОКНО ТОРГОВЛИ (W) — временные фильтры по UTC
+
+       Европа:  07:05 – 11:55 UTC  (5 часов чистых, с буферами по 5 минут)
+       US Open: 13:05 – 16:55 UTC  (4 часа чистых, с буферами по 5 минут)
+
+       Логика:
+       - Оба тумблера выключены  → торгуем круглосуточно (старое поведение).
+       - Включён хоть один       → торгуем только в активных окнах.
+       ────────────────────────────────────────────── */
+
+    const TRADING_WINDOW_EU_START_MIN = 7 * 60 + 5;   // 07:05 UTC = 425 минут от полуночи
+    const TRADING_WINDOW_EU_END_MIN   = 11 * 60 + 55; // 11:55 UTC = 715 минут
+    const TRADING_WINDOW_US_START_MIN = 13 * 60 + 5;  // 13:05 UTC = 785 минут
+    const TRADING_WINDOW_US_END_MIN   = 16 * 60 + 55; // 16:55 UTC = 1015 минут
+
+    /**
+     * Возвращает текущую активную метку окна для журнала: 'EU' | 'US' | 'EU+US' | 'all' | 'none'
+     */
+    function getActiveWindowLabel(session) {
+        const eu = !!session.tradingWindowEU;
+        const us = !!session.tradingWindowUS;
+        if (!eu && !us) return 'all';
+        if (eu && us) return 'EU+US';
+        return eu ? 'EU' : 'US';
+    }
+
+    /**
+     * Проверяет, можно ли сейчас торговать по временному фильтру.
+     * @returns {boolean} true если разрешено, false если бот должен ждать.
+     */
+    function isInsideTradingWindow(session) {
+        const eu = !!session.tradingWindowEU;
+        const us = !!session.tradingWindowUS;
+        // Оба выключены → ограничений нет
+        if (!eu && !us) return true;
+
+        const now = new Date();
+        const minOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+        if (eu && minOfDay >= TRADING_WINDOW_EU_START_MIN && minOfDay <= TRADING_WINDOW_EU_END_MIN) {
+            return true;
+        }
+        if (us && minOfDay >= TRADING_WINDOW_US_START_MIN && minOfDay <= TRADING_WINDOW_US_END_MIN) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Универсальный фильтр режима рынка (V2).
+     * Возвращает true если сделку нужно блокировать.
+     *
+     * Используется в checkSignalMeanReversion / checkTickEntry / checkSignal.
+     */
+    function isBlockedByRegime(session, side, ctx = '') {
+        if (!session.regimeFilterEnabled) return false;
+        if (!session.regime || !session.regime.allowed) return false;
+        const allowed = session.regime.allowed;
+        // 'BLOCK' — никакая сторона не разрешена
+        if (allowed === 'BLOCK') {
+            const r = session.regime;
+            const stateStr = `4h=${r.tf4h ? r.tf4h.state : '?'}, 15m=${r.tf15m ? r.tf15m.state : '?'}, 5m=${r.tf5m ? r.tf5m.state : '?'}`;
+            console.log(`[BOT ${ts()}] 🚫 ${ctx}${side} blocked by regime V2 (BLOCK): ${stateStr}`);
+            return true;
+        }
+        // Старый формат совместимости ('LONG' / 'SHORT' / 'BOTH')
+        if (allowed === 'BOTH') return false;
+        if (allowed !== side) {
+            const r = session.regime;
+            const stateStr = r.tf4h ? `4h=${r.tf4h.state}, 15m=${r.tf15m.state}, 5m=${r.tf5m.state}`
+                                    : `${r.tfHigher}=${r.higher}, ${r.tfMain}=${r.main}`;
+            console.log(`[BOT ${ts()}] 🚫 ${ctx}${side} blocked by regime: ${stateStr} → allowed ${allowed}`);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1030,6 +1446,9 @@ module.exports = function(app) {
         const { candles, market } = session;
         if (candles.length < 30) return null;
 
+        // ── Окно торговли (W) ──
+        if (!isInsideTradingWindow(session)) return null;
+
         const lastCandle = candles[candles.length - 1];
         if (!lastCandle.closed) return null;
 
@@ -1069,14 +1488,9 @@ module.exports = function(app) {
         if (session.direction === 'long' && side === 'SHORT') return null;
         if (session.direction === 'short' && side === 'LONG') return null;
 
-        // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
+        // ── Фильтр режима рынка (V2: 4h + 15m + 5m) ──
         // Работает только если тумблер regimeFilterEnabled включён пользователем.
-        if (session.regimeFilterEnabled && session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
-            if (session.regime.allowed !== side) {
-                console.log(`[BOT ${ts()}] 🚫 ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
-                return null;
-            }
-        }
+        if (isBlockedByRegime(session, side, '')) return null;
 
         // ── ATR-фильтр волатильности (ненаправленный) ──
         // Блокируем вход в любую сторону, когда atr14/atr50 >= threshold.
@@ -1164,6 +1578,9 @@ module.exports = function(app) {
         if (!price || price <= 0) return;
         if (session.position) return;
 
+        // ── Окно торговли (W) ──
+        if (!isInsideTradingWindow(session)) return;
+
         // Throttle: не чаще раза в 5 секунд
         const now = Date.now();
         if (session._lastTickCheck && now - session._lastTickCheck < 5000) return;
@@ -1199,13 +1616,8 @@ module.exports = function(app) {
         if (session.direction === 'long' && side === 'SHORT') return;
         if (session.direction === 'short' && side === 'LONG') return;
 
-        // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
-        if (session.regimeFilterEnabled && session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
-            if (session.regime.allowed !== side) {
-                console.log(`[BOT ${ts()}] 🚫 tick ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
-                return;
-            }
-        }
+        // ── Фильтр режима рынка (V2: 4h + 15m + 5m) ──
+        if (isBlockedByRegime(session, side, 'tick ')) return;
 
         // ── ATR-фильтр волатильности ──
         if (session.atrFilterEnabled && session.atrRegime && session.atrRegime.blocked) {
@@ -1275,6 +1687,9 @@ module.exports = function(app) {
 
         if (candles.length < 30) return null;
 
+        // ── Окно торговли (W) ──
+        if (!isInsideTradingWindow(session)) return null;
+
         // Последняя закрытая свеча
         const lastCandle = candles[candles.length - 1];
         if (!lastCandle.closed) return null;
@@ -1330,13 +1745,8 @@ module.exports = function(app) {
         if (session.direction === 'long' && side === 'SHORT') return null;
         if (session.direction === 'short' && side === 'LONG') return null;
 
-        // ── Фильтр режима рынка (EMA50/EMA200 на 15m + 1h) ──
-        if (session.regimeFilterEnabled && session.regime && session.regime.allowed && session.regime.allowed !== 'BOTH') {
-            if (session.regime.allowed !== side) {
-                console.log(`[BOT ${ts()}] 🚫 ${side} blocked by regime: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
-                return null;
-            }
-        }
+        // ── Фильтр режима рынка (V2: 4h + 15m + 5m) ──
+        if (isBlockedByRegime(session, side, '')) return null;
 
         // ── ATR-фильтр волатильности ──
         if (session.atrFilterEnabled && session.atrRegime && session.atrRegime.blocked) {
@@ -1432,15 +1842,338 @@ module.exports = function(app) {
         return size;
     }
 
+    /* ══════════════════════════════════════════════════════════════
+       LIVE TRADING HELPERS
+       
+       Цепочка для реального открытия позиции на Binance Futures.
+       Вызывается из openPosition только если session.mode === 'live'.
+       
+       Архитектурный подход:
+       - openPosition остаётся синхронной (paper-ветка не меняется).
+       - Для Live ставится временная "плейсхолдер" позиция с _pending=true,
+         которая блокирует новые входы пока идёт async-цепочка.
+       - При успехе плейсхолдер заполняется реальными данными с биржи.
+       - При любой ошибке плейсхолдер удаляется — позиции не появилось.
+       - Если market-вход прошёл но стоп НЕ удалось выставить — это
+         критическая ситуация, немедленно закрываем позицию обратным
+         market-ордером. Безопасность важнее.
+    ══════════════════════════════════════════════════════════════ */
+
+    /**
+     * Лениво создать или достать кешированный binance-client для сессии.
+     * Один клиент на всю жизнь сессии в памяти; при перезапуске сервера
+     * пересоздаётся при следующем старте бота.
+     */
+    function getLiveClient(session) {
+        if (session._binanceClient) return session._binanceClient;
+        if (!session.apiKey || !session.apiSecret) return null;
+        session._binanceClient = createBinanceClient({
+            apiKey:    session.apiKey,
+            apiSecret: session.apiSecret,
+            testnet:   !!session.apiTestnet,
+        });
+        return session._binanceClient;
+    }
+
+    /**
+     * Один раз на сессию для каждого символа выставить ISOLATED, leverage,
+     * one-way mode. Binance возвращает разные ошибки которые на самом деле OK:
+     *   -4046 "No need to change margin type"
+     *   -4047 "Margin type cannot be changed if there exists position" (есть позиция — не меняем, оставляем как есть)
+     *   -4059 "No need to change position side"
+     *   -4068 "Position side cannot be changed if there exists position" (есть позиция от другого бота — оставляем как есть)
+     *   -2014 "API-key format invalid" (это не ок, это реальная ошибка)
+     * Эти "ошибки" мы игнорируем — они означают либо "уже как надо", либо "конфликт с
+     * открытой позицией от другого бота, оставим как есть".
+     *
+     * Возвращает { ok, error? }. Кеширует факт настройки в _exchangeConfigured,
+     * чтобы не дёргать биржу повторно.
+     */
+    async function ensureLiveSetup(session, symbol, leverage) {
+        if (session._exchangeConfigured && session._exchangeConfigured.has(symbol)) {
+            return { ok: true, cached: true };
+        }
+        const client = getLiveClient(session);
+        if (!client) return { ok: false, error: 'Binance client not initialized (missing keys)' };
+
+        console.log(`[LIVE ${ts()}] ⚙️  Setting up ${symbol}: position-mode=ONE_WAY, margin=ISOLATED, leverage=${leverage}x`);
+
+        // Коды которые мы считаем "это ок, идём дальше":
+        // -4046: No need to change margin type (уже ISOLATED)
+        // -4047: Margin type cannot be changed if there exists position
+        // -4059: No need to change position side (уже ONE_WAY)
+        // -4067: Position side cannot be changed if there exists open orders
+        // -4068: Position side cannot be changed if there exists position
+        // Любая из этих ошибок означает: либо настройка уже какая надо, либо нельзя
+        // её менять из-за конфликта с другим ботом — оставляем как есть и идём дальше.
+        const isBenignSetupError = (apiCode) =>
+            apiCode === -4046 || apiCode === -4047 ||
+            apiCode === -4059 || apiCode === -4067 || apiCode === -4068;
+
+        // 1. One-way mode (false = одна позиция на символ). Глобальная настройка.
+        const pmRes = await client.setPositionMode(false);
+        if (!pmRes.ok && !isBenignSetupError(pmRes.apiCode)) {
+            console.error(`[LIVE ${ts()}] ❌ setPositionMode failed: ${pmRes.error} (code ${pmRes.apiCode || '?'})`);
+            return { ok: false, error: 'setPositionMode failed: ' + pmRes.error };
+        }
+        if (!pmRes.ok) {
+            console.log(`[LIVE ${ts()}] ℹ️  setPositionMode: ${pmRes.error} (code ${pmRes.apiCode}) — это ок, режим уже выставлен`);
+        }
+
+        // 2. Isolated margin (per-symbol). Если на этом символе уже есть позиция
+        //    (например от другого бота) — поменять нельзя, но это значит margin уже какой надо.
+        const mtRes = await client.setMarginType(symbol, 'ISOLATED');
+        if (!mtRes.ok && !isBenignSetupError(mtRes.apiCode)) {
+            console.error(`[LIVE ${ts()}] ❌ setMarginType failed: ${mtRes.error} (code ${mtRes.apiCode || '?'})`);
+            return { ok: false, error: 'setMarginType failed: ' + mtRes.error };
+        }
+        if (!mtRes.ok) {
+            console.log(`[LIVE ${ts()}] ℹ️  setMarginType: ${mtRes.error} (code ${mtRes.apiCode}) — это ок, margin уже выставлен`);
+        }
+
+        // 3. Leverage. Если есть открытая позиция — биржа тоже может вернуть -4046.
+        //    Тоже терпимо — плечо у позиции уже какое-то, просто не наше.
+        const lvRes = await client.setLeverage(symbol, leverage);
+        if (!lvRes.ok && !isBenignSetupError(lvRes.apiCode)) {
+            console.error(`[LIVE ${ts()}] ❌ setLeverage failed: ${lvRes.error} (code ${lvRes.apiCode || '?'})`);
+            return { ok: false, error: 'setLeverage failed: ' + lvRes.error };
+        }
+        if (!lvRes.ok) {
+            console.log(`[LIVE ${ts()}] ℹ️  setLeverage: ${lvRes.error} (code ${lvRes.apiCode}) — это ок, плечо уже выставлено`);
+        }
+
+        if (!session._exchangeConfigured) session._exchangeConfigured = new Set();
+        session._exchangeConfigured.add(symbol);
+        console.log(`[LIVE ${ts()}] ✅ Setup complete for ${symbol}`);
+        return { ok: true };
+    }
+
+    /**
+     * Полная цепочка открытия позиции на бирже:
+     * 1. ensureLiveSetup (margin/leverage/positionMode)
+     * 2. getSymbolFilters → округлить quantity до stepSize
+     * 3. Проверить minQty / minNotional
+     * 4. placeMarketOrder
+     * 5. getOrder → реальная fill-цена и кол-во
+     * 6. placeStopMarketOrder с closePosition=true
+     * 7. Если стоп не выставился — закрыть позицию обратным market-ордером
+     * 8. Заполнить session.position реальными данными
+     *
+     * Возвращает { ok, fillPrice?, fillQty?, commission?, stopOrderId?, entryOrderId?, error? }.
+     * НЕ создаёт session.position — это делает вызывающий код в openPosition.
+     */
+    async function executeOpenLive(session, signal, plannedQuantity) {
+        const client = getLiveClient(session);
+        if (!client) return { ok: false, error: 'Binance client not initialized' };
+
+        const symbol = session.symbol;
+        const side   = signal.side === 'LONG' ? 'BUY' : 'SELL';   // сторона входа
+        const oppositeSide = side === 'BUY' ? 'SELL' : 'BUY';     // сторона стопа
+
+        // Расчётное плечо для этого ордера. Используем maxLeverage из настроек,
+        // даже если фактически позиция меньше — биржа разрешит более низкое плечо.
+        const leverage = parseInt(session.maxLeverage) || 3;
+
+        console.log(`[LIVE-OPEN ${ts()}] STEP 1: ensureLiveSetup ${symbol} leverage=${leverage}x`);
+        // 1. Setup символа (один раз на сессию)
+        const setup = await ensureLiveSetup(session, symbol, leverage);
+        if (!setup.ok) {
+            console.error(`[LIVE-OPEN ${ts()}] ❌ STEP 1 FAILED: ${setup.error}`);
+            return { ok: false, error: setup.error };
+        }
+        console.log(`[LIVE-OPEN ${ts()}] ✓ STEP 1 OK${setup.cached ? ' (cached)' : ''}`);
+
+        console.log(`[LIVE-OPEN ${ts()}] STEP 2: getSymbolFilters ${symbol}`);
+        // 2. Фильтры символа
+        const filtersRes = await client.getSymbolFilters(symbol);
+        if (!filtersRes.ok) {
+            console.error(`[LIVE-OPEN ${ts()}] ❌ STEP 2 FAILED: getSymbolFilters: ${filtersRes.error}`);
+            return { ok: false, error: 'getSymbolFilters failed: ' + filtersRes.error };
+        }
+        const f = filtersRes.data;
+        console.log(`[LIVE-OPEN ${ts()}] ✓ STEP 2 OK: stepSize=${f.stepSize} tickSize=${f.tickSize} minQty=${f.minQty} minNotional=${f.minNotional}`);
+
+        // 3. Округлить quantity вниз до stepSize
+        const qty = client.roundDownToStep(plannedQuantity, f.stepSize);
+        console.log(`[LIVE-OPEN ${ts()}] STEP 3: qty rounded ${plannedQuantity} → ${qty}`);
+        if (qty <= 0) {
+            console.error(`[LIVE-OPEN ${ts()}] ❌ STEP 3 FAILED: qty rounded to 0`);
+            return { ok: false, error: `Quantity ${plannedQuantity} округлилось до 0 (stepSize=${f.stepSize})` };
+        }
+        if (f.minQty != null && qty < f.minQty) {
+            console.error(`[LIVE-OPEN ${ts()}] ❌ STEP 3 FAILED: qty ${qty} < minQty ${f.minQty}`);
+            return { ok: false, error: `Quantity ${qty} < minQty ${f.minQty}. Увеличь баланс или risk%.` };
+        }
+        if (f.minNotional != null && qty * signal.entry < f.minNotional) {
+            console.error(`[LIVE-OPEN ${ts()}] ❌ STEP 3 FAILED: notional ${(qty*signal.entry).toFixed(2)} < ${f.minNotional}`);
+            return { ok: false, error: `Notional ${(qty*signal.entry).toFixed(2)} < minNotional ${f.minNotional}` };
+        }
+
+        console.log(`[LIVE-OPEN ${ts()}] STEP 4: 📤 placeMarketOrder ${side} ${symbol} qty=${qty}`);
+
+        // 4. Market-ордер
+        const orderRes = await client.placeMarketOrder(symbol, side, qty, false);
+        if (!orderRes.ok) {
+            console.error(`[LIVE-OPEN ${ts()}] ❌ STEP 4 FAILED: ${orderRes.error} (code ${orderRes.apiCode || '?'})`);
+            return { ok: false, error: 'placeMarketOrder failed: ' + orderRes.error };
+        }
+        const orderId = orderRes.data.orderId;
+        console.log(`[LIVE-OPEN ${ts()}] ✓ STEP 4 OK: orderId=${orderId} status=${orderRes.data.status} avgPrice=${orderRes.data.avgPrice}`);
+
+        // 5. Реальные данные fill'а. avgPrice уже в ответе на market — используем сразу;
+        //    но для точной комиссии нужны userTrades по orderId.
+        let fillPrice = parseFloat(orderRes.data.avgPrice) || signal.entry;
+        let fillQty   = parseFloat(orderRes.data.executedQty) || qty;
+        let commission = 0;
+        let commissionAsset = 'USDT';
+
+        try {
+            const trades = await client.getUserTrades(symbol, { orderId, limit: 50 });
+            if (trades.ok && Array.isArray(trades.data) && trades.data.length > 0) {
+                let notional = 0;
+                let totalQty = 0;
+                for (const t of trades.data) {
+                    const p = parseFloat(t.price);
+                    const q = parseFloat(t.qty);
+                    notional += p * q;
+                    totalQty += q;
+                    commission += parseFloat(t.commission) || 0;
+                    commissionAsset = t.commissionAsset || commissionAsset;
+                }
+                if (totalQty > 0) {
+                    fillPrice = notional / totalQty;
+                    fillQty = totalQty;
+                }
+                console.log(`[LIVE ${ts()}] 📊 Fills: ${trades.data.length}, totalQty=${totalQty}, avgPrice=${fillPrice.toFixed(6)}, commission=${commission} ${commissionAsset}`);
+            }
+        } catch (e) {
+            console.warn(`[LIVE ${ts()}] ⚠️  getUserTrades failed (non-fatal): ${e.message}. Using order-level avgPrice.`);
+        }
+
+        // 6. Стоп-лосс на бирже. Округляем stopPrice до tickSize.
+        const stopPrice = client.roundToTick(signal.stop, f.tickSize);
+        console.log(`[LIVE ${ts()}] 📤 Placing STOP_MARKET ${oppositeSide} ${symbol} stopPrice=${stopPrice} (closePosition=true)`);
+
+        let stopRes = await client.placeStopMarketOrder(symbol, oppositeSide, stopPrice, {
+            workingType: 'MARK_PRICE',
+        });
+
+        // Один ретрай при сбое — сетевой глюк или гонка
+        if (!stopRes.ok) {
+            console.warn(`[LIVE ${ts()}] ⚠️  STOP_MARKET first attempt failed: ${stopRes.error}. Retry...`);
+            await new Promise(r => setTimeout(r, 500));
+            stopRes = await client.placeStopMarketOrder(symbol, oppositeSide, stopPrice, {
+                workingType: 'MARK_PRICE',
+            });
+        }
+
+        // 7. Если стоп так и не выставился — позиция открыта без защиты. Закрываем!
+        if (!stopRes.ok) {
+            console.error(`[LIVE ${ts()}] 🚨 CRITICAL: STOP_MARKET failed twice — closing position immediately!`);
+            console.error(`[LIVE ${ts()}] 🚨 Last error: ${stopRes.error} (code ${stopRes.apiCode || '?'})`);
+            try {
+                const closeRes = await client.placeMarketOrder(symbol, oppositeSide, fillQty, true);
+                if (closeRes.ok) {
+                    console.log(`[LIVE ${ts()}] ✅ Emergency close OK: orderId=${closeRes.data.orderId}`);
+                } else {
+                    console.error(`[LIVE ${ts()}] 🚨🚨 EMERGENCY CLOSE ALSO FAILED: ${closeRes.error}`);
+                    console.error(`[LIVE ${ts()}] 🚨🚨 МАНУАЛЬНО ЗАКРОЙ ПОЗИЦИЮ В БИРЖЕВОМ ИНТЕРФЕЙСЕ ${symbol}!`);
+                }
+            } catch (e) {
+                console.error(`[LIVE ${ts()}] 🚨🚨 EMERGENCY CLOSE EXCEPTION: ${e.message}`);
+                console.error(`[LIVE ${ts()}] 🚨🚨 МАНУАЛЬНО ЗАКРОЙ ПОЗИЦИЮ В БИРЖЕВОМ ИНТЕРФЕЙСЕ ${symbol}!`);
+            }
+            return {
+                ok: false,
+                error: 'Стоп не удалось выставить, позиция аварийно закрыта. Проверь Binance и логи.',
+            };
+        }
+
+        const stopOrderId = stopRes.data.algoId;  // в новом Algo API возвращается algoId, а не orderId
+        console.log(`[LIVE ${ts()}] ✅ STOP_MARKET placed: algoId=${stopOrderId}`);
+
+        return {
+            ok:           true,
+            entryOrderId: orderId,
+            stopOrderId:  stopOrderId,
+            fillPrice,
+            fillQty,
+            commission,
+            commissionAsset,
+            slippage:     fillPrice - signal.entry,  // знак: + для SHORT-проскальзывания, - для LONG-проскальзывания (хуже)
+        };
+    }
+
     function openPosition(session, signal) {
-        if (session.position) return; // уже есть открытая
+        if (session.position) return; // уже есть открытая (или _pending плейсхолдер)
 
         const size = calcPositionSize(session, signal.entry, signal.stop);
         if (size <= 0) return;
 
+        // ── LIVE: ставим плейсхолдер и запускаем async-цепочку ──
+        // Плейсхолдер _pending блокирует новые входы (см. session.position проверку выше),
+        // пока биржа отрабатывает market-вход и постановку стопа. После успеха —
+        // плейсхолдер заполняется реальными данными. После ошибки — обнуляется.
+        if (session.mode === 'live') {
+            // quantity = size (USDT) / entry price = базовая валюта (BTC, ETH и т.д.)
+            const plannedQty = size / signal.entry;
+
+            // Плейсхолдер. Минимум полей чтобы блокировать дублирующий вход.
+            session.position = {
+                _pending:   true,
+                _pendingAt: Date.now(),
+                side:       signal.side,
+                entryPrice: signal.entry,  // временно сигнальная цена; перезапишется fill-ценой
+                stop:       signal.stop,
+                target:     signal.target,
+                size:       size,
+            };
+            console.log(`[BOT ${ts()}] 🔄 LIVE: opening ${signal.side} ${session.symbol}, planned qty=${plannedQty}, size=$${size.toFixed(2)}`);
+
+            // Fire-and-forget. Если упадём — обнулим session.position в catch.
+            executeOpenLive(session, signal, plannedQty)
+                .then(result => {
+                    if (!result.ok) {
+                        console.error(`[BOT ${ts()}] ❌ LIVE open FAILED: ${result.error}`);
+                        // Если позиция была плейсхолдером — снимаем. Если её уже сменил
+                        // closePosition (что маловероятно но возможно), не трогаем.
+                        if (session.position && session.position._pending) {
+                            session.position = null;
+                        }
+                        return;
+                    }
+                    // Успех — заполняем настоящую позицию реальными данными
+                    finalizeOpenPosition(session, signal, result, size);
+                })
+                .catch(err => {
+                    console.error(`[BOT ${ts()}] 💥 LIVE open exception: ${err.message}`);
+                    console.error(err.stack);
+                    if (session.position && session.position._pending) {
+                        session.position = null;
+                    }
+                });
+            return;
+        }
+
+        // ── PAPER: всё как раньше, синхронно ──
+        finalizeOpenPosition(session, signal, null, size);
+    }
+
+    /**
+     * Финализирует session.position: заполняет все поля, пишет лог.
+     * В paper-ветке вызывается сразу из openPosition.
+     * В live-ветке вызывается после успешной цепочки executeOpenLive.
+     *
+     * liveResult: null для paper, объект с биржевыми данными для live.
+     */
+    function finalizeOpenPosition(session, signal, liveResult, size) {
+        // Реальная цена / комиссия — для live из биржи, для paper из сигнала.
+        const entryPrice = liveResult ? liveResult.fillPrice : signal.entry;
+        const slippage   = liveResult ? liveResult.slippage  : 0;
+
         session.position = {
             side:       signal.side,
-            entryPrice: signal.entry,
+            entryPrice: entryPrice,
             stop:       signal.stop,
             target:     signal.target,
             size:       size,
@@ -1466,34 +2199,48 @@ module.exports = function(app) {
             direction:       session.direction || 'both',
             clusterEntryFilter: session.clusterEntryFilter || false,
             regimeFilterEnabled: session.regimeFilterEnabled || false,
-            // ── Снэпшот режима рынка при входе ──
-            // Сохраняем полностью, чтобы в журнале сделок было видно
-            // какой режим EMA был на момент открытия позиции.
+            // ── Снэпшот окна торговли при входе ──
+            tradingWindowAtEntry: getActiveWindowLabel(session),
+            entryHourUTC:        new Date().getUTCHours(),
+            entryMinuteUTC:      new Date().getUTCMinutes(),
+            // ── Снэпшот режима рынка при входе (V2: 4h + 15m + 5m) ──
             entryRegime:     session.regime ? {
-                higher:   session.regime.higher,
-                main:     session.regime.main,
-                allowed:  session.regime.allowed,
-                tfHigher: session.regime.tfHigher,
-                tfMain:   session.regime.tfMain,
+                tf4hState:    session.regime.tf4h  ? session.regime.tf4h.state  : null,
+                tf15mState:   session.regime.tf15m ? session.regime.tf15m.state : null,
+                tf5mState:    session.regime.tf5m  ? session.regime.tf5m.state  : null,
+                tf15mAdx:     session.regime.tf15m ? session.regime.tf15m.adx   : null,
+                tf5mMove:     session.regime.tf5m  ? session.regime.tf5m.move   : null,
+                allowed:      session.regime.allowed,
             } : null,
             // ── Трекинг max/min для анализа ──
-            maxUnrealized:   0,    // максимальный unrealized P&L ($)
-            maxDrawdown:     0,    // максимальный drawdown ($)
-            maxUnrealizedAt: null, // timestamp когда достигнут пик
-            maxUnrealizedPrice: null, // цена на пике прибыли
-            maxDrawdownAt:   null, // timestamp худшей просадки
-            maxDrawdownPrice: null, // цена на худшей просадке
-            firstMoveSide:   null, // 'favor' | 'adverse' — куда пошла цена первой (порог: 0.1% от size)
-            trailingActivatedAt:    null, // timestamp активации трейлинга
-            trailingActivatedPrice: null, // цена активации трейлинга
-            trailingActivatedPnl:   null, // unrealized $ в момент активации
+            maxUnrealized:   0,
+            maxDrawdown:     0,
+            maxUnrealizedAt: null,
+            maxUnrealizedPrice: null,
+            maxDrawdownAt:   null,
+            maxDrawdownPrice: null,
+            firstMoveSide:   null,
+            trailingActivatedAt:    null,
+            trailingActivatedPrice: null,
+            trailingActivatedPnl:   null,
             // ── Трекинг Step TP (STP) ──
-            stepTpActive:           false, // true после первой активации
-            stepTpLastLevel:        -1,    // максимальный индекс достигнутой ступеньки (-1 = ни одной)
-            stepTpActivatedAt:      null,  // timestamp первой активации
-            stepTpActivatedPrice:   null,  // цена в момент первой активации
-            stepTpActivatedPnl:     null,  // unrealized $ в момент первой активации
-            stepTpMaxLevel:         null,  // максимальный stopProfit ($), на который подтягивался стоп
+            stepTpActive:           false,
+            stepTpLastLevel:        -1,
+            stepTpActivatedAt:      null,
+            stepTpActivatedPrice:   null,
+            stepTpActivatedPnl:     null,
+            stepTpMaxLevel:         null,
+            // ── Live: данные с биржи ──
+            // Эти поля только для live-режима. orderId нужен для подтяжки стопа в Step TP
+            // (cancel + new), commission — для журнала. signalEntry хранит "что было расчётно",
+            // чтобы потом видеть проскальзывание в журнале.
+            liveEntryOrderId: liveResult ? liveResult.entryOrderId : null,
+            liveStopOrderId:  liveResult ? liveResult.stopOrderId  : null,
+            liveFillQty:      liveResult ? liveResult.fillQty      : null,
+            liveEntryCommission: liveResult ? liveResult.commission : 0,
+            liveCommissionAsset: liveResult ? liveResult.commissionAsset : null,
+            signalEntry:      signal.entry,
+            slippageEntry:    slippage,
         };
 
         // Запоминаем кластеры при входе + считаем три варианта для лога
@@ -1504,7 +2251,6 @@ module.exports = function(app) {
             const bgEntry = analyzeClusterGroup(closedForEntry.slice(-lb), 60);
             session.position.entryClusterBuy = bgEntry.buyPct;
 
-            // Считаем для информации кластер на 3 свечах и на последней (триггер)
             const bg3 = analyzeClusterGroup(closedForEntry.slice(-3), 60);
             const lastC = closedForEntry[closedForEntry.length - 1];
             const triggerBuy = lastC ? Math.round(analyzeCandleCluster(lastC)) : 50;
@@ -1516,12 +2262,883 @@ module.exports = function(app) {
         const stratInfo = signal.rsi !== undefined
             ? `RSI: ${signal.rsi} | BB: ${signal.bbLower}/${signal.bbMiddle}/${signal.bbUpper}`
             : `Cluster: trigger=${signal.triggerBuyPct}% bg=${signal.backgroundBuyPct}%`;
-        console.log(`[BOT ${ts()}] ✅ OPENED ${signal.side} @ ${signal.entry} | Stop: ${signal.stop} (ATR:${signal.atr}) | Target: ${signal.target == null ? '—' : signal.target} | Size: ${size.toFixed(2)} USDT | R:R ${signal.riskReward == null ? '—' : signal.riskReward} | ${stratInfo} | Vol: ${signal.volumeRatio}x${clusterDetails}`);
+        const modeTag = session.mode === 'live' ? '🔴 LIVE' : '📄 PAPER';
+        const slipInfo = liveResult ? ` | Slip: ${slippage >= 0 ? '+' : ''}${slippage.toFixed(4)}` : '';
+        console.log(`[BOT ${ts()}] ✅ ${modeTag} OPENED ${signal.side} @ ${entryPrice} | Stop: ${signal.stop} (ATR:${signal.atr}) | Target: ${signal.target == null ? '—' : signal.target} | Size: ${size.toFixed(2)} USDT | R:R ${signal.riskReward == null ? '—' : signal.riskReward} | ${stratInfo} | Vol: ${signal.volumeRatio}x${clusterDetails}${slipInfo}`);
     }
 
     function closePosition(session, price, reason) {
         const pos = session.position;
         if (!pos) return;
+        // Плейсхолдер _pending — позиция ещё открывается на бирже, закрывать нечего
+        if (pos._pending) {
+            console.warn(`[BOT ${ts()}] ⚠️  closePosition called for _pending placeholder — ignoring (reason=${reason})`);
+            return;
+        }
+        // Уже идёт асинхронное закрытие — повторно не запускаем
+        if (pos._closing) {
+            console.log(`[BOT ${ts()}] (closePosition skipped: already _closing, reason=${reason})`);
+            return;
+        }
+
+        // ── LIVE: помечаем _closing и запускаем async-цепочку ──
+        // Флаг блокирует повторные вызовы closePosition (от тиков, таймаута,
+        // cluster exit и т.д.), пока биржа отрабатывает market-close.
+        // По завершении: либо finalizeClosePosition с реальной fill-ценой и комиссией,
+        // либо в случае ошибки — снимаем _closing и оставляем позицию (она реально
+        // ещё открыта на бирже).
+        if (session.mode === 'live') {
+            pos._closing = true;
+            pos._closingReason = reason;
+            pos._closingPriceHint = price; // запасной вариант если биржа не вернёт fill
+            console.log(`[BOT ${ts()}] 🔄 LIVE: closing ${pos.side} ${session.symbol} @ ~${price} (reason: ${reason})`);
+
+            executeCloseLive(session, pos, reason)
+                .then(result => {
+                    if (!result.ok) {
+                        console.error(`[BOT ${ts()}] ❌ LIVE close FAILED: ${result.error}`);
+                        // Снимаем флаг чтобы можно было попробовать закрыть снова
+                        // (например пользователь нажмёт CLOSE ещё раз).
+                        // Позиция в session.position остаётся — она реально открыта на бирже.
+                        if (session.position && session.position._closing) {
+                            session.position._closing = false;
+                            session.position._closingReason = null;
+                            session.position._closingPriceHint = null;
+                        }
+                        return;
+                    }
+                    // Успех (или биржа сообщила что позиции уже нет — учли в executeCloseLive).
+                    // Финализируем с реальными данными.
+                    finalizeClosePosition(session, pos, result, reason);
+                })
+                .catch(err => {
+                    console.error(`[BOT ${ts()}] 💥 LIVE close exception: ${err.message}`);
+                    console.error(err.stack);
+                    if (session.position && session.position._closing) {
+                        session.position._closing = false;
+                        session.position._closingReason = null;
+                    }
+                });
+            return;
+        }
+
+        // ── PAPER: всё как раньше, синхронно ──
+        // Сохраняем цену в hint так же как для live, чтобы finalizeClosePosition
+        // мог унифицированно её использовать.
+        pos._closingPriceHint = price;
+        finalizeClosePosition(session, pos, null, reason);
+    }
+
+    /**
+     * Полная цепочка закрытия позиции на бирже:
+     * 1. Отправить market-ордер в обратную сторону с reduceOnly=true
+     * 2. Получить реальную fill-цену и комиссию через getUserTrades
+     * 3. Отменить оставшийся STOP_MARKET (algoId), чтобы не сработал на пустой
+     *    позиции и не открыл противоположную сделку
+     *
+     * Если позиция на бирже уже отсутствует (стоп сам сработал, или закрыли вручную):
+     *   - Binance вернёт ошибку -2022 ReduceOnly или -2027 (no position)
+     *   - В этом случае пытаемся узнать как именно она закрылась через
+     *     getPositionRisk: positionAmt должен быть 0
+     *   - Записываем сделку с priceHint (текущая цена) и reason='external_close'
+     *
+     * Возвращает { ok, fillPrice, fillQty, commission, slippage, externallyClosed?, error? }.
+     */
+    async function executeCloseLive(session, pos, reason) {
+        const client = getLiveClient(session);
+        if (!client) return { ok: false, error: 'Binance client not initialized' };
+
+        const symbol = session.symbol;
+        // Сторона close-ордера противоположна стороне позиции
+        const closeSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
+        // Используем реально исполненный qty с биржи (с округлением, как в open)
+        const qty = pos.liveFillQty || (pos.size / pos.entryPrice);
+
+        console.log(`[LIVE ${ts()}] 📤 Placing MARKET ${closeSide} ${symbol} qty=${qty} reduceOnly=true (close)`);
+
+        // 1. Market-ордер в обратную сторону с reduceOnly. Если позиции уже нет
+        //    (стоп сработал) — биржа вернёт ошибку, обработаем ниже.
+        const orderRes = await client.placeMarketOrder(symbol, closeSide, qty, true);
+
+        // Обработка случая когда позиции на бирже уже нет
+        if (!orderRes.ok) {
+            // -2022: "ReduceOnly Order is rejected" / -2027: "Exceeded the maximum allowable position"
+            // Также возможна ошибка о том что позиция отсутствует.
+            // Проверяем через getPositionRisk: если positionAmt == 0, значит закрыта вне нас.
+            console.warn(`[LIVE ${ts()}] ⚠️  Close order rejected: ${orderRes.error} (code ${orderRes.apiCode || '?'})`);
+            const posRiskRes = await client.getPositionRisk(symbol);
+            if (posRiskRes.ok && Array.isArray(posRiskRes.data)) {
+                const posOnExch = posRiskRes.data.find(p => p.symbol === symbol);
+                const amt = posOnExch ? parseFloat(posOnExch.positionAmt) : 0;
+                if (amt === 0) {
+                    console.log(`[LIVE ${ts()}] ℹ️  Position already closed on exchange (probably stop triggered or manual close on Binance UI)`);
+                    // Отменяем оставшийся стоп если он ещё висит (на всякий случай)
+                    await cancelStopIfExists(client, symbol, pos.liveStopOrderId);
+
+                    // Пытаемся достать реальную fill-цену и комиссию из истории сделок.
+                    // Берём сделки за последние 5 минут с противоположной стороны
+                    // (для LONG позиции — SELL fills, это наш стоп-fill).
+                    let realFillPrice = pos._closingPriceHint || session.currentPrice || pos.entryPrice;
+                    let realFillQty   = pos.liveFillQty || qty;
+                    let realCommission = 0;
+                    let realCommissionAsset = pos.liveCommissionAsset || 'USDT';
+
+                    try {
+                        const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+                        const histRes = await client.getUserTrades(symbol, { limit: 50 });
+                        if (histRes.ok && Array.isArray(histRes.data) && histRes.data.length > 0) {
+                            // Фильтруем: свежие (за 5 минут) + противоположная сторона позиции
+                            const targetSide = closeSide; // SELL для LONG, BUY для SHORT
+                            const closeFills = histRes.data.filter(t =>
+                                t.side === targetSide &&
+                                parseFloat(t.time || t.timestamp || 0) >= fiveMinAgo
+                            );
+                            if (closeFills.length > 0) {
+                                let notional = 0;
+                                let totalQty = 0;
+                                for (const t of closeFills) {
+                                    const p = parseFloat(t.price);
+                                    const q = parseFloat(t.qty);
+                                    notional += p * q;
+                                    totalQty += q;
+                                    realCommission += parseFloat(t.commission) || 0;
+                                    realCommissionAsset = t.commissionAsset || realCommissionAsset;
+                                }
+                                if (totalQty > 0) {
+                                    realFillPrice = notional / totalQty;
+                                    realFillQty = totalQty;
+                                }
+                                console.log(`[LIVE ${ts()}] 📊 Stop fill recovered: ${closeFills.length} trades, totalQty=${totalQty}, avgPrice=${realFillPrice.toFixed(6)}, commission=${realCommission} ${realCommissionAsset}`);
+                            } else {
+                                console.warn(`[LIVE ${ts()}] ⚠️  No matching ${targetSide} fills in last 5 min — fee will be 0 for this trade`);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`[LIVE ${ts()}] ⚠️  History fetch failed for stop-fill: ${e.message}. fee=0 for this trade`);
+                    }
+
+                    return {
+                        ok: true,
+                        externallyClosed: true,
+                        fillPrice:        realFillPrice,
+                        fillQty:          realFillQty,
+                        commission:       realCommission,
+                        commissionAsset:  realCommissionAsset,
+                        slippage:         realFillPrice - (pos._closingPriceHint || pos.entryPrice),
+                        reason:           'external_close',
+                    };
+                }
+            }
+            // Позиция всё ещё есть, но close-ордер упал — возвращаем ошибку наверх
+            return { ok: false, error: 'placeMarketOrder (close) failed: ' + orderRes.error };
+        }
+
+        const orderId = orderRes.data.orderId;
+        console.log(`[LIVE ${ts()}] ✅ MARKET (close) filled: orderId=${orderId} status=${orderRes.data.status} avgPrice=${orderRes.data.avgPrice}`);
+
+        // 2. Реальные fill-данные через getUserTrades
+        let fillPrice = parseFloat(orderRes.data.avgPrice) || pos._closingPriceHint || session.currentPrice;
+        let fillQty   = parseFloat(orderRes.data.executedQty) || qty;
+        let commission = 0;
+        let commissionAsset = pos.liveCommissionAsset || 'USDT';
+
+        try {
+            const trades = await client.getUserTrades(symbol, { orderId, limit: 50 });
+            if (trades.ok && Array.isArray(trades.data) && trades.data.length > 0) {
+                let notional = 0;
+                let totalQty = 0;
+                for (const t of trades.data) {
+                    const p = parseFloat(t.price);
+                    const q = parseFloat(t.qty);
+                    notional += p * q;
+                    totalQty += q;
+                    commission += parseFloat(t.commission) || 0;
+                    commissionAsset = t.commissionAsset || commissionAsset;
+                }
+                if (totalQty > 0) {
+                    fillPrice = notional / totalQty;
+                    fillQty = totalQty;
+                }
+                console.log(`[LIVE ${ts()}] 📊 Close fills: ${trades.data.length}, totalQty=${totalQty}, avgPrice=${fillPrice.toFixed(6)}, commission=${commission} ${commissionAsset}`);
+            }
+        } catch (e) {
+            console.warn(`[LIVE ${ts()}] ⚠️  getUserTrades (close) failed (non-fatal): ${e.message}. Using order-level avgPrice.`);
+        }
+
+        // ── ДВОЙНАЯ ПРОВЕРКА: позиция реально закрылась? ──
+        // Биржа сказала filled, getUserTrades подтвердил fills, НО хотим убедиться
+        // что на бирже реально позиции больше нет. Защита от:
+        //   - частичного исполнения (qty уехал, но не весь)
+        //   - багов биржи когда filled приходит раньше фактического обновления позиции
+        //   - расхождения нашей памяти с реальностью
+        // Если позиция всё ещё есть — повторяем reduceOnly на остаток.
+        // Если и второй раз не помогло — критическая ошибка с push-уведомлением.
+        try {
+            await new Promise(r => setTimeout(r, 2000));
+            const verifyRes = await client.getPositionRisk(symbol);
+            if (verifyRes.ok && Array.isArray(verifyRes.data)) {
+                const posOnExch = verifyRes.data.find(p => p.symbol === symbol);
+                const remainingAmt = posOnExch ? Math.abs(parseFloat(posOnExch.positionAmt)) : 0;
+
+                if (remainingAmt > 0) {
+                    console.error(`[LIVE ${ts()}] 🚨 CLOSE VERIFY FAILED: position still on exchange! remaining=${remainingAmt} ${symbol} (filled said ${fillQty}, but exchange still shows ${remainingAmt})`);
+                    console.error(`[LIVE ${ts()}] 🔁 Retrying close for remaining ${remainingAmt}...`);
+
+                    // Повторяем market reduceOnly на остаток
+                    const retryRes = await client.placeMarketOrder(symbol, closeSide, remainingAmt, true);
+                    if (retryRes.ok) {
+                        console.log(`[LIVE ${ts()}] ✅ Retry close OK: orderId=${retryRes.data.orderId}`);
+
+                        // Подтянем доп. fills и комиссию из retry-ордера
+                        try {
+                            const retryTrades = await client.getUserTrades(symbol, { orderId: retryRes.data.orderId, limit: 50 });
+                            if (retryTrades.ok && Array.isArray(retryTrades.data)) {
+                                let retryNotional = 0;
+                                let retryQty = 0;
+                                for (const t of retryTrades.data) {
+                                    retryNotional += parseFloat(t.price) * parseFloat(t.qty);
+                                    retryQty      += parseFloat(t.qty);
+                                    commission    += parseFloat(t.commission) || 0;
+                                }
+                                if (retryQty > 0) {
+                                    // Усредняем fillPrice по обоим ордерам взвешенно
+                                    const totalNotional = fillPrice * fillQty + retryNotional;
+                                    fillQty   += retryQty;
+                                    fillPrice  = totalNotional / fillQty;
+                                    console.log(`[LIVE ${ts()}] 📊 Combined fill: avgPrice=${fillPrice.toFixed(6)} totalQty=${fillQty} totalCommission=${commission}`);
+                                }
+                            }
+                        } catch (e) {
+                            console.warn(`[LIVE ${ts()}] ⚠️  Retry getUserTrades failed: ${e.message}`);
+                        }
+
+                        // Финальная проверка после retry — если опять висит, шлём push
+                        await new Promise(r => setTimeout(r, 2000));
+                        const finalRes = await client.getPositionRisk(symbol);
+                        if (finalRes.ok && Array.isArray(finalRes.data)) {
+                            const finalPos = finalRes.data.find(p => p.symbol === symbol);
+                            const finalAmt = finalPos ? Math.abs(parseFloat(finalPos.positionAmt)) : 0;
+                            if (finalAmt > 0) {
+                                console.error(`[LIVE ${ts()}] 🚨🚨 CRITICAL: position STILL on exchange after retry! remaining=${finalAmt} ${symbol}. Manual intervention required!`);
+                                pushDesyncAlert(session, `Не удалось закрыть позицию ${symbol}: на бирже остаток ${finalAmt}. Закрой вручную в Binance!`);
+                            } else {
+                                console.log(`[LIVE ${ts()}] ✅ Final verify OK: position closed after retry`);
+                            }
+                        }
+                    } else {
+                        console.error(`[LIVE ${ts()}] 🚨🚨 RETRY CLOSE FAILED: ${retryRes.error} (code ${retryRes.apiCode || '?'})`);
+                        pushDesyncAlert(session, `Не удалось закрыть позицию ${symbol} (повторная попытка не прошла). Закрой вручную в Binance!`);
+                    }
+                } else {
+                    // Норма — позиция реально закрылась
+                    console.log(`[LIVE ${ts()}] ✓ Close verified: position is 0 on exchange`);
+                }
+            }
+        } catch (e) {
+            console.warn(`[LIVE ${ts()}] ⚠️  Close verification failed (non-fatal): ${e.message}`);
+        }
+
+        // 3. Отменить оставшийся STOP_MARKET. Если этого не сделать —
+        //    стоп будет висеть с closePosition=true и при триггере откроет
+        //    противоположную позицию. Это критично!
+        await cancelStopIfExists(client, symbol, pos.liveStopOrderId);
+
+        // Slippage exit — для LONG лучше = выше fillPrice, для SHORT лучше = ниже fillPrice.
+        // signed как (fill - hint), интерпретация одинакова с slippageEntry.
+        const slippage = fillPrice - (pos._closingPriceHint || pos.entryPrice);
+
+        return {
+            ok: true,
+            fillPrice,
+            fillQty,
+            commission,
+            commissionAsset,
+            slippage,
+            externallyClosed: false,
+        };
+    }
+
+    /**
+     * Отменить алго-ордер (стоп). Не падает если ордера уже нет (например стоп
+     * сработал и был автоматически снят биржей). Логирует результат.
+     */
+    async function cancelStopIfExists(client, symbol, algoId) {
+        if (!algoId) return;
+        try {
+            const res = await client.cancelAlgoOrder(symbol, algoId);
+            if (res.ok) {
+                console.log(`[LIVE ${ts()}] ✅ Cancelled stop algoId=${algoId}`);
+            } else {
+                // -2011 / -2026: "Order does not exist" — это норма, стоп уже снят/сработал
+                if (res.apiCode === -2011 || res.apiCode === -2026) {
+                    console.log(`[LIVE ${ts()}] ℹ️  Stop algoId=${algoId} already gone (probably triggered or pre-cancelled)`);
+                } else {
+                    console.warn(`[LIVE ${ts()}] ⚠️  Stop cancel failed: ${res.error} (code ${res.apiCode || '?'}) — manual check recommended`);
+                }
+            }
+        } catch (e) {
+            console.warn(`[LIVE ${ts()}] ⚠️  Stop cancel exception (non-fatal): ${e.message}`);
+        }
+    }
+
+    /**
+     * Подтяжка биржевого STOP_MARKET в Live-режиме (для Step TP).
+     * Атомарность недостижима — между cancel и new есть короткое окно
+     * (~100-300мс), когда стопа на бирже нет. Это плата за trailing-стопы
+     * на любых биржах.
+     *
+     * Если new упал — это критично (позиция без защиты): пытаемся ретрай,
+     * затем emergency-close позиции. Тот же подход что в executeOpenLive.
+     *
+     * Возвращает { ok, newAlgoId?, error? }. НЕ обновляет pos.liveStopOrderId —
+     * это делает вызывающий код в Step TP при ok=true.
+     */
+    async function executeStepTpUpdateLive(session, pos, newStopPrice) {
+        const client = getLiveClient(session);
+        if (!client) return { ok: false, error: 'Binance client not initialized' };
+
+        const symbol = session.symbol;
+        const oppositeSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
+        const oldAlgoId = pos.liveStopOrderId;
+
+        // Округляем новую цену стопа до tickSize символа.
+        const filtersRes = await client.getSymbolFilters(symbol);
+        if (!filtersRes.ok) {
+            return { ok: false, error: 'getSymbolFilters failed: ' + filtersRes.error };
+        }
+        const tickSize = filtersRes.data.tickSize;
+        const newStopRounded = client.roundToTick(newStopPrice, tickSize);
+
+        console.log(`[LIVE ${ts()}] 🎯 Step TP exchange update: cancel algoId=${oldAlgoId} → new STOP_MARKET ${oppositeSide} @ ${newStopRounded}`);
+
+        // 1. Cancel старого стопа. Если его уже нет (стоп сработал) — ловим тихо.
+        if (oldAlgoId) {
+            const cancelRes = await client.cancelAlgoOrder(symbol, oldAlgoId);
+            if (!cancelRes.ok) {
+                if (cancelRes.apiCode === -2011 || cancelRes.apiCode === -2026) {
+                    // Старый стоп уже снят (мог сработать или был отменён извне).
+                    // Если стоп сработал — позиции на бирже скорее всего нет.
+                    // Проверим: если позиции нет, не ставим новый стоп.
+                    console.warn(`[LIVE ${ts()}] ⚠️  Step TP: old stop already gone, checking position...`);
+                    const posRiskRes = await client.getPositionRisk(symbol);
+                    if (posRiskRes.ok && Array.isArray(posRiskRes.data)) {
+                        const posOnExch = posRiskRes.data.find(p => p.symbol === symbol);
+                        const amt = posOnExch ? parseFloat(posOnExch.positionAmt) : 0;
+                        if (amt === 0) {
+                            console.log(`[LIVE ${ts()}] ℹ️  Step TP: position closed on exchange (stop triggered) — skipping new stop`);
+                            return { ok: false, error: 'position_already_closed', positionGone: true };
+                        }
+                    }
+                    // Позиция ещё есть, но старого стопа нет — ставим новый
+                } else {
+                    console.error(`[LIVE ${ts()}] ❌ Step TP cancel failed: ${cancelRes.error} (code ${cancelRes.apiCode || '?'})`);
+                    return { ok: false, error: 'cancel old stop failed: ' + cancelRes.error };
+                }
+            }
+        }
+
+        // 2. New STOP_MARKET на новой цене
+        let newRes = await client.placeStopMarketOrder(symbol, oppositeSide, newStopRounded, {
+            workingType: 'MARK_PRICE',
+        });
+
+        // ── Особый случай: -2021 "Order would immediately trigger" ──
+        // Цена ушла настолько далеко в нашу сторону, что новый стоп уже сработал бы
+        // в момент постановки. Это значит:
+        //   - Закрывать позицию НЕ нужно (мы и так в большем плюсе чем планировали)
+        //   - Step TP пока пропускаем (восстановим старый стоп как safety net)
+        //   - На следующем тике увидим ещё больший peak и попробуем снова
+        // Без этой обработки бот ловил -2021 и делал emergency close, теряя
+        // потенциальную прибыль и платя лишнюю taker-комиссию.
+        if (!newRes.ok && newRes.apiCode === -2021) {
+            console.warn(`[LIVE ${ts()}] ⚠️  Step TP -2021: price ushла далеко, restoring old stop @ ${pos.stop}, will retry on next tick`);
+            const oldStopRounded = client.roundToTick(pos.stop, tickSize);
+            const restoreRes = await client.placeStopMarketOrder(symbol, oppositeSide, oldStopRounded, {
+                workingType: 'MARK_PRICE',
+            });
+            if (restoreRes.ok) {
+                console.log(`[LIVE ${ts()}] ✅ Restored stop @ ${oldStopRounded}: algoId=${restoreRes.data.algoId}`);
+                return {
+                    ok: true,
+                    newAlgoId: restoreRes.data.algoId,
+                    skipped: true,  // Step TP подтяжка не применилась, но позиция защищена
+                };
+            }
+            // Если даже старый стоп не встаёт — падаем в общую ветку emergency close ниже.
+            console.error(`[LIVE ${ts()}] ❌ Restore old stop also failed: ${restoreRes.error} (${restoreRes.apiCode}) — falling through to emergency close`);
+            newRes = restoreRes; // продолжим обработку как fatal
+        }
+
+        // Один ретрай при других сетевых/временных ошибках (НЕ -2021 — там ретраи бесполезны)
+        if (!newRes.ok && newRes.apiCode !== -2021) {
+            console.warn(`[LIVE ${ts()}] ⚠️  Step TP new stop first attempt failed: ${newRes.error}. Retry...`);
+            await new Promise(r => setTimeout(r, 500));
+            newRes = await client.placeStopMarketOrder(symbol, oppositeSide, newStopRounded, {
+                workingType: 'MARK_PRICE',
+            });
+        }
+
+        if (!newRes.ok) {
+            // КРИТИЧНО: позиция без стопа. Аварийно закрываем market-ордером.
+            console.error(`[LIVE ${ts()}] 🚨 CRITICAL: Step TP new stop failed twice — closing position immediately!`);
+            console.error(`[LIVE ${ts()}] 🚨 Last error: ${newRes.error} (code ${newRes.apiCode || '?'})`);
+            try {
+                const qty = pos.liveFillQty || (pos.size / pos.entryPrice);
+                const closeRes = await client.placeMarketOrder(symbol, oppositeSide, qty, true);
+                if (closeRes.ok) {
+                    console.log(`[LIVE ${ts()}] ✅ Emergency close OK: orderId=${closeRes.data.orderId}`);
+                    return { ok: false, error: 'Step TP failed, position emergency-closed', emergencyClosed: true };
+                } else {
+                    console.error(`[LIVE ${ts()}] 🚨🚨 EMERGENCY CLOSE ALSO FAILED: ${closeRes.error}`);
+                    console.error(`[LIVE ${ts()}] 🚨🚨 МАНУАЛЬНО ЗАКРОЙ ПОЗИЦИЮ В БИРЖЕВОМ ИНТЕРФЕЙСЕ ${symbol}!`);
+                }
+            } catch (e) {
+                console.error(`[LIVE ${ts()}] 🚨🚨 EMERGENCY CLOSE EXCEPTION: ${e.message}`);
+                console.error(`[LIVE ${ts()}] 🚨🚨 МАНУАЛЬНО ЗАКРОЙ ПОЗИЦИЮ В БИРЖЕВОМ ИНТЕРФЕЙСЕ ${symbol}!`);
+            }
+            return { ok: false, error: 'Step TP failed and emergency close failed' };
+        }
+
+        const newAlgoId = newRes.data.algoId;
+        console.log(`[LIVE ${ts()}] ✅ Step TP new stop placed: algoId=${newAlgoId}`);
+        return { ok: true, newAlgoId };
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       LIVE: ОБНОВЛЕНИЕ ДАННЫХ С БИРЖИ ДЛЯ UI
+
+       Раз в N секунд опрашиваем биржу и обновляем markPrice + unrealizedPnl
+       в session, чтобы карточка позиции в UI показывала актуальные числа.
+
+       Никаких автоматических действий: ни phantom-detection, ни re-place стопа,
+       ни zombie-уведомлений. Юзер ведёт всю торговлю через сайт; если что-то
+       пошло не так — увидит расхождение в UI и решит сам.
+    ══════════════════════════════════════════════════════════════ */
+
+    /**
+     * Sync-цикл (10с). Делает 4 проверки согласованности памяти и биржи:
+     *   1) Phantom — позиция в памяти есть, на бирже нет → закрываем как external_close
+     *   2) Zombie — на бирже есть, в памяти нет → подбираем в память, ставим стоп если нет
+     *   3) Size mismatch — размеры не совпадают → корректируем pos.liveFillQty, варн
+     *   4) Stop missing — pos.liveStopOrderId есть, на бирже его нет → переподнимаем
+     *
+     * Защита:
+     *   - _syncInFlight: не накладываем тики друг на друга
+     *   - _syncBusy: если уже делаем тяжёлую операцию — следующий тик пропускает
+     *   - _syncLastActionAt + ANTI_FLAP_MS: после любого «тяжёлого» действия ждём минуту
+     *   - Не трогаем pos с _pending/_closing/_stepTpPending
+     */
+    const SYNC_ANTI_FLAP_MS = 60 * 1000; // после тяжёлого действия — пауза 60с
+    const SYNC_QTY_EPS_REL  = 0.005;     // 0.5% — допуск для сравнения размеров (округление биржи)
+
+    async function syncLiveStateWithExchange(session) {
+        if (!session.running)            return;
+        if (session.mode !== 'live')     return;
+        if (session._syncInFlight)       return;
+        if (session._syncBusy)           return; // дебаунс: предыдущая тяжёлая операция ещё не доехала
+
+        // Если идёт активная операция в основном пайплайне — не мешаем ей.
+        const pos = session.position;
+        if (pos && (pos._pending || pos._closing || pos._stepTpPending)) return;
+
+        session._syncInFlight = true;
+        try {
+            const client = getLiveClient(session);
+            if (!client) return;
+
+            const symbol = session.symbol;
+
+            // ── Шаг 1: тянем позицию с биржи ──
+            const posRiskRes = await client.getPositionRisk(symbol);
+            if (!posRiskRes.ok) {
+                console.warn(`[LIVE-SYNC ${ts()}] getPositionRisk failed: ${posRiskRes.error || 'unknown'}`);
+                return;
+            }
+
+            const posOnExch = (posRiskRes.data || []).find(p => p.symbol === symbol);
+            const exchAmt    = posOnExch ? parseFloat(posOnExch.positionAmt) : 0;
+            const exchEntry  = posOnExch ? parseFloat(posOnExch.entryPrice)  : 0;
+            const hasOnExch  = exchAmt !== 0;
+
+            // Обновляем UI-снэпшот всегда (как было раньше)
+            if (hasOnExch) {
+                session.exchangePositionAmt   = exchAmt;
+                session.exchangeMarkPrice     = parseFloat(posOnExch.markPrice) || null;
+                session.exchangeUnrealizedPnl = parseFloat(posOnExch.unRealizedProfit) || 0;
+            } else {
+                session.exchangePositionAmt   = 0;
+                session.exchangeMarkPrice     = null;
+                session.exchangeUnrealizedPnl = 0;
+            }
+
+            // ── Anti-flap: если только что что-то делали — на этом тике только UI-снэпшот ──
+            const now = Date.now();
+            if (now - (session._syncLastActionAt || 0) < SYNC_ANTI_FLAP_MS) {
+                return;
+            }
+
+            // ── Перечитываем pos (могла измениться, пока шёл await) ──
+            const curPos = session.position;
+            if (curPos && (curPos._pending || curPos._closing || curPos._stepTpPending)) return;
+
+            const hasInMem = !!curPos;
+
+            // ── Проверка #1: PHANTOM — в памяти есть, на бирже нет ──
+            if (hasInMem && !hasOnExch) {
+                console.warn(`[LIVE-SYNC ${ts()}] 👻 PHANTOM detected: ${symbol} ${curPos.side} in memory, but position on exchange is 0. Closing as external_close.`);
+                session._syncBusy = true;
+                try {
+                    await handlePhantomClose(session, curPos);
+                } catch (e) {
+                    console.error(`[LIVE-SYNC ${ts()}] phantom-close exception: ${e.message}`);
+                } finally {
+                    session._syncBusy = false;
+                    session._syncLastActionAt = Date.now();
+                }
+                return; // следующий тик подхватит уже чистое состояние
+            }
+
+            // ── Проверка #2: ZOMBIE — на бирже есть, в памяти нет ──
+            if (!hasInMem && hasOnExch) {
+                // Throttle warnings — пишем не чаще раза в минуту
+                if (now - (session._zombieWarnedAt || 0) > 60 * 1000) {
+                    console.warn(`[LIVE-SYNC ${ts()}] 🧟 ZOMBIE detected: ${symbol} on exchange (amt=${exchAmt}, entry=${exchEntry}), but no position in memory. Adopting.`);
+                    session._zombieWarnedAt = now;
+                    pushDesyncAlert(session, `Zombie позиция ${symbol}: на бирже ${exchAmt}, в памяти нет. Подобрана в журнал, проверь стоп.`);
+                }
+                session._syncBusy = true;
+                try {
+                    await adoptZombiePosition(session, posOnExch);
+                } catch (e) {
+                    console.error(`[LIVE-SYNC ${ts()}] zombie-adopt exception: ${e.message}`);
+                } finally {
+                    session._syncBusy = false;
+                    session._syncLastActionAt = Date.now();
+                }
+                return;
+            }
+
+            // ── Если позиции нет и в памяти и на бирже — на этом всё ──
+            if (!hasInMem && !hasOnExch) return;
+
+            // Дальше: позиция есть и в памяти, и на бирже. Проверяем согласованность.
+            const memQty  = Math.abs(curPos.liveFillQty || (curPos.size / curPos.entryPrice));
+            const exchQty = Math.abs(exchAmt);
+
+            // ── Проверка #3: SIZE MISMATCH ──
+            if (memQty > 0 && exchQty > 0) {
+                const diffRel = Math.abs(memQty - exchQty) / Math.max(memQty, exchQty);
+                if (diffRel > SYNC_QTY_EPS_REL) {
+                    if (now - (session._syncSizeWarnedAt || 0) > 60 * 1000) {
+                        console.warn(`[LIVE-SYNC ${ts()}] ⚠️  SIZE MISMATCH on ${symbol}: memory=${memQty}, exchange=${exchQty} (diff=${(diffRel*100).toFixed(2)}%). Adjusting memory to exchange.`);
+                        session._syncSizeWarnedAt = now;
+                        pushDesyncAlert(session, `Размер ${symbol}: в памяти ${memQty}, на бирже ${exchQty}. Скорректировано.`);
+                    }
+                    // Корректируем память под биржу — биржа источник правды
+                    curPos.liveFillQty = exchQty;
+                    // pos.size — это USDT-нотионал на момент входа, его не пересчитываем
+                    // (P&L всё равно будет считаться по реальной exitPrice * exchQty)
+                    session._syncLastActionAt = Date.now(); // считаем за тяжёлое действие
+                    // не return — даём проверке #4 отработать на этом же тике
+                }
+            }
+
+            // ── Проверка #4: STOP MISSING ──
+            if (curPos.liveStopOrderId) {
+                let stopFound = false;
+                let algoFetchOk = false;
+                try {
+                    const algoRes = await client.getOpenAlgoOrders(symbol);
+                    if (algoRes.ok && Array.isArray(algoRes.data)) {
+                        algoFetchOk = true;
+                        // Ищем наш стоп. Фильтр по orderId/algoId — самый надёжный
+                        // (algoType/type у разных биржевых эндпоинтов отличается, поэтому
+                        // не полагаемся на тип, а просто ищем по идентификатору).
+                        const wantedId = String(curPos.liveStopOrderId);
+                        for (const o of algoRes.data) {
+                            if (o.symbol && o.symbol !== symbol) continue;
+                            const oid = String(o.algoId || o.orderId || '');
+                            if (oid === wantedId) {
+                                stopFound = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        console.warn(`[LIVE-SYNC ${ts()}] getOpenAlgoOrders failed: ${algoRes.error || 'unknown'} — пропускаем проверку стопа`);
+                    }
+                } catch (e) {
+                    console.warn(`[LIVE-SYNC ${ts()}] getOpenAlgoOrders exception: ${e.message} — пропускаем проверку стопа`);
+                }
+
+                if (algoFetchOk && !stopFound) {
+                    // Ещё раз проверяем что pos не успел стать _pending/_closing
+                    const stillSamePos = session.position === curPos &&
+                        !curPos._pending && !curPos._closing && !curPos._stepTpPending;
+                    if (stillSamePos) {
+                        if (now - (session._syncStopWarnedAt || 0) > 60 * 1000) {
+                            console.warn(`[LIVE-SYNC ${ts()}] 🛡️  STOP MISSING on ${symbol}: liveStopOrderId=${curPos.liveStopOrderId} not found on exchange. Re-placing at ${curPos.stop}.`);
+                            session._syncStopWarnedAt = now;
+                        }
+                        session._syncBusy = true;
+                        try {
+                            await replaceMissingStop(session, curPos);
+                        } catch (e) {
+                            console.error(`[LIVE-SYNC ${ts()}] re-place stop exception: ${e.message}`);
+                        } finally {
+                            session._syncBusy = false;
+                            session._syncLastActionAt = Date.now();
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.error(`[LIVE-SYNC ${ts()}] Exception: ${e.message}`);
+        } finally {
+            session._syncInFlight = false;
+        }
+    }
+
+    /**
+     * PHANTOM: позиция была в памяти, но на бирже её нет. Значит сработал стоп,
+     * либо ликвидация, либо ручное закрытие на Binance UI. Достаём реальный
+     * fill из истории сделок и финализируем как external_close.
+     *
+     * Логика повторяет ветку externallyClosed в executeCloseLive (строки ~1996-2058),
+     * но без попытки placeMarketOrder (мы уже знаем что позиции нет).
+     */
+    async function handlePhantomClose(session, pos) {
+        const client = getLiveClient(session);
+        if (!client) return;
+        const symbol = session.symbol;
+
+        // Помечаем _closing чтобы основной пайплайн не лез
+        pos._closing = true;
+        pos._closingReason = 'external_close';
+        pos._closingPriceHint = session.currentPrice || pos.entryPrice;
+
+        const closeSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
+
+        // Снимаем оставшийся стоп (если ещё висит)
+        await cancelStopIfExists(client, symbol, pos.liveStopOrderId);
+
+        // Recovery fill из истории сделок (последние 5 минут, противоположная сторона)
+        let realFillPrice = pos._closingPriceHint;
+        let realFillQty   = pos.liveFillQty || (pos.size / pos.entryPrice);
+        let realCommission = 0;
+        let realCommissionAsset = pos.liveCommissionAsset || 'USDT';
+
+        try {
+            const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+            const histRes = await client.getUserTrades(symbol, { limit: 50 });
+            if (histRes.ok && Array.isArray(histRes.data) && histRes.data.length > 0) {
+                const closeFills = histRes.data.filter(t =>
+                    t.side === closeSide &&
+                    parseFloat(t.time || t.timestamp || 0) >= fiveMinAgo
+                );
+                if (closeFills.length > 0) {
+                    let notional = 0, totalQty = 0;
+                    for (const t of closeFills) {
+                        const p = parseFloat(t.price);
+                        const q = parseFloat(t.qty);
+                        notional += p * q;
+                        totalQty += q;
+                        realCommission += parseFloat(t.commission) || 0;
+                        realCommissionAsset = t.commissionAsset || realCommissionAsset;
+                    }
+                    if (totalQty > 0) {
+                        realFillPrice = notional / totalQty;
+                        realFillQty   = totalQty;
+                    }
+                    console.log(`[LIVE-SYNC ${ts()}] 📊 Phantom fill recovered: ${closeFills.length} trades, qty=${totalQty}, avgPrice=${realFillPrice.toFixed(6)}, fee=${realCommission} ${realCommissionAsset}`);
+                } else {
+                    console.warn(`[LIVE-SYNC ${ts()}] ⚠️  No matching ${closeSide} fills in last 5 min — fee=0 for this trade`);
+                }
+            }
+        } catch (e) {
+            console.warn(`[LIVE-SYNC ${ts()}] ⚠️  History fetch failed for phantom-fill: ${e.message}. fee=0 for this trade`);
+        }
+
+        const liveResult = {
+            ok: true,
+            externallyClosed: true,
+            fillPrice:        realFillPrice,
+            fillQty:          realFillQty,
+            commission:       realCommission,
+            commissionAsset:  realCommissionAsset,
+            slippage:         realFillPrice - (pos._closingPriceHint || pos.entryPrice),
+            reason:           'external_close',
+        };
+
+        finalizeClosePosition(session, pos, liveResult, 'external_close');
+        pushDesyncAlert(session, `Phantom: ${symbol} ${pos.side} закрылась на бирже без нашего ведома. Записано как external_close.`);
+    }
+
+    /**
+     * ZOMBIE: на бирже есть позиция, в памяти нет. Подбираем: создаём session.position
+     * на основе биржевых данных, ставим стоп если его нет.
+     *
+     * Это «компромиссный» сценарий — мы не знаем стратегических параметров (level,
+     * riskReward, target и т.д.), поэтому ставим минимальный безопасный набор:
+     * стоп — на основе ATR, target=null, source='zombie'.
+     */
+    async function adoptZombiePosition(session, posOnExch) {
+        const client = getLiveClient(session);
+        if (!client) return;
+        const symbol = session.symbol;
+
+        const exchAmt    = parseFloat(posOnExch.positionAmt);
+        const exchEntry  = parseFloat(posOnExch.entryPrice) || session.currentPrice;
+        const side       = exchAmt > 0 ? 'LONG' : 'SHORT';
+        const qty        = Math.abs(exchAmt);
+        const closeSide  = side === 'LONG' ? 'SELL' : 'BUY';
+
+        // Считаем условный стоп на основе ATR (1xATR от entry в проигрышную сторону)
+        const atr = session.candles && session.candles.length > 0
+            ? (session.candles[session.candles.length - 1].atr || (exchEntry * 0.005))
+            : (exchEntry * 0.005);
+        const stopPrice = side === 'LONG'
+            ? exchEntry - atr
+            : exchEntry + atr;
+
+        // Размер в USDT для журнала
+        const sizeUsdt = qty * exchEntry;
+
+        // Проверяем, есть ли уже стоп на бирже
+        let existingStopId = null;
+        try {
+            const algoRes = await client.getOpenAlgoOrders(symbol);
+            if (algoRes.ok && Array.isArray(algoRes.data)) {
+                const stopOrder = algoRes.data.find(o =>
+                    (o.symbol === symbol || !o.symbol) &&
+                    (String(o.side || '').toUpperCase() === closeSide) &&
+                    (o.closePosition === true || o.closePosition === 'true' ||
+                     String(o.type || '').includes('STOP') || String(o.algoType || '').includes('STOP'))
+                );
+                if (stopOrder) {
+                    existingStopId = stopOrder.algoId || stopOrder.orderId;
+                    console.log(`[LIVE-SYNC ${ts()}] 🧟 Found existing stop on exchange for adopted position: id=${existingStopId}`);
+                }
+            }
+        } catch (e) {
+            console.warn(`[LIVE-SYNC ${ts()}] ⚠️  Cannot check existing stops for zombie: ${e.message}`);
+        }
+
+        let stopOrderId = existingStopId;
+        if (!existingStopId) {
+            // Ставим новый стоп
+            const stopRounded = Math.round(stopPrice * 1e6) / 1e6;
+            console.log(`[LIVE-SYNC ${ts()}] 🛡️  Placing safety stop for zombie ${side} ${symbol} @ ${stopRounded}`);
+            try {
+                const stopRes = await client.placeStopMarketOrder(symbol, closeSide, stopRounded, {
+                    closePosition: true,
+                });
+                if (stopRes.ok) {
+                    stopOrderId = stopRes.data.orderId || stopRes.data.algoId;
+                    console.log(`[LIVE-SYNC ${ts()}] ✅ Safety stop placed for zombie: id=${stopOrderId}`);
+                } else {
+                    console.error(`[LIVE-SYNC ${ts()}] ❌ Safety stop FAILED for zombie: ${stopRes.error}. Position adopted without stop!`);
+                    pushDesyncAlert(session, `Не удалось поставить safety stop для подобранной zombie позиции ${symbol}: ${stopRes.error}. Поставь стоп вручную в Binance!`);
+                }
+            } catch (e) {
+                console.error(`[LIVE-SYNC ${ts()}] ❌ Safety stop EXCEPTION for zombie: ${e.message}`);
+                pushDesyncAlert(session, `Не удалось поставить safety stop для zombie ${symbol}: ${e.message}. Поставь стоп вручную в Binance!`);
+            }
+        }
+
+        // Создаём минимальный объект позиции
+        session.position = {
+            side,
+            entryPrice: exchEntry,
+            stop:       stopPrice,
+            target:     null,
+            size:       sizeUsdt,
+            openedAt:   Date.now(),
+            candlesHeld: 0,
+            level:      null,
+            riskReward: null,
+            entryType:  'zombie',
+            source:     'zombie',
+            trailingActive: false,
+            clusterExitCount: 0,
+            entryRsi: null, entryBbUpper: null, entryBbMiddle: null, entryBbLower: null,
+            entryAtr: atr,
+            entryClusterBuy: null,
+            entryMode: session.entryMode || 'candle',
+            strategy:  session.strategy || 'scalper',
+            direction: session.direction || 'both',
+            clusterEntryFilter:  session.clusterEntryFilter || false,
+            regimeFilterEnabled: session.regimeFilterEnabled || false,
+            entryRegime: null,
+            // ── Снэпшот окна торговли при входе ──
+            tradingWindowAtEntry: getActiveWindowLabel(session),
+            entryHourUTC:        new Date().getUTCHours(),
+            entryMinuteUTC:      new Date().getUTCMinutes(),
+            maxUnrealized: 0,
+            maxDrawdown: 0,
+            maxUnrealizedAt: null, maxUnrealizedPrice: null,
+            maxDrawdownAt: null, maxDrawdownPrice: null,
+            firstMoveSide: null,
+            trailingActivatedAt: null, trailingActivatedPrice: null, trailingActivatedPnl: null,
+            stepTpActive: false, stepTpLastLevel: -1,
+            stepTpActivatedAt: null, stepTpActivatedPrice: null, stepTpActivatedPnl: null,
+            stepTpMaxLevel: null,
+            // Live fields
+            liveEntryOrderId: null,
+            liveStopOrderId:  stopOrderId,
+            liveFillQty:      qty,
+            liveEntryCommission: 0,
+            liveCommissionAsset: 'USDT',
+            signalEntry:      exchEntry,
+            slippageEntry:    0,
+        };
+
+        console.log(`[LIVE-SYNC ${ts()}] 🧟 Adopted zombie: ${side} ${symbol} qty=${qty} entry=${exchEntry} stop=${stopPrice} (stopId=${stopOrderId || 'NONE'})`);
+    }
+
+    /**
+     * STOP MISSING: pos.liveStopOrderId есть в памяти, но на бирже не нашли.
+     * Переподнимаем стоп на цене pos.stop. Защита: если placeStopMarketOrder упал —
+     * пишем алерт юзеру, позицию не трогаем (не закрываем автоматически — пусть юзер
+     * решит сам, в т.ч. и через сайт).
+     */
+    async function replaceMissingStop(session, pos) {
+        const client = getLiveClient(session);
+        if (!client) return;
+        const symbol = session.symbol;
+
+        const closeSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
+        const stopRounded = Math.round(pos.stop * 1e6) / 1e6;
+
+        try {
+            const stopRes = await client.placeStopMarketOrder(symbol, closeSide, stopRounded, {
+                closePosition: true,
+            });
+            if (stopRes.ok) {
+                const newId = stopRes.data.orderId || stopRes.data.algoId;
+                console.log(`[LIVE-SYNC ${ts()}] ✅ Stop re-placed: ${pos.side} ${symbol} @ ${stopRounded}, new id=${newId} (was ${pos.liveStopOrderId})`);
+                pos.liveStopOrderId = newId;
+                pushDesyncAlert(session, `Стоп ${symbol} переподнят: был потерян на бирже, поставлен заново на ${stopRounded}.`);
+            } else {
+                console.error(`[LIVE-SYNC ${ts()}] ❌ Stop re-place FAILED: ${stopRes.error} (code ${stopRes.apiCode || '?'})`);
+                pushDesyncAlert(session, `Не удалось переподнять стоп ${symbol} (${stopRes.error}). Позиция без защиты — закрой вручную или поставь стоп в Binance!`);
+            }
+        } catch (e) {
+            console.error(`[LIVE-SYNC ${ts()}] ❌ Stop re-place EXCEPTION: ${e.message}`);
+            pushDesyncAlert(session, `Не удалось переподнять стоп ${symbol} (${e.message}). Позиция без защиты — закрой вручную или поставь стоп в Binance!`);
+        }
+    }
+
+    /**
+     * Финализирует закрытие позиции: считает P&L, пишет сделку в журнал, лог.
+     * В paper-ветке вызывается сразу из closePosition.
+     * В live-ветке вызывается после успешной цепочки executeCloseLive.
+     *
+     * liveResult: null для paper, объект с биржевыми данными для live.
+     */
+    function finalizeClosePosition(session, pos, liveResult, reason) {
+        // Реальная цена и комиссия выхода — для live из биржи, для paper из расчёта.
+        const exitPrice = liveResult ? liveResult.fillPrice : pos._closingPriceHint;
+        const price = exitPrice; // алиас для совместимости с остальным кодом
 
         const priceDiff = pos.side === 'LONG'
             ? (price - pos.entryPrice) / pos.entryPrice
@@ -1529,13 +3146,21 @@ module.exports = function(app) {
 
         const grossPnl = pos.size * priceDiff;
 
-        // Комиссия: maker 0.02%, taker 0.055%
-        // Вход = taker (маркет), выход по стопу/таймауту/трейлинг = taker, выход по тейку = maker
-        const entryFeeRate = 0.00055;  // taker
-        const exitFeeRate  = reason === 'take_profit' ? 0.0002 : 0.00055;
-        const entryFee = pos.size * entryFeeRate;
-        const exitFee  = pos.size * exitFeeRate;
-        const totalFee = entryFee + exitFee;
+        // ── Комиссия ──
+        // Live: реальные комиссии входа и выхода из ответов биржи (USDT).
+        // Paper: расчёт по таксе maker/taker.
+        let entryFee, exitFee, totalFee;
+        if (liveResult) {
+            entryFee = pos.liveEntryCommission || 0;
+            exitFee  = liveResult.commission   || 0;
+            totalFee = entryFee + exitFee;
+        } else {
+            const entryFeeRate = 0.00055;  // taker
+            const exitFeeRate  = reason === 'take_profit' ? 0.0002 : 0.00055;
+            entryFee = pos.size * entryFeeRate;
+            exitFee  = pos.size * exitFeeRate;
+            totalFee = entryFee + exitFee;
+        }
 
         const netPnl = grossPnl - totalFee;
         session.virtualBalance += netPnl;
@@ -1554,7 +3179,7 @@ module.exports = function(app) {
             fee:         Math.round(totalFee * 100) / 100,
             pnl:         Math.round(netPnl * 100) / 100,
             pnlPct:      Math.round(((netPnl / pos.size) * 100) * 100) / 100,
-            reason:      reason,
+            reason:      (liveResult && liveResult.externallyClosed) ? 'external_close' : reason,
             entryType:   pos.entryType || 'bot',
             source:      pos.source || 'auto',
             riskReward:  pos.riskReward,
@@ -1568,6 +3193,9 @@ module.exports = function(app) {
             direction:        pos.direction || 'both',
             clusterEntryUsed: pos.clusterEntryFilter || false,
             entryRegime:      pos.entryRegime || null,
+            tradingWindowAtEntry: pos.tradingWindowAtEntry || 'all',
+            entryHourUTC:     pos.entryHourUTC != null ? pos.entryHourUTC : null,
+            entryMinuteUTC:   pos.entryMinuteUTC != null ? pos.entryMinuteUTC : null,
             entryRsi:         pos.entryRsi,
             entryBbUpper:     pos.entryBbUpper,
             entryBbMiddle:    pos.entryBbMiddle,
@@ -1575,31 +3203,43 @@ module.exports = function(app) {
             entryAtr:         pos.entryAtr,
             entryClusterBuy:  pos.entryClusterBuy,
             exitClusterBuy:   null, // заполним ниже
-            exitRsi:          null, // заполним ниже
-            exitAtr:          null, // заполним ниже
-            exitBbUpper:      null, // заполним ниже
-            exitBbMiddle:     null, // заполним ниже
-            exitBbLower:      null, // заполним ниже
+            exitRsi:          null,
+            exitAtr:          null,
+            exitBbUpper:      null,
+            exitBbMiddle:     null,
+            exitBbLower:      null,
             maxUnrealized:    pos.maxUnrealized || 0,
             maxDrawdown:      pos.maxDrawdown || 0,
-            // ── Новый трекинг: когда достигнуты пики ──
             maxUnrealizedAt:    pos.maxUnrealizedAt || null,
             maxUnrealizedPrice: pos.maxUnrealizedPrice || null,
             maxDrawdownAt:      pos.maxDrawdownAt || null,
             maxDrawdownPrice:   pos.maxDrawdownPrice || null,
             firstMoveSide:      pos.firstMoveSide || null,
-            // ── Трейлинг: активировался или нет ──
+            // ── Трейлинг ──
             trailingActivated:      pos.trailingActive || false,
             trailingActivatedAt:    pos.trailingActivatedAt || null,
             trailingActivatedPrice: pos.trailingActivatedPrice || null,
             trailingActivatedPnl:   pos.trailingActivatedPnl || null,
-            // ── Step TP (STP): активировался или нет ──
+            // ── Step TP ──
             stepTpActivated:        pos.stepTpActive || false,
             stepTpActivatedAt:      pos.stepTpActivatedAt || null,
             stepTpActivatedPrice:   pos.stepTpActivatedPrice || null,
             stepTpActivatedPnl:     pos.stepTpActivatedPnl || null,
             stepTpMaxLevel:         pos.stepTpMaxLevel || null,
             durationMin:      Math.round((Date.now() - pos.openedAt) / 60000),
+            // ── Live: данные с биржи ──
+            // Сохраняем для последующей сверки и анализа проскальзывания.
+            mode:                session.mode || 'paper',
+            liveEntryOrderId:    pos.liveEntryOrderId   || null,
+            liveStopOrderId:     pos.liveStopOrderId    || null,
+            liveExitOrderId:     null,                    // эта функция не знает orderId выхода; можно прокинуть из liveResult, но пока не нужно
+            liveEntryCommission: pos.liveEntryCommission || 0,
+            liveExitCommission:  liveResult ? liveResult.commission : 0,
+            liveCommissionAsset: pos.liveCommissionAsset || (liveResult && liveResult.commissionAsset) || null,
+            signalEntry:         pos.signalEntry        || pos.entryPrice,
+            slippageEntry:       pos.slippageEntry      || 0,
+            slippageExit:        liveResult ? liveResult.slippage : 0,
+            externallyClosed:    !!(liveResult && liveResult.externallyClosed),
         };
 
         // Кластеры при выходе
@@ -1638,12 +3278,9 @@ module.exports = function(app) {
         } catch(e) {}
 
         session.trades.unshift(trade);
-        // Лимит поднят до 1000 (было 200). Для очистки используется /api/bot/clear-trades.
         if (session.trades.length > 1000) session.trades.pop();
 
-        // Персистентность: сразу сохраняем изменения на диск после закрытия сделки,
-        // чтобы не потерять trades при неожиданном рестарте сервера.
-        try { saveSessionsToDisk(); } catch(e) { /* noop */ }
+        try { saveSessionsToDisk(); } catch(e) {}
 
         if (netPnl < 0) {
             session.consecutiveLosses++;
@@ -1651,23 +3288,21 @@ module.exports = function(app) {
             session.consecutiveLosses = 0;
         }
 
-        // Cooldown: после закрытия ждём N свечей перед следующим входом
         session.cooldownUntil = session.cooldownCandles || 5;
 
-        // Max favorable / adverse для анализа
         const mfa = pos.maxUnrealized !== undefined ? ` | MaxFav: $${pos.maxUnrealized.toFixed(2)}` : '';
         const mdd = pos.maxDrawdown !== undefined ? ` | MaxDD: $${pos.maxDrawdown.toFixed(2)}` : '';
 
         const emoji = netPnl >= 0 ? '🟢' : '🔴';
-        console.log(`[BOT ${ts()}] ${emoji} CLOSED ${pos.side} @ ${price} | Gross: $${grossPnl.toFixed(2)} | Fee: $${totalFee.toFixed(2)} | Net: $${netPnl.toFixed(2)} (${trade.pnlPct}%) | ${reason} | ${pos.candlesHeld} candles${mfa}${mdd}${exitClusterDetails}`);
+        const modeTag = session.mode === 'live' ? '🔴 LIVE' : '📄 PAPER';
+        const slipInfo = liveResult ? ` | SlipExit: ${liveResult.slippage >= 0 ? '+' : ''}${liveResult.slippage.toFixed(4)}` : '';
+        const extInfo  = trade.externallyClosed ? ' [externally closed]' : '';
+        console.log(`[BOT ${ts()}] ${emoji} ${modeTag} CLOSED ${pos.side} @ ${price} | Gross: $${grossPnl.toFixed(2)} | Fee: $${totalFee.toFixed(2)} | Net: $${netPnl.toFixed(2)} (${trade.pnlPct}%) | ${trade.reason} | ${pos.candlesHeld} candles${mfa}${mdd}${exitClusterDetails}${slipInfo}${extInfo}`);
 
-        // ── Push-уведомление о закрытой сделке ──
+        // ── Push-уведомление ──
         pushTradeClosed(session, trade);
 
         session.position = null;
-        // Если был лимитный выход, который ещё не сработал (позиция закрылась
-        // по стопу/трейлингу/таймауту/ручному CLOSE) — очищаем, чтобы он не
-        // "повис" и не сработал на следующей сессии.
         if (session.pendingExit) {
             session.pendingExit = null;
         }
@@ -1705,13 +3340,29 @@ module.exports = function(app) {
     function checkPosition(session, price) {
         const pos = session.position;
         if (!pos) return;
+        // Плейсхолдер _pending — позиция ещё открывается на бирже, ничего не считаем
+        if (pos._pending) return;
+        // _closing — позиция уже закрывается на бирже, не дёргаем стопы / Step TP
+        if (pos._closing) return;
 
         session.currentPrice = price;
 
         // ── Трекинг max unrealized P&L и max drawdown с timestamp-ами ──
-        const unrealized = pos.side === 'LONG'
-            ? (price - pos.entryPrice) / pos.entryPrice * pos.size
-            : (pos.entryPrice - price) / pos.entryPrice * pos.size;
+        // В Live предпочитаем биржевой unrealized (если sync уже обновил его):
+        // он учитывает mark price, funding, резерв на закрытие — это то же самое
+        // число, которое юзер видит в карточке позиции и в Binance UI.
+        // Расчётная формула через pos.size может расходиться с биржей в разы
+        // из-за плеча/округления qty/расхождения entryPrice — и тогда Step TP
+        // никогда не активируется при достижении настроенного триггера.
+        // В paper биржи нет — считаем по формуле как раньше.
+        let unrealized;
+        if (session.mode === 'live' && typeof session.exchangeUnrealizedPnl === 'number' && session.exchangeUnrealizedPnl !== 0) {
+            unrealized = session.exchangeUnrealizedPnl;
+        } else {
+            unrealized = pos.side === 'LONG'
+                ? (price - pos.entryPrice) / pos.entryPrice * pos.size
+                : (pos.entryPrice - price) / pos.entryPrice * pos.size;
+        }
 
         // Пик в плюс
         if (unrealized > (pos.maxUnrealized || 0)) {
@@ -1897,13 +3548,18 @@ module.exports = function(app) {
                 if (maxLevelReached > (pos.stepTpLastLevel ?? -1) && maxLevelReached >= 0) {
                     const stopProfit = trigger + maxLevelReached * step - tolerance;
 
-                    // Переводим прибыль в $ обратно в цену стопа
-                    // unrealized = (price - entry) * (size / entry)  для LONG
-                    // unrealized = (entry - price) * (size / entry)  для SHORT
-                    // Отсюда цена, где unrealized = stopProfit:
-                    //   LONG:  price = entry + stopProfit * entry / size
-                    //   SHORT: price = entry − stopProfit * entry / size
-                    const priceDelta = stopProfit * pos.entryPrice / pos.size;
+                    // Переводим прибыль в $ обратно в цену стопа.
+                    // В paper: размер pos.size — это полный нотионал, формула:
+                    //   unrealized = (price - entry) * pos.size / entry  → priceDelta = stopProfit * entry / size
+                    // В Live: реальный размер на бирже может отличаться от pos.size
+                    // (плечо, округление qty, маржа). Используем реальный fillQty:
+                    //   unrealized = (price - entry) * qty  → priceDelta = stopProfit / qty
+                    let priceDelta;
+                    if (session.mode === 'live' && pos.liveFillQty && pos.liveFillQty > 0) {
+                        priceDelta = stopProfit / pos.liveFillQty;
+                    } else {
+                        priceDelta = stopProfit * pos.entryPrice / pos.size;
+                    }
                     const newStop = pos.side === 'LONG'
                         ? pos.entryPrice + priceDelta
                         : pos.entryPrice - priceDelta;
@@ -1926,6 +3582,43 @@ module.exports = function(app) {
                         pos.stepTpActive     = true;
                         pos.stepTpLastLevel  = maxLevelReached;
                         pos.stepTpMaxLevel   = Math.round(stopProfit * 100) / 100;
+
+                        // ── LIVE: подтянуть STOP_MARKET на бирже ──
+                        // Память (pos.stop) уже обновили выше — так paper-логика продолжает
+                        // работать, и при сетевой ошибке у нас всё ещё есть локальный стоп
+                        // для проверки на тиках. На бирже подтянем асинхронно.
+                        // Флаг _stepTpPending защищает от гонки: на следующем тике пока
+                        // подтяжка не завершилась — не запускаем ещё одну.
+                        if (session.mode === 'live' && !pos._stepTpPending) {
+                            pos._stepTpPending = true;
+                            const targetStop = newStop;  // снимок на момент решения
+                            executeStepTpUpdateLive(session, pos, targetStop)
+                                .then(result => {
+                                    if (result.ok) {
+                                        pos.liveStopOrderId = result.newAlgoId;
+                                    } else if (result.positionGone) {
+                                        // Позиция уже закрыта на бирже (стоп сработал
+                                        // в ходе подтяжки). Запустим финальное закрытие
+                                        // нашим closePosition — он увидит external_close
+                                        // через executeCloseLive и корректно запишет в журнал.
+                                        console.log(`[BOT ${ts()}] ℹ️  Step TP saw position gone — triggering close flow`);
+                                        closePosition(session, price, 'external_close');
+                                    } else if (result.emergencyClosed) {
+                                        // Аварийное закрытие сработало в executeStepTpUpdateLive.
+                                        // Записываем сделку. closePosition увидит ext_closed.
+                                        closePosition(session, price, 'step_tp_failed');
+                                    } else {
+                                        console.error(`[BOT ${ts()}] ❌ Step TP exchange update failed: ${result.error} — local stop is set, exchange may be out of sync`);
+                                    }
+                                })
+                                .catch(err => {
+                                    console.error(`[BOT ${ts()}] 💥 Step TP exception: ${err.message}`);
+                                    console.error(err.stack);
+                                })
+                                .finally(() => {
+                                    if (pos) pos._stepTpPending = false;
+                                });
+                        }
                     }
                 }
             }
@@ -1950,6 +3643,8 @@ module.exports = function(app) {
     function checkTimeout(session) {
         const pos = session.position;
         if (!pos) return;
+        if (pos._pending) return;  // плейсхолдер не считаем
+        if (pos._closing) return;  // позиция уже закрывается
 
         pos.candlesHeld++;
 
@@ -1993,7 +3688,7 @@ module.exports = function(app) {
         checkTimeout(session);
 
         // ── Динамический тейк для Mean Reversion ──
-        if (session.position && session.strategy === 'mean_reversion') {
+        if (session.position && !session.position._pending && !session.position._closing && session.strategy === 'mean_reversion') {
             const closedCandles = session.candles.filter(c => c.closed);
             const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);
             if (bb) {
@@ -2067,6 +3762,8 @@ module.exports = function(app) {
     function checkClusterExit(session) {
         const pos = session.position;
         if (!pos) return;
+        if (pos._pending) return;  // плейсхолдер не считаем
+        if (pos._closing) return;  // позиция уже закрывается
 
         const closedCandles = session.candles.filter(c => c.closed);
         if (closedCandles.length < 2) return;
@@ -2325,6 +4022,40 @@ module.exports = function(app) {
     async function startBot(uid, botId, settings) {
         const session = getSession(uid, botId);
 
+        // ── Live-guard: проверяем ключи ДО любых действий ──
+        // Если бот в Live-режиме, ему нужны валидные API ключи Binance.
+        // Загружаем из шифрованного хранилища, проверяем актуальность через биржу,
+        // и только потом разрешаем запуск. Если ключей нет или они отозваны —
+        // отказываем; бот никогда не пытается торговать без подтверждённых ключей.
+        if (settings && settings.mode === 'live') {
+            const loaded = credsStore.loadCredentials(uid);
+            if (!loaded.ok) {
+                return {
+                    ok: false,
+                    error: 'Для Live-режима нужны API ключи Binance. Откройте настройки бота, введите ключи и нажмите "Сохранить".'
+                };
+            }
+            // Проверяем что ключи всё ещё рабочие (могли отозвать на стороне Binance)
+            const client = createBinanceClient({
+                apiKey:    loaded.apiKey,
+                apiSecret: loaded.apiSecret,
+                testnet:   !!loaded.testnet,
+            });
+            const acc = await client.getAccountInfo();
+            if (!acc.ok) {
+                return {
+                    ok: false,
+                    error: 'Сохранённые API ключи отвергнуты Binance: ' + acc.error +
+                           ' Откройте настройки и обновите ключи.'
+                };
+            }
+            // Подгружаем в session — отсюда их будут читать openPosition / closePosition
+            session.apiKey       = loaded.apiKey;
+            session.apiSecret    = loaded.apiSecret;
+            session.apiTestnet   = !!loaded.testnet;
+            session.apiConnected = true;
+        }
+
         // ── Защита от двойного запуска ──
         if (session.running) {
             console.log(`[BOT] ⚠️ Bot already running for uid=${uid}, stopping previous instance...`);
@@ -2499,15 +4230,22 @@ module.exports = function(app) {
         );
         console.log(`[BOT] Found ${session.levels.length} micro-levels`);
 
-        // ── Режим рынка (EMA50/EMA200 на 15m + 1h) ──
+        // ── Режим рынка V2 (4h + 15m + 5m, согласованность всех трёх) ──
         // Первичный расчёт — до WebSocket, чтобы первая же свеча проверялась с режимом.
-        // Дальше обновляем раз в 15 минут в фоне.
+        // Дальше обновляем раз в 5 минут (внутри сами кэши с разной частотой: 4h=1ч, 15m=10м, 5m=5м).
         try {
-            session.regime = await detectMarketRegime(session.symbol, session.binanceInterval);
-            console.log(`[BOT] 🧭 Regime for ${session.pair}: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
+            session.regime = await detectMarketRegimeV2(session.symbol);
+            const r = session.regime;
+            console.log(`[BOT] 🧭 Regime V2 for ${session.pair}: 4h=${r.tf4h.state}, 15m=${r.tf15m.state}, 5m=${r.tf5m.state} → allowed ${r.allowed}`);
         } catch (e) {
-            console.error(`[BOT] Failed initial regime detection:`, e.message);
-            session.regime = { higher: 'flat', main: 'flat', allowed: 'BOTH', tfHigher: '1h', tfMain: '15m' };
+            console.error(`[BOT] Failed initial regime detection V2:`, e.message);
+            session.regime = {
+                tf4h:  { state: 'flat', reason: 'init_error' },
+                tf15m: { state: 'flat', reason: 'init_error' },
+                tf5m:  { state: 'flat', reason: 'init_error' },
+                allowed: 'BLOCK',
+                updatedAt: Date.now(),
+            };
         }
 
         // ── ATR-режим волатильности ──
@@ -2521,17 +4259,36 @@ module.exports = function(app) {
             session.atrRegime = { multiplier: 1.0, level: 'calm', blocked: false, threshold: session.atrFilterThreshold || 2.0 };
         }
 
-        // Фоновое обновление каждые 15 минут
+        // Фоновое обновление каждые 5 минут (минимальный TTL из всех ТФ — 5m)
         if (session._regimeInterval) clearInterval(session._regimeInterval);
         session._regimeInterval = setInterval(async () => {
             if (!session.running) return;
             try {
-                session.regime = await detectMarketRegime(session.symbol, session.binanceInterval);
-                console.log(`[BOT] 🧭 Regime refreshed for ${session.pair}: ${session.regime.tfHigher}=${session.regime.higher}, ${session.regime.tfMain}=${session.regime.main} → allowed ${session.regime.allowed}`);
+                session.regime = await detectMarketRegimeV2(session.symbol);
+                const r = session.regime;
+                console.log(`[BOT] 🧭 Regime V2 refreshed for ${session.pair}: 4h=${r.tf4h.state}, 15m=${r.tf15m.state}, 5m=${r.tf5m.state} → allowed ${r.allowed}`);
             } catch (e) {
-                console.error(`[BOT] Regime refresh failed:`, e.message);
+                console.error(`[BOT] Regime V2 refresh failed:`, e.message);
             }
-        }, 15 * 60 * 1000);
+        }, 5 * 60 * 1000);
+
+        // ── LIVE: периодический sync с биржей (UI snapshot + 4 reconciliation-проверки) ──
+        // На каждом тике: phantom / zombie / size mismatch / stop missing.
+        // Подробности — в syncLiveStateWithExchange.
+        if (session._liveSyncInterval) clearInterval(session._liveSyncInterval);
+        if (session.mode === 'live') {
+            console.log(`[LIVE-SYNC] ▶️  Starting reconciliation sync for ${session.pair} (every 10s)`);
+            // Initial sync сразу — на случай если сервер перезапустился и в памяти
+            // нет позиции, а на бирже она есть; или наоборот.
+            syncLiveStateWithExchange(session).catch(e => {
+                console.error(`[LIVE-SYNC] Initial sync failed: ${e.message}`);
+            });
+            session._liveSyncInterval = setInterval(() => {
+                syncLiveStateWithExchange(session).catch(e => {
+                    console.error(`[LIVE-SYNC] Tick failed: ${e.message}`);
+                });
+            }, 10 * 1000);
+        }
 
         // ── Подключаем WebSocket ──
         connectWebSocket(uid, botId);
@@ -2578,6 +4335,12 @@ module.exports = function(app) {
         if (session._regimeInterval) {
             clearInterval(session._regimeInterval);
             session._regimeInterval = null;
+        }
+
+        // Останавливаем live-sync таймер
+        if (session._liveSyncInterval) {
+            clearInterval(session._liveSyncInterval);
+            session._liveSyncInterval = null;
         }
 
         console.log(`[BOT] 🛑 Bot stopped for uid=${uid} bot=${botId}${silent ? ' (silent)' : ''}`);
@@ -2632,6 +4395,117 @@ module.exports = function(app) {
             res.json({ ok: true, wasRunning: result.wasRunning });
         } catch(e) {
             res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/bot/emergency-close-live — аварийно закрыть Live-позицию и остановить бота
+    // body: { uid, botId, silent? }
+    // Шаги:
+    //   1. Проверяем что бот в Live-режиме (paper отвергаем)
+    //   2. Если есть pendingLimit — обнуляем
+    //   3. Если есть открытая позиция — market reduceOnly close
+    //   4. На всякий случай — отменяем все остальные алго-ордера на символе
+    //      (если бот "потерял" algoId — стопы могли остаться висеть)
+    //   5. Останавливаем бота (stopBot)
+    // Возвращает { ok, steps: { closedPosition, cancelledOrders, errors[] } }
+    app.post('/api/bot/emergency-close-live', async (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            const botId = req.body.botId || 'default';
+            const silent = !!req.body.silent;
+
+            const session = getSession(uid, botId);
+            if (!session) {
+                return res.status(404).json({ ok: false, error: 'Бот не найден' });
+            }
+            if (session.mode !== 'live') {
+                return res.status(400).json({ ok: false, error: 'Аварийный стоп доступен только для Live-режима' });
+            }
+
+            const steps = {
+                closedPosition: false,
+                cancelledOrders: 0,
+                errors: [],
+            };
+
+            // 1. Сбросить pendingLimit
+            if (session.pendingLimit) {
+                console.log(`[EMERGENCY ${ts()}] 🖐 Cancelling pendingLimit for ${session.pair}`);
+                session.pendingLimit = null;
+            }
+
+            const client = getLiveClient(session);
+
+            // 2. Закрыть позицию если есть
+            if (session.position && !session.position._pending && !session.position._closing) {
+                console.log(`[EMERGENCY ${ts()}] 🚨 Closing position ${session.position.side} ${session.symbol}`);
+                try {
+                    // Market price hint — последняя котировка
+                    const priceHint = session.currentPrice || session.position.entryPrice;
+                    closePosition(session, priceHint, 'emergency_stop');
+                    // closePosition в live — асинхронный, ждём пока флаг _closing снимется или истечёт таймаут
+                    const start = Date.now();
+                    while (session.position && session.position._closing && (Date.now() - start) < 10000) {
+                        await new Promise(r => setTimeout(r, 200));
+                    }
+                    steps.closedPosition = !session.position;
+                    if (session.position) {
+                        steps.errors.push('Закрытие позиции не завершилось за 10 секунд');
+                    }
+                } catch (e) {
+                    console.error(`[EMERGENCY ${ts()}] ❌ closePosition exception: ${e.message}`);
+                    steps.errors.push('closePosition: ' + e.message);
+                }
+            }
+
+            // 3. Подстраховка — отменить все алго-ордера на символе
+            //    (даже если позиции не было, могли остаться висеть)
+            if (client) {
+                try {
+                    const algoRes = await client.getOpenAlgoOrders(session.symbol);
+                    if (algoRes.ok && Array.isArray(algoRes.data)) {
+                        for (const o of algoRes.data) {
+                            if (o.symbol !== session.symbol) continue;
+                            const id = o.algoId || o.orderId;
+                            if (!id) continue;
+                            try {
+                                const cancelRes = await client.cancelAlgoOrder(session.symbol, id);
+                                if (cancelRes.ok) {
+                                    steps.cancelledOrders++;
+                                    console.log(`[EMERGENCY ${ts()}] ✅ Cancelled algo order ${id}`);
+                                } else if (cancelRes.apiCode !== -2011 && cancelRes.apiCode !== -2026) {
+                                    // -2011/-2026: уже отменён/не существует — не считаем за ошибку
+                                    steps.errors.push(`cancel algo ${id}: ${cancelRes.error}`);
+                                }
+                            } catch (e) {
+                                steps.errors.push(`cancel algo ${id} exception: ${e.message}`);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`[EMERGENCY ${ts()}] ⚠️  getOpenAlgoOrders failed: ${e.message}`);
+                    steps.errors.push('getOpenAlgoOrders: ' + e.message);
+                }
+            }
+
+            // 4. Остановить бота
+            try {
+                stopBot(uid, botId, silent);
+            } catch (e) {
+                steps.errors.push('stopBot: ' + e.message);
+            }
+
+            console.log(`[EMERGENCY ${ts()}] ✅ DONE bot=${botId}: closedPosition=${steps.closedPosition} cancelledOrders=${steps.cancelledOrders} errors=${steps.errors.length}`);
+            // ok=true если ВСЁ прошло без ошибок; иначе ok=false но всё равно возвращаем 200
+            // (фронт смотрит на res.ok из json, а не на http-статус)
+            res.json({
+                ok: steps.errors.length === 0,
+                steps: steps,
+                error: steps.errors.length > 0 ? steps.errors.join('; ') : undefined,
+            });
+        } catch(e) {
+            console.error(`[EMERGENCY] Top-level exception: ${e.message}`);
+            res.status(500).json({ ok: false, error: e.message });
         }
     });
 
@@ -2878,7 +4752,10 @@ module.exports = function(app) {
 
             if (!session.running) return res.status(400).json({ error: 'Бот не запущен' });
             if (session.strategy !== 'manual') return res.status(400).json({ error: 'Лимитный выход доступен только в ручной стратегии' });
+            if (session.mode === 'live') return res.status(400).json({ error: 'Лимитный выход в Live-режиме пока не поддерживается. Используй ручное закрытие.' });
             if (!session.position) return res.status(400).json({ error: 'Нет открытой позиции' });
+            if (session.position._pending) return res.status(400).json({ error: 'Позиция ещё открывается на бирже, подожди несколько секунд' });
+            if (session.position._closing) return res.status(400).json({ error: 'Позиция уже закрывается' });
             if (!Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Некорректная цена лимитного выхода' });
             if (!session.currentPrice || session.currentPrice <= 0) return res.status(400).json({ error: 'Нет данных о цене' });
 
@@ -2952,6 +4829,16 @@ module.exports = function(app) {
             if (s.regimeFilterEnabled !== undefined) {
                 session.regimeFilterEnabled = !!s.regimeFilterEnabled;
                 changed.push(`regimeFilter:${session.regimeFilterEnabled ? 'ON' : 'OFF'}`);
+            }
+
+            // Окно торговли (W) — два независимых подтумблера
+            if (s.tradingWindowEU !== undefined) {
+                session.tradingWindowEU = !!s.tradingWindowEU;
+                changed.push(`windowEU:${session.tradingWindowEU ? 'ON' : 'OFF'}`);
+            }
+            if (s.tradingWindowUS !== undefined) {
+                session.tradingWindowUS = !!s.tradingWindowUS;
+                changed.push(`windowUS:${session.tradingWindowUS ? 'ON' : 'OFF'}`);
             }
 
             // Направление
@@ -3069,6 +4956,8 @@ module.exports = function(app) {
             const session = getSession(uid, botId);
 
             if (!session.position) return res.status(400).json({ error: 'Нет открытой позиции' });
+            if (session.position._pending) return res.status(400).json({ error: 'Позиция ещё открывается на бирже, подожди несколько секунд' });
+            if (session.position._closing) return res.status(400).json({ error: 'Позиция уже закрывается, подожди' });
 
             closePosition(session, session.currentPrice, 'manual_close');
             console.log(`[BOT ${ts()}] 🖐 MANUAL CLOSE @ ${session.currentPrice}`);
@@ -3183,6 +5072,9 @@ module.exports = function(app) {
                 if (session.running) stopBot(uid, botId);
                 sessions.delete(key);
             }
+            // API ключи теперь хранятся на уровне пользователя (uid), не бота.
+            // Удалять их при удалении одного бота НЕ нужно — у пользователя
+            // могут быть другие боты, использующие те же ключи.
             console.log(`[BOT ${ts()}] ❌ Deleted bot ${botId} for uid=${uid}`);
             res.json({ ok: true, bots: getUserBots(uid) });
         } catch(e) {
@@ -3253,6 +5145,8 @@ module.exports = function(app) {
                 clusterEnabled: session.clusterEnabled,
                 clusterEntryFilter: session.clusterEntryFilter || false,
                 regimeFilterEnabled: session.regimeFilterEnabled || false,
+                tradingWindowEU: !!session.tradingWindowEU,
+                tradingWindowUS: !!session.tradingWindowUS,
                 atrFilterEnabled: session.atrFilterEnabled || false,
                 atrFilterThreshold: session.atrFilterThreshold || 2.0,
                 clusterThreshold: session.clusterThreshold,
@@ -3270,7 +5164,13 @@ module.exports = function(app) {
                     trailingActive: session.position.trailingActive || false,
                     stepTpActive:   session.position.stepTpActive || false,
                     stepTpMaxLevel: session.position.stepTpMaxLevel || null,
+                    // Live: дополнительные данные с биржи (если есть)
+                    pending:        !!session.position._pending,
+                    closing:        !!session.position._closing,
                 } : null,
+                // Live: данные с биржи из периодической синхронизации
+                exchangeMarkPrice:     session.mode === 'live' ? (session.exchangeMarkPrice || null) : null,
+                exchangeUnrealizedPnl: session.mode === 'live' ? (session.exchangeUnrealizedPnl || 0) : 0,
                 levels:      session.levels,
                 levelsCount: session.levels.length,
                 consecutiveLosses: session.consecutiveLosses,
@@ -3491,6 +5391,14 @@ module.exports = function(app) {
     function calcUnrealizedPnl(session) {
         const pos = session.position;
         if (!pos || !session.currentPrice) return 0;
+        if (pos._pending || pos._closing) return 0;  // плейсхолдер не считаем
+
+        // Live: если есть свежие данные с биржи — используем их.
+        // Они учитывают mark price + funding + резерв exit-комиссии,
+        // именно так Binance показывает unrealized в своём UI.
+        if (session.mode === 'live' && typeof session.exchangeUnrealizedPnl === 'number') {
+            return Math.round(session.exchangeUnrealizedPnl * 100) / 100;
+        }
 
         const diff = pos.side === 'LONG'
             ? (session.currentPrice - pos.entryPrice) / pos.entryPrice
@@ -3498,6 +5406,205 @@ module.exports = function(app) {
 
         return Math.round(pos.size * diff * 100) / 100;
     }
+
+    /* ══════════════════════════════════════════════════════════════
+       LIVE: проверка API ключей Binance Futures
+       
+       Принимает ключи и опциональный флаг testnet, делает три
+       последовательные проверки:
+         1. ping        — биржа в принципе достижима
+         2. server time — расхождение часов <recvWindow
+         3. account     — ключи валидны, есть права на Futures
+       
+       Не привязан к боту: можно вызывать на этапе настройки
+       до создания/запуска бота. Ничего не сохраняет.
+       
+       Ответ: { ok, host, time, balance, error?, errorCode? }
+       На UI кнопка "Проверить подключение" вызывает этот эндпоинт.
+    ══════════════════════════════════════════════════════════════ */
+    app.post('/api/bot/test-binance-keys', async (req, res) => {
+        try {
+            const { apiKey, apiSecret, testnet } = req.body || {};
+            if (!apiKey || !apiSecret) {
+                return res.json({ ok: false, error: 'API Key и API Secret обязательны' });
+            }
+            const client = createBinanceClient({
+                apiKey:    String(apiKey).trim(),
+                apiSecret: String(apiSecret).trim(),
+                testnet:   !!testnet,
+            });
+
+            // 1. Ping — без подписи. Если упадёт здесь, проблема с сетью
+            //    или хостом, а не с ключами.
+            const pingResult = await client.ping();
+            if (!pingResult.ok) {
+                return res.json({
+                    ok:    false,
+                    host:  client.getHost(),
+                    error: 'Биржа недоступна: ' + pingResult.error,
+                });
+            }
+
+            // 2. Server time — проверяем расхождение часов.
+            //    Если >2.5с (половина recvWindow), все signed-запросы
+            //    будут падать с -1021. Сервер должен быть синхронизирован
+            //    через NTP, но на всякий случай явно проверяем.
+            const timeResult = await client.getServerTime();
+            let timeSkewMs = null;
+            if (timeResult.ok && timeResult.data && timeResult.data.serverTime) {
+                timeSkewMs = Date.now() - timeResult.data.serverTime;
+                if (Math.abs(timeSkewMs) > 2500) {
+                    return res.json({
+                        ok: false,
+                        host: client.getHost(),
+                        error: `Часы сервера расходятся с биржей на ${timeSkewMs}мс. Нужно синхронизировать NTP.`,
+                    });
+                }
+            }
+
+            // 3. Account info — главная проверка. Если ключ невалидный
+            //    или без прав на Futures — упадёт здесь с понятным кодом.
+            const accountResult = await client.getAccountInfo();
+            if (!accountResult.ok) {
+                let hint = '';
+                if (accountResult.apiCode === -2015) {
+                    hint = ' Проверь: ключ верный, IP в whitelist, права Enable Futures включены.';
+                } else if (accountResult.apiCode === -2014) {
+                    hint = ' Похоже API Key введён с пробелом или не полностью.';
+                } else if (accountResult.apiCode === -1022) {
+                    hint = ' Подпись не прошла. Проверь API Secret.';
+                }
+                return res.json({
+                    ok:        false,
+                    host:      client.getHost(),
+                    error:     accountResult.error + hint,
+                    errorCode: accountResult.apiCode,
+                });
+            }
+
+            // Успех — возвращаем баланс и кол-во открытых позиций для UX.
+            const acc = accountResult.data || {};
+            const totalWalletBalance  = parseFloat(acc.totalWalletBalance  || 0);
+            const availableBalance    = parseFloat(acc.availableBalance    || 0);
+            const openPositions       = (acc.positions || []).filter(p => parseFloat(p.positionAmt) !== 0).length;
+            const canTrade            = !!acc.canTrade;
+
+            return res.json({
+                ok:                true,
+                host:              client.getHost(),
+                testnet:           client.isTestnet(),
+                timeSkewMs:        timeSkewMs,
+                canTrade:          canTrade,
+                totalWalletBalance: totalWalletBalance,
+                availableBalance:   availableBalance,
+                openPositions:      openPositions,
+            });
+        } catch (e) {
+            console.error('[BOT] test-binance-keys failed:', e);
+            return res.json({ ok: false, error: e.message || 'Internal error' });
+        }
+    });
+
+    /* ══════════════════════════════════════════════════════════════
+       LIVE: сохранить API ключи
+       
+       Принимает { uid, botId, apiKey, apiSecret, testnet } и
+       шифрует их в bot-credentials.json через credentials-store.
+       
+       Перед сохранением — обязательная проверка через Binance,
+       чтобы не сохранить заведомо невалидные ключи. Если проверка
+       не прошла — ключи НЕ сохраняются.
+    ══════════════════════════════════════════════════════════════ */
+    app.post('/api/bot/save-binance-keys', async (req, res) => {
+        try {
+            const { uid, apiKey, apiSecret, testnet } = req.body || {};
+            if (!uid)                       return res.json({ ok: false, error: 'uid обязателен' });
+            if (!apiKey || !apiSecret)      return res.json({ ok: false, error: 'apiKey и apiSecret обязательны' });
+
+            // Сначала проверяем что ключи рабочие — через тот же клиент
+            const client = createBinanceClient({
+                apiKey:    String(apiKey).trim(),
+                apiSecret: String(apiSecret).trim(),
+                testnet:   !!testnet,
+            });
+            const accountResult = await client.getAccountInfo();
+            if (!accountResult.ok) {
+                return res.json({
+                    ok:    false,
+                    error: 'Ключи не прошли проверку: ' + accountResult.error,
+                });
+            }
+
+            // Сохраняем на уровне пользователя (один набор ключей на всех ботов)
+            const result = credsStore.saveCredentials(uid, apiKey, apiSecret, !!testnet);
+            if (!result.ok) {
+                return res.json({ ok: false, error: result.error });
+            }
+
+            // Обновляем ключи во ВСЕХ активных сессиях этого пользователя.
+            // Каждый бот будет использовать новые ключи при следующем ордере.
+            const prefix = uid + ':';
+            for (const [key, session] of sessions) {
+                if (key.indexOf(prefix) === 0) {
+                    session.apiKey       = String(apiKey).trim();
+                    session.apiSecret    = String(apiSecret).trim();
+                    session.apiTestnet   = !!testnet;
+                    session.apiConnected = true;
+                    // Сбросить кешированный binance-client чтобы он пересоздался с новыми ключами
+                    session._binanceClient = null;
+                }
+            }
+
+            return res.json({ ok: true, savedAt: Date.now() });
+        } catch (e) {
+            console.error('[BOT] save-binance-keys failed:', e);
+            return res.json({ ok: false, error: e.message || 'Internal error' });
+        }
+    });
+
+    /* ══════════════════════════════════════════════════════════════
+       LIVE: статус сохранённых ключей
+       
+       Ключи хранятся на уровне пользователя (uid). Параметр botId
+       принимается для совместимости со старым UI, но игнорируется.
+       Возвращает { saved, testnet?, updatedAt? } БЕЗ самого ключа.
+    ══════════════════════════════════════════════════════════════ */
+    app.get('/api/bot/binance-keys-status', (req, res) => {
+        try {
+            const { uid } = req.query || {};
+            if (!uid) return res.json({ saved: false, error: 'uid обязателен' });
+            const status = credsStore.hasCredentials(uid);
+            return res.json(status);
+        } catch (e) {
+            return res.json({ saved: false, error: e.message });
+        }
+    });
+
+    /* ══════════════════════════════════════════════════════════════
+       LIVE: удалить сохранённые ключи (на уровне пользователя)
+       После удаления — все боты этого пользователя в Live режиме
+       не смогут запуститься, пока ключи не будут введены заново.
+    ══════════════════════════════════════════════════════════════ */
+    app.post('/api/bot/delete-binance-keys', (req, res) => {
+        try {
+            const { uid } = req.body || {};
+            if (!uid) return res.json({ ok: false, error: 'uid обязателен' });
+            const result = credsStore.deleteCredentials(uid);
+            // Чистим ключи во ВСЕХ активных сессиях этого пользователя
+            const prefix = uid + ':';
+            for (const [key, session] of sessions) {
+                if (key.indexOf(prefix) === 0) {
+                    session.apiKey       = '';
+                    session.apiSecret    = '';
+                    session.apiConnected = false;
+                    session._binanceClient = null;
+                }
+            }
+            return res.json(result);
+        } catch (e) {
+            return res.json({ ok: false, error: e.message });
+        }
+    });
 
     console.log('🤖 Bot Server v2 (Algo Scalper) routes loaded');
 
