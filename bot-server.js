@@ -5251,6 +5251,212 @@ module.exports = function(app) {
         }
     });
 
+    /* ════════════════════════════════════════════
+       АНАЛИТИКА — агрегированная статистика по сделкам.
+       GET /api/bot/analytics?uid=X&hours=24
+       Возвращает разбивки по стратегии, паре, стороне, окну, режиму, часу.
+       ════════════════════════════════════════════ */
+    app.get('/api/bot/analytics', (req, res) => {
+        try {
+            const uid = req.query.uid || 'anonymous';
+            const hours = parseInt(req.query.hours);  // 0 или не задано = всё время
+            const botId = req.query.botId || null;    // null = все боты юзера
+            const useTimeFilter = Number.isFinite(hours) && hours > 0;
+            const since = useTimeFilter ? Date.now() - hours * 60 * 60 * 1000 : 0;
+
+            // Собираем сделки юзера за период (по всем ботам или по конкретному)
+            const trades = [];
+            let scopeBotLabel = null;
+            for (const [key, session] of sessions) {
+                if (!key.startsWith(uid + ':')) continue;
+                const sessionBotId = key.split(':')[1];
+                // Если задан botId — берём только этого бота
+                if (botId && sessionBotId !== botId) continue;
+                if (botId && sessionBotId === botId) {
+                    scopeBotLabel = getFullBotLabel(session);
+                }
+                const label = getFullBotLabel(session);
+                session.trades.forEach(t => {
+                    if (useTimeFilter && t.openedAt && t.openedAt < since) return;
+                    trades.push(Object.assign({}, t, { botId: sessionBotId, botLabel: label }));
+                });
+            }
+
+            if (trades.length === 0) {
+                return res.json({
+                    empty: true,
+                    hours: useTimeFilter ? hours : 0,
+                    totalTrades: 0,
+                    scope: botId ? { type: 'bot', botId: botId, label: scopeBotLabel } : { type: 'all' },
+                });
+            }
+
+            // ── Утилиты ──
+            const num = (v) => (typeof v === 'number' && !isNaN(v)) ? v : 0;
+
+            function computeBucket(arr) {
+                const n = arr.length;
+                if (n === 0) return null;
+                let wins = 0, losses = 0, pnl = 0, fees = 0, sumWin = 0, sumLoss = 0;
+                arr.forEach(t => {
+                    const p = num(t.pnl);
+                    pnl += p;
+                    fees += num(t.fee);
+                    if (p > 0) { wins++; sumWin += p; }
+                    else { losses++; sumLoss += p; }
+                });
+                const avgWin = wins > 0 ? sumWin / wins : 0;
+                const avgLoss = losses > 0 ? sumLoss / losses : 0;
+                return {
+                    n: n,
+                    wins: wins,
+                    losses: losses,
+                    winRate: Math.round((wins / n) * 1000) / 10, // 1 знак
+                    pnl: Math.round(pnl * 100) / 100,
+                    fees: Math.round(fees * 100) / 100,
+                    avgPnl: Math.round((pnl / n) * 100) / 100,
+                    avgWin: Math.round(avgWin * 100) / 100,
+                    avgLoss: Math.round(avgLoss * 100) / 100,
+                };
+            }
+
+            function groupBy(keyFn) {
+                const groups = {};
+                trades.forEach(t => {
+                    const k = keyFn(t);
+                    if (k == null || k === '') return;
+                    if (!groups[k]) groups[k] = [];
+                    groups[k].push(t);
+                });
+                const out = {};
+                Object.keys(groups).forEach(k => { out[k] = computeBucket(groups[k]); });
+                return out;
+            }
+
+            // Общая статистика
+            const overall = computeBucket(trades);
+            // Break-even WR из текущих win/loss
+            const beWR = overall.avgLoss !== 0
+                ? Math.round((Math.abs(overall.avgLoss) / (overall.avgWin + Math.abs(overall.avgLoss))) * 1000) / 10
+                : null;
+            // Общий P&L Gross (без комиссий)
+            const grossPnl = trades.reduce((s, t) => s + num(t.grossPnl), 0);
+            const totalFees = trades.reduce((s, t) => s + num(t.fee), 0);
+
+            // Группировки
+            const byStrategy = groupBy(t => t.strategy || 'unknown');
+            const bySide     = groupBy(t => t.side);
+            const byPair     = groupBy(t => t.pair);
+            const byBot      = groupBy(t => t.botLabel || 'unknown');
+
+            // Окна торговли — используем tradingWindowAtEntry
+            const byWindow   = groupBy(t => t.tradingWindowAtEntry || 'unknown');
+
+            // Часы UTC
+            const byHour     = groupBy(t => t.entryHourUTC != null ? `${String(t.entryHourUTC).padStart(2,'0')}:00 UTC` : null);
+
+            // По режиму V2 — степень согласованности 4h/15m/5m
+            // Ключи: 'all_up' | 'all_down' | 'two_agree' | 'disagree' | 'no_regime' | 'legacy'
+            const byRegimeAgreement = groupBy(t => {
+                const r = t.entryRegime;
+                if (!r) return 'no_regime';
+                // V2 формат
+                if (r.tf4hState != null || r.tf15mState != null || r.tf5mState != null) {
+                    const s = [r.tf4hState, r.tf15mState, r.tf5mState];
+                    const ups = s.filter(x => x === 'up').length;
+                    const downs = s.filter(x => x === 'down').length;
+                    if (ups === 3) return 'all_up';
+                    if (downs === 3) return 'all_down';
+                    if (ups === 2 || downs === 2) return 'two_agree';
+                    return 'disagree';
+                }
+                return 'legacy';
+            });
+
+            // По выходу
+            const byExit = groupBy(t => t.reason || 'unknown');
+
+            // Выявление инсайтов — топ-3 наблюдения для пользователя
+            // type: 'good' | 'warn' | 'bad' — UI рисует соответствующую SVG-иконку
+            const insights = [];
+
+            // Проверка: окна торговли
+            const winEU = byWindow['EU'];
+            const winUS = byWindow['US'];
+            const winAll = byWindow['all'];
+            if (winEU && winEU.n >= 3 && winEU.winRate >= 70) {
+                insights.push({ text: `Окно EU даёт WR ${winEU.winRate}% (n=${winEU.n}, $${winEU.pnl >= 0 ? '+' : ''}${winEU.pnl})`, type: 'good' });
+            }
+            if (winAll && winAll.n >= 5 && winAll.pnl < 0) {
+                insights.push({ text: `Сделки вне окон: WR ${winAll.winRate}% net $${winAll.pnl} — рассмотри включение фильтра окон`, type: 'warn' });
+            }
+
+            // Проверка: пары
+            Object.keys(byPair).forEach(pair => {
+                const b = byPair[pair];
+                if (b.n >= 5) {
+                    if (b.winRate <= 35 && b.pnl < -5) {
+                        insights.push({ text: `${pair}: WR ${b.winRate}% net $${b.pnl} — пара убыточна`, type: 'bad' });
+                    } else if (b.winRate >= 70 && b.pnl > 0) {
+                        insights.push({ text: `${pair}: WR ${b.winRate}% net $${b.pnl > 0 ? '+' : ''}${b.pnl} — лучшая пара`, type: 'good' });
+                    }
+                }
+            });
+
+            // Проверка: стороны
+            const longB = bySide['LONG'];
+            const shortB = bySide['SHORT'];
+            if (longB && longB.n >= 5 && longB.winRate <= 35) {
+                insights.push({ text: `LONG-сделки: WR ${longB.winRate}% net $${longB.pnl} — рынок медвежий?`, type: 'bad' });
+            }
+            if (shortB && shortB.n >= 5 && shortB.winRate <= 35) {
+                insights.push({ text: `SHORT-сделки: WR ${shortB.winRate}% net $${shortB.pnl} — рынок бычий?`, type: 'bad' });
+            }
+
+            // Проверка: согласованность режима
+            const allUp = byRegimeAgreement['all_up'];
+            const allDn = byRegimeAgreement['all_down'];
+            const disagree = byRegimeAgreement['disagree'];
+            if (allUp && allUp.n >= 3 && allUp.winRate >= 70) {
+                insights.push({ text: `Когда все 3 ТФ вверх: WR ${allUp.winRate}% (n=${allUp.n}) — режим работает`, type: 'good' });
+            }
+            if (allDn && allDn.n >= 3 && allDn.winRate >= 70) {
+                insights.push({ text: `Когда все 3 ТФ вниз: WR ${allDn.winRate}% (n=${allDn.n}) — режим работает`, type: 'good' });
+            }
+            if (disagree && disagree.n >= 5 && disagree.pnl < 0) {
+                insights.push({ text: `На расхождении ТФ: WR ${disagree.winRate}% net $${disagree.pnl} — включи R-фильтр`, type: 'warn' });
+            }
+
+            // Проверка: WR ниже break-even
+            if (beWR != null && overall.winRate < beWR) {
+                insights.push({ text: `WR ${overall.winRate}% ниже break-even ${beWR}% — текущий R:R математически проигрышный`, type: 'warn' });
+            }
+
+            res.json({
+                hours: useTimeFilter ? hours : 0,
+                totalTrades: trades.length,
+                scope: botId ? { type: 'bot', botId: botId, label: scopeBotLabel } : { type: 'all' },
+                overall: overall,
+                breakEvenWR: beWR,
+                grossPnl: Math.round(grossPnl * 100) / 100,
+                totalFees: Math.round(totalFees * 100) / 100,
+                feesAsPercentOfGross: grossPnl !== 0 ? Math.round((totalFees / Math.abs(grossPnl)) * 1000) / 10 : null,
+                byStrategy: byStrategy,
+                bySide: bySide,
+                byPair: byPair,
+                byBot: byBot,
+                byWindow: byWindow,
+                byHour: byHour,
+                byRegimeAgreement: byRegimeAgreement,
+                byExit: byExit,
+                insights: insights.slice(0, 5),
+            });
+        } catch(e) {
+            console.error('[ANALYTICS] error:', e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     // POST /api/bot/clear-trades — очистка журнала сделок
     // Если указан botId — чистим только у этого бота, иначе у всех ботов пользователя.
     // Открытые позиции не трогаем.

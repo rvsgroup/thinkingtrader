@@ -3886,6 +3886,186 @@
 
 
     /* ══════════════════════════════════════════
+       АНАЛИТИКА — агрегированная статистика
+    ══════════════════════════════════════════ */
+
+    function openAnalytics() {
+        var uid = getUid();
+        // Сразу показываем модалку с лоадером
+        showAnalyticsModal({ loading: true });
+        fetch('/api/bot/analytics?uid=' + uid + '&hours=24')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                showAnalyticsModal(data);
+            })
+            .catch(function(e) {
+                showAnalyticsModal({ error: e.message });
+            });
+    }
+
+    function showAnalyticsModal(data) {
+        // Удаляем старую модалку, если была
+        var old = document.getElementById('botAnalyticsModal');
+        if (old) old.remove();
+
+        var isMobile = window.innerWidth < 768;
+        var maxW = isMobile ? '100%' : '720px';
+        var maxH = isMobile ? '92vh' : '85vh';
+
+        var modal = document.createElement('div');
+        modal.id = 'botAnalyticsModal';
+        modal.style.cssText =
+            'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;' +
+            'display:flex;align-items:center;justify-content:center;padding:' + (isMobile ? '0' : '20px') + ';';
+
+        var content = '';
+        if (data.loading) {
+            content = '<div style="padding:40px;text-align:center;color:#94A3B8;">Загрузка статистики...</div>';
+        } else if (data.error) {
+            content = '<div style="padding:40px;text-align:center;color:#EF4444;">Ошибка: ' + data.error + '</div>';
+        } else if (data.empty || data.totalTrades === 0) {
+            content = '<div style="padding:40px;text-align:center;color:#94A3B8;">' +
+                'За последние ' + (data.hours || 24) + 'ч сделок не было.<br><br>' +
+                '<span style="font-size:12px;color:#636B76;">Запусти ботов и подожди — данные появятся здесь.</span>' +
+                '</div>';
+        } else {
+            content = renderAnalyticsContent(data);
+        }
+
+        modal.innerHTML =
+            '<div style="background:#0F172A;border:1px solid rgba(255,255,255,0.08);border-radius:' + (isMobile ? '0' : '12px') + ';' +
+                'width:100%;max-width:' + maxW + ';max-height:' + maxH + ';display:flex;flex-direction:column;overflow:hidden;">' +
+                // Шапка
+                '<div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px;">' +
+                    '<svg width="18" height="18" viewBox="0 0 16 16" fill="none">' +
+                        '<rect x="2" y="9" width="2.5" height="5" fill="#26a69a" rx="0.3"/>' +
+                        '<rect x="6.75" y="5" width="2.5" height="9" fill="#26a69a" rx="0.3"/>' +
+                        '<rect x="11.5" y="2" width="2.5" height="12" fill="#26a69a" rx="0.3"/>' +
+                    '</svg>' +
+                    '<span style="font-size:14px;font-weight:700;color:#E2E8F0;flex:1;">Аналитика · 24ч</span>' +
+                    '<div id="botAnalyticsRefresh" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:#94A3B8;transition:all 0.2s;">↻ Обновить</div>' +
+                    '<div id="botAnalyticsClose" style="cursor:pointer;color:#94A3B8;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;">' +
+                        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+                    '</div>' +
+                '</div>' +
+                // Контент
+                '<div style="overflow-y:auto;flex:1;padding:14px 16px;">' + content + '</div>' +
+            '</div>';
+
+        document.body.appendChild(modal);
+
+        document.getElementById('botAnalyticsClose').onclick = function() { modal.remove(); };
+        document.getElementById('botAnalyticsRefresh').onclick = function() { modal.remove(); openAnalytics(); };
+        // Закрытие по клику на затемнение
+        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+    }
+
+    function renderAnalyticsContent(d) {
+        // Хелперы рендера
+        function pnlColor(v) { return v > 0 ? '#26a69a' : v < 0 ? '#ef5350' : '#94A3B8'; }
+        function pnlStr(v) { return (v > 0 ? '+' : '') + '$' + Number(v).toFixed(2); }
+        function wrColor(wr) { return wr >= 70 ? '#26a69a' : wr >= 50 ? '#94A3B8' : '#ef5350'; }
+
+        // Блок одной таблицы-разбивки
+        function bucketRow(label, b) {
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;">' +
+                '<span style="color:#94A3B8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px;">' + label + '</span>' +
+                '<span style="color:#636B76;font-size:10px;width:50px;text-align:right;">n=' + b.n + '</span>' +
+                '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;width:60px;text-align:right;">' + b.winRate + '%</span>' +
+                '<span style="color:' + pnlColor(b.pnl) + ';font-weight:600;width:80px;text-align:right;">' + pnlStr(b.pnl) + '</span>' +
+            '</div>';
+        }
+
+        function section(title, obj, sortByPnl) {
+            if (!obj || Object.keys(obj).length === 0) return '';
+            var keys = Object.keys(obj);
+            if (sortByPnl) keys.sort(function(a, b){ return obj[b].pnl - obj[a].pnl; });
+            else keys.sort(function(a, b){ return obj[b].n - obj[a].n; });
+            var html = '<div style="margin-bottom:18px;">' +
+                '<div style="font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + title + '</div>' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;padding:0 0 4px;border-bottom:1px solid rgba(255,255,255,0.06);font-size:9px;color:#4A5060;text-transform:uppercase;">' +
+                    '<span style="flex:1;">Группа</span>' +
+                    '<span style="width:50px;text-align:right;">N</span>' +
+                    '<span style="width:60px;text-align:right;">WR</span>' +
+                    '<span style="width:80px;text-align:right;">P&L</span>' +
+                '</div>';
+            keys.forEach(function(k) { html += bucketRow(k, obj[k]); });
+            html += '</div>';
+            return html;
+        }
+
+        // Инсайты
+        var insightsHtml = '';
+        if (d.insights && d.insights.length > 0) {
+            insightsHtml = '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px 14px;margin-bottom:18px;">' +
+                '<div style="font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Топ инсайты</div>';
+            d.insights.forEach(function(ins) {
+                var color = ins.type === 'good' ? '#26a69a' : ins.type === 'bad' ? '#ef5350' : '#F59E0B';
+                insightsHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;font-size:12px;color:#E2E8F0;">' +
+                    '<span style="font-size:14px;flex-shrink:0;">' + ins.icon + '</span>' +
+                    '<span style="line-height:1.4;border-left:2px solid ' + color + ';padding-left:8px;">' + ins.text + '</span>' +
+                '</div>';
+            });
+            insightsHtml += '</div>';
+        }
+
+        // Общий блок KPI
+        var ov = d.overall;
+        var beNote = d.breakEvenWR != null
+            ? (ov.winRate < d.breakEvenWR
+                ? '<span style="color:#ef5350;font-size:10px;"> · ⚠ ниже break-even ' + d.breakEvenWR + '%</span>'
+                : '<span style="color:#26a69a;font-size:10px;"> · выше break-even ' + d.breakEvenWR + '%</span>')
+            : '';
+        var feeNote = d.feesAsPercentOfGross != null
+            ? '<span style="color:#94A3B8;font-size:10px;"> · ' + d.feesAsPercentOfGross + '% от gross</span>'
+            : '';
+
+        var kpiHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;">' +
+            // Сделки
+            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
+                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Сделок</div>' +
+                '<div style="font-size:18px;font-weight:700;color:#E2E8F0;margin-top:2px;">' + d.totalTrades + '</div>' +
+                '<div style="font-size:10px;color:#94A3B8;margin-top:1px;">' + ov.wins + ' ✓ / ' + ov.losses + ' ✗</div>' +
+            '</div>' +
+            // Win rate
+            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
+                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Winrate</div>' +
+                '<div style="font-size:18px;font-weight:700;color:' + wrColor(ov.winRate) + ';margin-top:2px;">' + ov.winRate + '%</div>' +
+                '<div style="margin-top:1px;">' + beNote + '</div>' +
+            '</div>' +
+            // P&L Net
+            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
+                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">P&L Net</div>' +
+                '<div style="font-size:18px;font-weight:700;color:' + pnlColor(ov.pnl) + ';margin-top:2px;">' + pnlStr(ov.pnl) + '</div>' +
+                '<div style="font-size:10px;color:#94A3B8;margin-top:1px;">сред. ' + pnlStr(ov.avgPnl) + '</div>' +
+            '</div>' +
+            // Комиссии
+            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
+                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Комиссии</div>' +
+                '<div style="font-size:18px;font-weight:700;color:#94A3B8;margin-top:2px;">$' + d.totalFees.toFixed(2) + '</div>' +
+                '<div style="margin-top:1px;">' + feeNote + '</div>' +
+            '</div>' +
+        '</div>';
+
+        // Win/Loss средние
+        var wlHtml = '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px 12px;margin-bottom:18px;font-size:12px;color:#94A3B8;display:flex;justify-content:space-between;">' +
+            '<span>Средний WIN: <span style="color:#26a69a;font-weight:600;">' + pnlStr(ov.avgWin) + '</span></span>' +
+            '<span>Средний LOSS: <span style="color:#ef5350;font-weight:600;">' + pnlStr(ov.avgLoss) + '</span></span>' +
+            '<span>R:R: <span style="color:#E2E8F0;font-weight:600;">' + (ov.avgLoss !== 0 ? Math.abs(ov.avgWin / ov.avgLoss).toFixed(2) : '—') + '</span></span>' +
+        '</div>';
+
+        return insightsHtml + kpiHtml + wlHtml +
+            section('По стратегии', d.byStrategy) +
+            section('По стороне', d.bySide) +
+            section('По паре', d.byPair, true) +
+            section('По окну торговли', d.byWindow) +
+            section('По согласованности режима (4h·15m·5m)', d.byRegimeAgreement) +
+            section('По часу UTC', d.byHour) +
+            section('По выходу', d.byExit) +
+            section('По боту', d.byBot, true);
+    }
+
+    /* ══════════════════════════════════════════
        ЖУРНАЛ СДЕЛОК БОТА
     ══════════════════════════════════════════ */
 
@@ -4265,6 +4445,7 @@
                     <svg width="' + (isMobile ? 20 : 16) + '" height="' + (isMobile ? 20 : 16) + '" viewBox="0 0 16 16" fill="none"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="#26a69a" stroke-width="1.2" fill="none"/><line x1="5" y1="4.5" x2="11" y2="4.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="7" x2="11" y2="7" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/><line x1="5" y1="9.5" x2="9" y2="9.5" stroke="#26a69a" stroke-width="1" stroke-linecap="round"/></svg>\
                     <span style="font-size:' + (isMobile ? '15px' : '13px') + ';font-weight:700;color:#E2E8F0;flex:1;">Журнал сделок</span>\
                     <div id="botJournalCsv" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:#94A3B8;transition:all 0.2s;display:flex;align-items:center;gap:4px;" title="Скачать CSV"><svg width="' + (isMobile ? 12 : 10) + '" height="' + (isMobile ? 12 : 10) + '" viewBox="0 0 10 10" fill="none"><path d="M5 1v6M2.5 4.5L5 7l2.5-2.5M1 8.5h8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>CSV</div>\
+                    <div id="botJournalAnalytics" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(38,166,154,0.30);color:#26a69a;transition:all 0.2s;display:flex;align-items:center;gap:4px;" title="Анализ сделок"><svg width="' + (isMobile ? 12 : 10) + '" height="' + (isMobile ? 12 : 10) + '" viewBox="0 0 10 10" fill="none"><path d="M1 9h8M2 9V6M4.5 9V4M7 9V2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>Анализ</div>\
                     <div id="botJournalClear" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(239,68,68,0.25);color:#EF4444;transition:all 0.2s;display:flex;align-items:center;gap:4px;" title="Очистить журнал"><svg width="' + (isMobile ? 12 : 10) + '" height="' + (isMobile ? 12 : 10) + '" viewBox="0 0 10 10" fill="none"><path d="M2 3h6M3.5 3V2a0.5 0.5 0 0 1 0.5 -0.5h2a0.5 0.5 0 0 1 0.5 0.5v1M2.5 3l0.5 5.5a0.5 0.5 0 0 0 0.5 0.5h3a0.5 0.5 0 0 0 0.5 -0.5L7.5 3" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg>Очистить</div>\
                     <div id="botJournalToggle" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:' + toggleBtnColor + ';transition:all 0.2s;">' + toggleBtnLabel + '</div>\
                     <div id="botJournalClose" style="cursor:pointer;color:#94A3B8;' + closeSize + 'display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;"><svg width="' + closeIconSize + '" height="' + closeIconSize + '" viewBox="0 0 12 12" fill="none"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>\
@@ -4293,6 +4474,10 @@
         modal.querySelector('#botJournalToggle').onclick = function() { openJournal(!isAllBots); };
         modal.querySelector('#botJournalCsv').onclick = function() { exportTradesToCSV(trades, isAllBots); };
         modal.querySelector('#botJournalClear').onclick = function() { confirmClearTrades(isAllBots); };
+        modal.querySelector('#botJournalAnalytics').onclick = function() {
+            // isAllBots определяет скоуп: true → анализ всех ботов, false → конкретного бота
+            openAnalytics(isAllBots ? null : (_state.botId || null));
+        };
         // Закрытие по клику в тёмный фон — только на десктопе (на мобиле фона нет, это fullscreen)
         if (!isMobile) {
             modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
@@ -4318,6 +4503,296 @@
             // Блокировка свайпа страниц — ставим data-атрибут, который глобальный touch-handler проверит
             modal.setAttribute('data-blocks-swipe', '1');
         }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  АНАЛИТИКА — модалка с агрегированной статистикой по сделкам.
+    //  Открывается из шапки журнала кнопкой "Анализ".
+    //  scope: null = все боты юзера, иначе botId конкретного бота.
+    // ════════════════════════════════════════════════════════════
+
+    var _analyticsState = { hours: 24, scope: null, data: null, loading: false };
+
+    function openAnalytics(botId) {
+        _analyticsState.scope = botId || null;
+        _analyticsState.hours = 24; // по умолчанию открываем "24ч"
+        renderAnalyticsModal();
+        loadAnalyticsData();
+    }
+
+    function loadAnalyticsData() {
+        _analyticsState.loading = true;
+        renderAnalyticsModal();
+        var uid = getUid();
+        var params = ['uid=' + encodeURIComponent(uid), 'hours=' + _analyticsState.hours];
+        if (_analyticsState.scope) params.push('botId=' + encodeURIComponent(_analyticsState.scope));
+        fetch('/api/bot/analytics?' + params.join('&'))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                _analyticsState.loading = false;
+                _analyticsState.data = data;
+                renderAnalyticsModal();
+            })
+            .catch(function(e) {
+                _analyticsState.loading = false;
+                _analyticsState.data = { error: e.message };
+                renderAnalyticsModal();
+            });
+    }
+
+    function renderAnalyticsModal() {
+        var isMobile = window.innerWidth < 768;
+        var old = document.getElementById('botAnalyticsModal');
+        if (old) old.remove();
+
+        var modal = document.createElement('div');
+        modal.id = 'botAnalyticsModal';
+
+        // Стили модалки — на мобиле fullscreen, на десктопе поверх журнала
+        if (isMobile) {
+            modal.style.cssText = 'position:fixed;inset:0;background:#0a0e1a;z-index:10000;display:flex;flex-direction:column;overflow:hidden;';
+        } else {
+            modal.style.cssText = 'position:absolute;inset:0;background:rgba(10,14,26,0.97);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 24px;overflow-y:auto;';
+        }
+
+        var innerStyle = isMobile
+            ? 'width:100%;height:100%;display:flex;flex-direction:column;background:#0a0e1a;'
+            : 'width:100%;max-width:780px;background:#0F1419;border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 80px);overflow:hidden;';
+
+        var headerPad = isMobile ? 'padding:14px 16px;' : 'padding:12px 16px;';
+        var bodyPad   = isMobile ? 'padding:14px 16px;' : 'padding:14px 18px;';
+        var closeIconSize = isMobile ? 20 : 14;
+
+        // Заголовок скоупа
+        var scopeLabel = 'Все боты';
+        if (_analyticsState.scope && _analyticsState.data && _analyticsState.data.scope && _analyticsState.data.scope.label) {
+            scopeLabel = _analyticsState.data.scope.label;
+        } else if (_analyticsState.scope) {
+            scopeLabel = 'Этот бот';
+        }
+
+        // Переключатель периода (24ч / 7д / Всё) — три кнопки
+        function periodBtn(label, hours) {
+            var active = _analyticsState.hours === hours;
+            var bg = active ? 'rgba(38,166,154,0.15)' : 'transparent';
+            var border = active ? 'rgba(38,166,154,0.50)' : 'rgba(255,255,255,0.10)';
+            var color = active ? '#26a69a' : '#94A3B8';
+            return '<div data-hours="' + hours + '" class="bam-period-btn" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '11px') + ';padding:' + (isMobile ? '6px 12px' : '4px 10px') + ';border-radius:5px;border:1px solid ' + border + ';background:' + bg + ';color:' + color + ';transition:all 0.15s;">' + label + '</div>';
+        }
+
+        var periodToggle =
+            '<div style="display:flex;gap:6px;">' +
+                periodBtn('24ч', 24) +
+                periodBtn('7д', 168) +
+                periodBtn('Всё', 0) +
+            '</div>';
+
+        var headerHtml =
+            '<div style="' + headerPad + 'display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;">' +
+                '<svg width="' + (isMobile ? 20 : 16) + '" height="' + (isMobile ? 20 : 16) + '" viewBox="0 0 16 16" fill="none">' +
+                    '<path d="M2 14h12M3 14V8M7 14V4M11 14V10" stroke="#26a69a" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
+                '</svg>' +
+                '<span style="font-size:' + (isMobile ? '15px' : '13px') + ';font-weight:700;color:#E2E8F0;">Анализ</span>' +
+                '<div style="flex:1;"></div>' +
+                periodToggle +
+                '<div id="botAnalyticsClose" style="cursor:pointer;color:#94A3B8;width:' + (isMobile ? 36 : 24) + 'px;height:' + (isMobile ? 36 : 24) + 'px;display:flex;align-items:center;justify-content:center;border-radius:6px;margin-left:6px;">' +
+                    '<svg width="' + closeIconSize + '" height="' + closeIconSize + '" viewBox="0 0 12 12" fill="none">' +
+                        '<line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+                        '<line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+                    '</svg>' +
+                '</div>' +
+            '</div>';
+
+        // Скоуп-строка под заголовком
+        var scopeRow =
+            '<div style="' + (isMobile ? 'padding:8px 16px;' : 'padding:6px 16px;') + 'border-bottom:1px solid rgba(255,255,255,0.04);font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;flex-shrink:0;">' +
+                'Скоуп: <span style="color:#94A3B8;">' + escapeHtml(scopeLabel) + '</span>' +
+            '</div>';
+
+        var bodyHtml = '';
+        if (_analyticsState.loading) {
+            bodyHtml = '<div style="' + bodyPad + 'flex:1;display:flex;align-items:center;justify-content:center;color:#636B76;font-size:12px;">Загрузка...</div>';
+        } else if (!_analyticsState.data) {
+            bodyHtml = '<div style="' + bodyPad + 'flex:1;color:#636B76;font-size:12px;">Нет данных</div>';
+        } else if (_analyticsState.data.error) {
+            bodyHtml = '<div style="' + bodyPad + 'flex:1;color:#EF4444;font-size:12px;">Ошибка: ' + escapeHtml(_analyticsState.data.error) + '</div>';
+        } else if (_analyticsState.data.empty) {
+            bodyHtml = '<div style="' + bodyPad + 'flex:1;display:flex;align-items:center;justify-content:center;color:#636B76;font-size:12px;text-align:center;">' +
+                'Нет сделок за выбранный период.<br>' +
+                'Попробуй увеличить период (7 дней или Всё).' +
+            '</div>';
+        } else {
+            bodyHtml = renderAnalyticsBody(_analyticsState.data, isMobile);
+        }
+
+        var bodyWrap = '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;">' + bodyHtml + '</div>';
+
+        modal.innerHTML = '<div style="' + innerStyle + '">' + headerHtml + scopeRow + bodyWrap + '</div>';
+
+        if (isMobile) {
+            document.body.appendChild(modal);
+        } else {
+            // На десктопе модалка анализа открывается ПОВЕРХ журнала, не заменяя его.
+            // Привязываем к body чтобы перекрыть всё включая журнал.
+            document.body.appendChild(modal);
+        }
+
+        modal.querySelector('#botAnalyticsClose').onclick = function() { modal.remove(); };
+        // Клики по кнопкам периода
+        var periodBtns = modal.querySelectorAll('.bam-period-btn');
+        periodBtns.forEach(function(btn) {
+            btn.onclick = function() {
+                var h = parseInt(btn.getAttribute('data-hours'));
+                if (h === _analyticsState.hours) return;
+                _analyticsState.hours = h;
+                loadAnalyticsData();
+            };
+        });
+        // Закрытие по клику в фон (только десктоп)
+        if (!isMobile) {
+            modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+        }
+    }
+
+    // Хелпер: экранирование HTML для безопасной вставки текста из API
+    function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    // SVG-иконки для типов инсайтов (good/warn/bad) — без эмодзи
+    function insightIconSvg(type) {
+        if (type === 'good') {
+            return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#10B981" stroke-width="1.2" fill="none"/><path d="M4.5 7.2L6.2 8.9L9.5 5.5" stroke="#10B981" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        }
+        if (type === 'bad') {
+            return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#EF4444" stroke-width="1.2" fill="none"/><line x1="5" y1="5" x2="9" y2="9" stroke="#EF4444" stroke-width="1.4" stroke-linecap="round"/><line x1="9" y1="5" x2="5" y2="9" stroke="#EF4444" stroke-width="1.4" stroke-linecap="round"/></svg>';
+        }
+        // warn
+        return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5L13 12H1L7 1.5z" stroke="#FBBF24" stroke-width="1.2" stroke-linejoin="round" fill="none"/><line x1="7" y1="6" x2="7" y2="9" stroke="#FBBF24" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="10.5" r="0.7" fill="#FBBF24"/></svg>';
+    }
+
+    // Рендер тела отчёта (без шапки и скоупа — это снаружи)
+    function renderAnalyticsBody(d, isMobile) {
+        var pad = isMobile ? 'padding:14px 16px;' : 'padding:14px 18px;';
+
+        function fmtMoney(v) {
+            if (v == null || isNaN(v)) return '$0.00';
+            var sign = v >= 0 ? '+' : '';
+            return sign + '$' + Number(v).toFixed(2);
+        }
+        function colorFor(v) { return v >= 0 ? '#10B981' : '#EF4444'; }
+        function wrColor(wr) { return wr >= 60 ? '#10B981' : wr >= 45 ? '#FBBF24' : '#EF4444'; }
+
+        // Универсальный рендер таблицы-разбивки: ключ -> bucket
+        function renderBreakdown(title, obj, options) {
+            options = options || {};
+            var keys = Object.keys(obj);
+            if (keys.length === 0) return '';
+            // Сортировка по убыванию n или по pnl
+            keys.sort(function(a, b) {
+                if (options.sortBy === 'pnl') return (obj[b].pnl || 0) - (obj[a].pnl || 0);
+                return (obj[b].n || 0) - (obj[a].n || 0);
+            });
+            // Маппер ключа на красивое имя
+            var keyMap = options.keyMap || {};
+            var rows = keys.map(function(k) {
+                var b = obj[k];
+                var name = keyMap[k] || k;
+                return '<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;padding:5px 0;font-size:' + (isMobile ? '11px' : '10.5px') + ';border-bottom:1px solid rgba(255,255,255,0.03);">' +
+                    '<span style="color:#94A3B8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
+                    '<span style="color:#636B76;">n=' + b.n + '</span>' +
+                    '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;">' + b.winRate + '%</span>' +
+                    '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;min-width:60px;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
+                '</div>';
+            }).join('');
+            return '<div style="margin-bottom:18px;">' +
+                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + title + '</div>' +
+                rows +
+            '</div>';
+        }
+
+        // ── Общая картина ──
+        var feesPctRow = '';
+        if (d.feesAsPercentOfGross != null && Math.abs(d.grossPnl) > 0.01) {
+            feesPctRow = '<div style="font-size:' + (isMobile ? '11px' : '10.5px') + ';color:#636B76;margin-top:4px;">' +
+                'Комиссии съели ' + d.feesAsPercentOfGross + '% от валового P&L' +
+            '</div>';
+        }
+        var beNote = '';
+        if (d.breakEvenWR != null) {
+            var below = d.overall.winRate < d.breakEvenWR;
+            beNote = '<div style="font-size:' + (isMobile ? '11px' : '10.5px') + ';color:' + (below ? '#EF4444' : '#10B981') + ';margin-top:4px;">' +
+                'Break-even WR: ' + d.breakEvenWR + '% · ' + (below ? 'фактический ниже — математически в минусе' : 'фактический выше — система прибыльна') +
+            '</div>';
+        }
+
+        var overallBlock =
+            '<div style="margin-bottom:18px;">' +
+                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Общая картина</div>' +
+                '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 4) + ',1fr);gap:10px;">' +
+                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">Сделок</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:#E2E8F0;font-weight:700;">' + d.overall.n + '</div></div>' +
+                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">Win Rate</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:' + wrColor(d.overall.winRate) + ';font-weight:700;">' + d.overall.winRate + '%</div></div>' +
+                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">P&L Net</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:' + colorFor(d.overall.pnl) + ';font-weight:700;">' + fmtMoney(d.overall.pnl) + '</div></div>' +
+                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">Комиссии</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:#FBBF24;font-weight:700;">$' + d.overall.fees.toFixed(2) + '</div></div>' +
+                '</div>' +
+                feesPctRow +
+                beNote +
+            '</div>';
+
+        // ── Инсайты ──
+        var insightsBlock = '';
+        if (d.insights && d.insights.length > 0) {
+            var insightsRows = d.insights.map(function(ins) {
+                return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:rgba(255,255,255,0.02);border-radius:6px;margin-bottom:6px;">' +
+                    '<div style="flex-shrink:0;margin-top:1px;">' + insightIconSvg(ins.type) + '</div>' +
+                    '<div style="font-size:' + (isMobile ? '12px' : '11px') + ';color:#CBD5E1;line-height:1.4;">' + escapeHtml(ins.text) + '</div>' +
+                '</div>';
+            }).join('');
+            insightsBlock = '<div style="margin-bottom:18px;">' +
+                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Инсайты</div>' +
+                insightsRows +
+            '</div>';
+        }
+
+        // ── Разбивки ──
+        var strategyMap = { 'mean_reversion': 'Mean Reversion', 'scalper': 'Скальпер' };
+        var sideMap = { 'LONG': 'LONG', 'SHORT': 'SHORT' };
+        var windowMap = { 'EU': 'EU (07:05–11:55)', 'US': 'US (13:05–16:55)', 'EU+US': 'EU + US', 'all': 'Без фильтра окон' };
+        var regimeMap = {
+            'all_up': 'Все 3 ТФ согласны вверх',
+            'all_down': 'Все 3 ТФ согласны вниз',
+            'two_agree': 'Согласны 2 из 3',
+            'disagree': 'Расхождение или флэт',
+            'no_regime': 'Без фильтра режима',
+            'legacy': 'Старый формат',
+        };
+        var exitMap = {
+            'stop_loss': 'Стоп', 'take_profit': 'Тейк', 'timeout': 'Таймаут',
+            'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'step_tp': 'Шаговый TP',
+            'cluster_exit': 'Кластер', 'bb_exit': 'Bollinger', 'manual': 'Ручной', 'external_close': 'Внешнее',
+        };
+
+        var breakdowns =
+            renderBreakdown('По стратегии', d.byStrategy, { keyMap: strategyMap }) +
+            renderBreakdown('По направлению', d.bySide, { keyMap: sideMap }) +
+            renderBreakdown('По парам', d.byPair, { sortBy: 'pnl' }) +
+            renderBreakdown('По окну торговли', d.byWindow, { keyMap: windowMap }) +
+            renderBreakdown('По режиму при входе', d.byRegimeAgreement, { keyMap: regimeMap }) +
+            renderBreakdown('По часам UTC', d.byHour) +
+            renderBreakdown('По выходу', d.byExit, { keyMap: exitMap });
+
+        // По ботам — только если "Все боты"
+        var byBotBlock = '';
+        if (!_analyticsState.scope && d.byBot) {
+            byBotBlock = renderBreakdown('По ботам', d.byBot, { sortBy: 'pnl' });
+        }
+
+        return '<div style="' + pad + '">' + overallBlock + insightsBlock + breakdowns + byBotBlock + '</div>';
     }
 
     // ── CSV-экспорт журнала сделок ──
