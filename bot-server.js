@@ -2800,6 +2800,40 @@ module.exports = function(app) {
 
             // ── Проверка #2: ZOMBIE — на бирже есть, в памяти нет ──
             if (!hasInMem && hasOnExch) {
+                // Cross-bot guard: если другой Live-бот того же юзера уже ведёт эту
+                // позицию (или собирается её усыновить прямо сейчас) — не усыновляем
+                // во второй раз. Это страховка на случай если пользователь успел
+                // создать второй Live-бот на ту же пару раньше чем сработал
+                // start-time guard в startBot.
+
+                // Узнаём uid этого session (находим ключ для текущей сессии в Map)
+                let myUid = null;
+                for (const [k, s] of sessions) {
+                    if (s === session) { myUid = k.split(':')[0]; break; }
+                }
+                let alreadyOwned = false;
+                let ownerLabel = null;
+                if (myUid) {
+                    for (const [otherKey, otherSession] of sessions) {
+                        if (otherSession === session) continue;
+                        if (!otherKey.startsWith(myUid + ':')) continue;
+                        if (otherSession.mode !== 'live') continue;
+                        if (otherSession.symbol !== symbol) continue;
+                        if (otherSession.position || otherSession._syncBusy) {
+                            alreadyOwned = true;
+                            ownerLabel = (typeof getFullBotLabel === 'function') ? getFullBotLabel(otherSession) : symbol;
+                            break;
+                        }
+                    }
+                }
+                if (alreadyOwned) {
+                    if (now - (session._zombieSkipWarnedAt || 0) > 60 * 1000) {
+                        console.warn(`[LIVE-SYNC ${ts()}] 🧟 ZOMBIE on ${symbol} skipped — already owned by another live-bot: ${ownerLabel}`);
+                        session._zombieSkipWarnedAt = now;
+                    }
+                    return;
+                }
+
                 // Throttle warnings — пишем не чаще раза в минуту
                 if (now - (session._zombieWarnedAt || 0) > 60 * 1000) {
                     console.warn(`[LIVE-SYNC ${ts()}] 🧟 ZOMBIE detected: ${symbol} on exchange (amt=${exchAmt}, entry=${exchEntry}), but no position in memory. Adopting.`);
@@ -4054,6 +4088,31 @@ module.exports = function(app) {
             session.apiSecret    = loaded.apiSecret;
             session.apiTestnet   = !!loaded.testnet;
             session.apiConnected = true;
+
+            // ── Live-guard: запрет дублей пары в Live ──
+            // Два Live-бота на одной паре физически делят одну позицию на бирже:
+            // оба попытаются её усыновить, оба будут писать сделки в журнал, и один
+            // может закрыть позицию другого. Поэтому в Live на каждую пару разрешён
+            // только один работающий бот. В Paper это ограничение НЕ применяется
+            // (paper-сделки симулируются в памяти и не пересекаются между ботами).
+            const newSymbol = (settings.pair || '').replace('/', '').toUpperCase();
+            for (const [otherKey, otherSession] of sessions) {
+                if (!otherKey.startsWith(uid + ':')) continue;
+                const otherBotId = otherKey.split(':')[1];
+                if (otherBotId === botId) continue;                  // это сам этот бот
+                if (otherSession.mode !== 'live') continue;          // дубли разрешены если другой в Paper
+                if (!otherSession.running && !otherSession._starting) continue; // другой не работает
+                if (otherSession.symbol !== newSymbol) continue;     // другой на другой паре
+
+                const otherLabel = (typeof getFullBotLabel === 'function')
+                    ? getFullBotLabel(otherSession)
+                    : (otherSession.pair || newSymbol);
+                return {
+                    ok: false,
+                    error: `На паре ${settings.pair} уже работает Live-бот: ${otherLabel}. ` +
+                           `Останови его или переключи этого в Paper-режим.`
+                };
+            }
         }
 
         // ── Защита от двойного запуска ──
