@@ -186,6 +186,7 @@ module.exports = function(app) {
                     strategy: session.strategy || 'scalper',
                     timeframe: session.timeframe,
                     running: session.running,
+                    warmupUntil: session.warmupUntil || 0,
                     paused: session.paused,
                     mode: session.mode,
                     balance: Math.round(session.virtualBalance * 100) / 100,
@@ -1336,6 +1337,33 @@ module.exports = function(app) {
     }
 
     /**
+     * Проверяет, находится ли бот в warmup-периоде после старта.
+     * В этот период бот ничего не делает (не открывает сделки), чтобы
+     * пользователь успел включить нужные тумблеры. Лог пишем не чаще раза в 10 секунд.
+     * @returns {boolean} true если warmup ещё активен (нужно блокировать вход).
+     */
+    function isInWarmup(session) {
+        if (!session.warmupUntil) return false;
+        const now = Date.now();
+        if (now >= session.warmupUntil) {
+            // Warmup закончился — снимаем флаг и логируем единожды
+            if (!session._warmupEndLogged) {
+                console.log(`[BOT ${ts()}] ✅ Warmup finished for ${session.pair} — trading enabled`);
+                session._warmupEndLogged = true;
+            }
+            session.warmupUntil = 0;
+            return false;
+        }
+        // Лог не чаще раза в 10 сек
+        if (now - (session._warmupLastLog || 0) > 10 * 1000) {
+            const left = Math.ceil((session.warmupUntil - now) / 1000);
+            console.log(`[BOT ${ts()}] 🔥 Warmup ${session.pair}: ${left}s left — entries blocked`);
+            session._warmupLastLog = now;
+        }
+        return true;
+    }
+
+    /**
      * Универсальный фильтр режима рынка (V2).
      * Возвращает true если сделку нужно блокировать.
      *
@@ -1445,6 +1473,9 @@ module.exports = function(app) {
     function checkSignalMeanReversion(session) {
         const { candles, market } = session;
         if (candles.length < 30) return null;
+
+        // ── Warmup период (60s после старта) ──
+        if (isInWarmup(session)) return null;
 
         // ── Окно торговли (W) ──
         if (!isInsideTradingWindow(session)) return null;
@@ -1578,6 +1609,9 @@ module.exports = function(app) {
         if (!price || price <= 0) return;
         if (session.position) return;
 
+        // ── Warmup период (60s после старта) ──
+        if (isInWarmup(session)) return;
+
         // ── Окно торговли (W) ──
         if (!isInsideTradingWindow(session)) return;
 
@@ -1686,6 +1720,9 @@ module.exports = function(app) {
         const { candles, levels, market } = session;
 
         if (candles.length < 30) return null;
+
+        // ── Warmup период (60s после старта) ──
+        if (isInWarmup(session)) return null;
 
         // ── Окно торговли (W) ──
         if (!isInsideTradingWindow(session)) return null;
@@ -4253,6 +4290,11 @@ module.exports = function(app) {
         session.running           = true;
         session.paused            = false;
         session.consecutiveLosses = 0;
+        // ── Warmup-период: 60 секунд после старта бот не входит в сделки.
+        // Даёт пользователю время включить тумблеры (R, W, кластер и др.)
+        // прежде чем бот начнёт реально торговать. Можно прервать вручную
+        // через POST /api/bot/skip-warmup.
+        session.warmupUntil       = Date.now() + 60 * 1000;
         // session.trades — сохраняем!
         session.position          = null;
         session.levels            = [];
@@ -4452,6 +4494,24 @@ module.exports = function(app) {
             const silent = !!req.body.silent;
             const result = stopBot(uid, botId, silent);
             res.json({ ok: true, wasRunning: result.wasRunning });
+        } catch(e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/bot/skip-warmup — досрочно завершить warmup-период бота
+    // body: { uid, botId }
+    app.post('/api/bot/skip-warmup', (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            const botId = req.body.botId || 'default';
+            const session = getSession(uid, botId);
+            if (!session.warmupUntil || session.warmupUntil <= Date.now()) {
+                return res.json({ ok: true, alreadyDone: true });
+            }
+            session.warmupUntil = 0;
+            console.log(`[BOT ${ts()}] ⚡ Warmup skipped manually for ${session.pair}`);
+            res.json({ ok: true });
         } catch(e) {
             res.status(500).json({ error: e.message });
         }
@@ -5176,6 +5236,7 @@ module.exports = function(app) {
                 botId:       botId,
                 botName:     session.botName,
                 running:     session.running,
+                warmupUntil: session.warmupUntil || 0,
                 paused:      session.paused,
                 mode:        session.mode,
                 market:      session.market,

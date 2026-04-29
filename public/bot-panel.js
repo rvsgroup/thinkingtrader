@@ -568,6 +568,7 @@
         _state.volumeInfo   = data.volumeInfo    || null;
         _state.clusterInfo  = data.clusterInfo   || null;
         _state.running      = data.running       || false;
+        _state.warmupUntil  = data.warmupUntil    || 0;
         _state.paused       = data.paused        || false;
         _state.bbData       = data.bbData        || null;
         _state.regime       = data.regime        || null;
@@ -1633,6 +1634,33 @@
     function updateBadge() {
         var badge = document.getElementById('botWidgetBadge');
         if (!badge) return;
+
+        // Warmup countdown — показываем оставшееся время вместо обычного статуса
+        if (_state.running && _state.warmupUntil && _state.warmupUntil > Date.now()) {
+            var leftMs = _state.warmupUntil - Date.now();
+            var leftSec = Math.ceil(leftMs / 1000);
+            badge.className = 'bot-w-badge idle';
+            badge.textContent = 'WARMUP ' + leftSec + 's';
+            // Запускаем тикер раз в секунду, если ещё не запущен
+            if (!window._warmupTicker) {
+                window._warmupTicker = setInterval(function() {
+                    if (!_state.warmupUntil || _state.warmupUntil <= Date.now()) {
+                        clearInterval(window._warmupTicker);
+                        window._warmupTicker = null;
+                        _state.warmupUntil = 0;
+                        updateBadge();
+                        return;
+                    }
+                    updateBadge();
+                }, 1000);
+            }
+            return;
+        }
+        // Если warmup уже не активен — вычищаем тикер если был
+        if (window._warmupTicker) {
+            clearInterval(window._warmupTicker);
+            window._warmupTicker = null;
+        }
 
         if (_state.paused) {
             badge.className = 'bot-w-badge idle';
