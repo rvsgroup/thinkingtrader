@@ -736,18 +736,62 @@
             if (bbContainer && _state.bbData) {
                 var bb = _state.bbData;
                 var price = _state.currentPrice;
-                var rsiColor = bb.rsi >= 70 ? '#EF4444' : bb.rsi <= 30 ? '#10B981' : '#94A3B8';
+                // Динамические пороги RSI из настроек (используются и в торговой логике на сервере).
+                var rsiOS = parseInt(_state.rsiOversold) || 35;
+                var rsiOB = parseInt(_state.rsiOverbought) || 65;
+                var rsiVal = Math.max(0, Math.min(100, bb.rsi));
+                var rsiColor = bb.rsi >= rsiOB ? '#EF4444' : bb.rsi <= rsiOS ? '#10B981' : '#E2E8F0';
                 var posInBand = price > 0 && bb.upper > bb.lower
                     ? Math.round((price - bb.lower) / (bb.upper - bb.lower) * 100) : 50;
+                var posClamped = Math.max(0, Math.min(100, posInBand));
+                // Зоны для шкалы позиции в канале: <=5 у нижней, >=95 у верхней (как в bot-server).
+                var posBadge = '';
+                if (posInBand >= 95)      posBadge = '<span class="bb-badge bb-badge-red">у верхней</span>';
+                else if (posInBand <= 5)  posBadge = '<span class="bb-badge bb-badge-green">у нижней</span>';
+                else if (posInBand >= 70) posBadge = '<span class="bb-badge bb-badge-amber">верхняя половина</span>';
+                else if (posInBand <= 30) posBadge = '<span class="bb-badge bb-badge-amber">нижняя половина</span>';
+                else                      posBadge = '<span class="bb-badge bb-badge-mute">в середине</span>';
+                // Бадж для RSI на основе тех же настроек.
+                var rsiBadge;
+                if (bb.rsi >= rsiOB)      rsiBadge = '<span class="bb-badge bb-badge-red">перекуплен</span>';
+                else if (bb.rsi <= rsiOS) rsiBadge = '<span class="bb-badge bb-badge-green">перепродан</span>';
+                else                      rsiBadge = '<span class="bb-badge bb-badge-mute">нейтрально</span>';
+                // Линейный градиент шкалы RSI — границы цветных зон совпадают с порогами.
+                var rsiBg = 'linear-gradient(90deg,' +
+                    '#10B981 0%,#10B981 ' + rsiOS + '%,' +
+                    'rgba(255,255,255,0.08) ' + rsiOS + '%,rgba(255,255,255,0.08) ' + rsiOB + '%,' +
+                    '#EF4444 ' + rsiOB + '%,#EF4444 100%)';
                 bbContainer.innerHTML = '\
-                    <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#EF4444;"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;"><polygon points="0,7 8,7 4,1"/></svg> Верхняя</span><span style="color:#E2E8F0;font-weight:600;">' + bb.upper.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</span></div>\
-                    <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#FBBF24;">─ Средняя (SMA)</span><span style="color:#E2E8F0;font-weight:600;">' + bb.middle.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</span></div>\
-                    <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:#10B981;"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;"><polygon points="0,1 8,1 4,7"/></svg> Нижняя</span><span style="color:#E2E8F0;font-weight:600;">' + bb.lower.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</span></div>\
-                    <div style="margin-top:6px;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;position:relative;">\
-                        <div style="position:absolute;left:' + posInBand + '%;top:-2px;width:8px;height:8px;border-radius:50%;background:#3B82F6;transform:translateX(-50%);"></div>\
+                    <div class="bb-tiles">\
+                        <div class="bb-tile bb-tile-upper">\
+                            <div class="bb-tile-head"><span class="bb-tile-label">Верх</span><span class="bb-tile-arrow">▲</span></div>\
+                            <div class="bb-tile-value">' + bb.upper.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
+                        </div>\
+                        <div class="bb-tile bb-tile-middle">\
+                            <div class="bb-tile-head"><span class="bb-tile-label">Средняя</span><span class="bb-tile-arrow">─</span></div>\
+                            <div class="bb-tile-value">' + bb.middle.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
+                        </div>\
+                        <div class="bb-tile bb-tile-lower">\
+                            <div class="bb-tile-head"><span class="bb-tile-label">Низ</span><span class="bb-tile-arrow">▼</span></div>\
+                            <div class="bb-tile-value">' + bb.lower.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
+                        </div>\
                     </div>\
-                    <div style="display:flex;justify-content:space-between;padding:5px 0 0;"><span>Позиция в канале</span><span style="color:#E2E8F0;font-weight:600;">' + posInBand + '%</span></div>\
-                    <div style="display:flex;justify-content:space-between;padding:3px 0;"><span>RSI (' + (_state.rsiPeriod || 14) + ')</span><span style="color:' + rsiColor + ';font-weight:700;">' + bb.rsi + '</span></div>';
+                    <div class="bb-divider"></div>\
+                    <div class="bb-metric-head"><span class="bb-metric-label">Позиция в канале</span><span class="bb-metric-right"><span class="bb-metric-value">' + posInBand + '%</span>' + posBadge + '</span></div>\
+                    <div class="bb-scale">\
+                        <div class="bb-scale-mid"></div>\
+                        <div class="bb-scale-dot" style="left:' + posClamped + '%;background:#3B82F6;"></div>\
+                    </div>\
+                    <div class="bb-metric-head" style="margin-top:10px;"><span class="bb-metric-label">RSI <span class="bb-sub">(' + (_state.rsiPeriod || 14) + ')</span></span><span class="bb-metric-right"><span class="bb-metric-value" style="color:' + rsiColor + ';">' + bb.rsi + '</span>' + rsiBadge + '</span></div>\
+                    <div class="bb-scale" style="background:' + rsiBg + ';">\
+                        <div class="bb-scale-dot" style="left:' + rsiVal + '%;background:#FFFFFF;border:2px solid ' + rsiColor + ';"></div>\
+                    </div>\
+                    <div class="bb-scale-ticks">\
+                        <span style="left:0;">0</span>\
+                        <span style="left:' + rsiOS + '%;color:#10B981;">' + rsiOS + '</span>\
+                        <span style="left:' + rsiOB + '%;color:#EF4444;">' + rsiOB + '</span>\
+                        <span style="left:100%;">100</span>\
+                    </div>';
             } else if (bbContainer) {
                 bbContainer.innerHTML = '<span style="color:#475569;font-style:italic;">Ожидание данных...</span>';
             }
@@ -873,56 +917,46 @@
         // Сортировка: от высокой цены к низкой (сопротивление сверху, поддержка снизу)
         var sorted = _state.levels.slice().sort(function(a, b) { return b.price - a.price; });
 
-        var isSpot = _state.market === 'spot';
+        // Максимум касаний — для масштабирования длины бара (1.0 = самый авторитетный уровень).
+        var maxTouches = 1;
+        sorted.forEach(function(l) {
+            var t = l.totalTouches || l.touches || 0;
+            if (t > maxTouches) maxTouches = t;
+        });
 
-        // Заголовки колонок
-        var html = '<div class="bot-w-level-header">' +
-            '<span class="bot-w-level-hcol type">Тип</span>' +
-            '<span class="bot-w-level-hcol price">Цена</span>' +
-            '<span class="bot-w-level-hcol touches">Касания</span>' +
-            '<span class="bot-w-level-hcol dist">От цены</span>' +
-            '</div>';
-
+        var html = '';
         sorted.forEach(function(l) {
             var isSupport = l.type === 'support';
             var cls = isSupport ? 'support' : 'resistance';
-            var typeName = isSupport ? 'Поддержка' : 'Сопротивление';
-
-            // Действие бота на этом уровне
-            var action = '';
-            if (isSupport) {
-                action = 'LONG';
-            } else {
-                action = isSpot ? 'пропуск' : 'SHORT';
-            }
+            var dotColor = isSupport ? '#10B981' : '#EF4444';
 
             // Расстояние от текущей цены
             var dist = _state.currentPrice > 0
                 ? ((l.price - _state.currentPrice) / _state.currentPrice * 100).toFixed(2)
                 : '—';
-            var distStr = dist > 0 ? '+' + dist + '%' : dist + '%';
+            var distStr = dist === '—' ? '—' : (dist > 0 ? '+' + dist + '%' : dist + '%');
 
-            // Подсветка если цена близко к уровню (< 0.05%)
+            // Подсветка если цена очень близко к уровню (< 0.05%)
             var absDist = Math.abs(parseFloat(dist));
             var isNear = absDist < 0.05;
             var rowExtra = isNear ? ' bot-w-level-near' : '';
 
-            // Цвет действия
-            var actionCls = isSupport ? 'action-long' : 'action-short';
+            // Бар касаний: длина пропорциональна max, цвет — три ступени силы.
+            var touches = l.totalTouches || l.touches || 0;
+            var barPct = Math.max(8, Math.round(touches / maxTouches * 100));
+            var ratio = touches / maxTouches;
+            var barColor, touchClass;
+            if (ratio >= 0.85)      { barColor = '#E2E8F0'; touchClass = 'strong'; }
+            else if (ratio >= 0.45) { barColor = '#94A3B8'; touchClass = 'mid'; }
+            else                    { barColor = '#475569'; touchClass = ''; }
 
             html += '<div class="bot-w-level-row ' + cls + rowExtra + '">' +
-                '<span class="bot-w-level-type ' + cls + '">' + typeName + '</span>' +
+                '<span class="bot-w-level-dot" style="background:' + dotColor + ';"></span>' +
                 '<span class="bot-w-level-price">' + l.price.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</span>' +
-                '<span class="bot-w-level-touches">' + (l.totalTouches || l.touches) + '</span>' +
+                '<span class="bot-w-level-bar-zone"><span class="bot-w-level-bar" style="width:' + barPct + '%;background:' + barColor + ';"></span></span>' +
+                '<span class="bot-w-level-touches ' + touchClass + '">' + touches + '</span>' +
                 '<span class="bot-w-level-dist">' + distStr + '</span>' +
                 '</div>';
-
-            // Детали касаний + действие
-            var touchInfo = '';
-            if (l.touchesFromAbove !== undefined) {
-                touchInfo = ' · <svg width="8" height="8" viewBox="0 0 8 8" fill="#EF5350" style="vertical-align:-1px;"><polygon points="0,1 8,1 4,7"/></svg>' + l.touchesFromAbove + ' <svg width="8" height="8" viewBox="0 0 8 8" fill="#26a69a" style="vertical-align:-1px;"><polygon points="0,7 8,7 4,1"/></svg>' + l.touchesFromBelow;
-            }
-            html += '<div class="bot-w-level-action ' + actionCls + '">Бот: ' + action + touchInfo + '</div>';
         });
 
         container.innerHTML = html;
@@ -3913,185 +3947,6 @@
     }
 
 
-    /* ══════════════════════════════════════════
-       АНАЛИТИКА — агрегированная статистика
-    ══════════════════════════════════════════ */
-
-    function openAnalytics() {
-        var uid = getUid();
-        // Сразу показываем модалку с лоадером
-        showAnalyticsModal({ loading: true });
-        fetch('/api/bot/analytics?uid=' + uid + '&hours=24')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                showAnalyticsModal(data);
-            })
-            .catch(function(e) {
-                showAnalyticsModal({ error: e.message });
-            });
-    }
-
-    function showAnalyticsModal(data) {
-        // Удаляем старую модалку, если была
-        var old = document.getElementById('botAnalyticsModal');
-        if (old) old.remove();
-
-        var isMobile = window.innerWidth < 768;
-        var maxW = isMobile ? '100%' : '720px';
-        var maxH = isMobile ? '92vh' : '85vh';
-
-        var modal = document.createElement('div');
-        modal.id = 'botAnalyticsModal';
-        modal.style.cssText =
-            'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;' +
-            'display:flex;align-items:center;justify-content:center;padding:' + (isMobile ? '0' : '20px') + ';';
-
-        var content = '';
-        if (data.loading) {
-            content = '<div style="padding:40px;text-align:center;color:#94A3B8;">Загрузка статистики...</div>';
-        } else if (data.error) {
-            content = '<div style="padding:40px;text-align:center;color:#EF4444;">Ошибка: ' + data.error + '</div>';
-        } else if (data.empty || data.totalTrades === 0) {
-            content = '<div style="padding:40px;text-align:center;color:#94A3B8;">' +
-                'За последние ' + (data.hours || 24) + 'ч сделок не было.<br><br>' +
-                '<span style="font-size:12px;color:#636B76;">Запусти ботов и подожди — данные появятся здесь.</span>' +
-                '</div>';
-        } else {
-            content = renderAnalyticsContent(data);
-        }
-
-        modal.innerHTML =
-            '<div style="background:#0F172A;border:1px solid rgba(255,255,255,0.08);border-radius:' + (isMobile ? '0' : '12px') + ';' +
-                'width:100%;max-width:' + maxW + ';max-height:' + maxH + ';display:flex;flex-direction:column;overflow:hidden;">' +
-                // Шапка
-                '<div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px;">' +
-                    '<svg width="18" height="18" viewBox="0 0 16 16" fill="none">' +
-                        '<rect x="2" y="9" width="2.5" height="5" fill="#26a69a" rx="0.3"/>' +
-                        '<rect x="6.75" y="5" width="2.5" height="9" fill="#26a69a" rx="0.3"/>' +
-                        '<rect x="11.5" y="2" width="2.5" height="12" fill="#26a69a" rx="0.3"/>' +
-                    '</svg>' +
-                    '<span style="font-size:14px;font-weight:700;color:#E2E8F0;flex:1;">Аналитика · 24ч</span>' +
-                    '<div id="botAnalyticsRefresh" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:#94A3B8;transition:all 0.2s;">↻ Обновить</div>' +
-                    '<div id="botAnalyticsClose" style="cursor:pointer;color:#94A3B8;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;">' +
-                        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-                    '</div>' +
-                '</div>' +
-                // Контент
-                '<div style="overflow-y:auto;flex:1;padding:14px 16px;">' + content + '</div>' +
-            '</div>';
-
-        document.body.appendChild(modal);
-
-        document.getElementById('botAnalyticsClose').onclick = function() { modal.remove(); };
-        document.getElementById('botAnalyticsRefresh').onclick = function() { modal.remove(); openAnalytics(); };
-        // Закрытие по клику на затемнение
-        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
-    }
-
-    function renderAnalyticsContent(d) {
-        // Хелперы рендера
-        function pnlColor(v) { return v > 0 ? '#26a69a' : v < 0 ? '#ef5350' : '#94A3B8'; }
-        function pnlStr(v) { return (v > 0 ? '+' : '') + '$' + Number(v).toFixed(2); }
-        function wrColor(wr) { return wr >= 70 ? '#26a69a' : wr >= 50 ? '#94A3B8' : '#ef5350'; }
-
-        // Блок одной таблицы-разбивки
-        function bucketRow(label, b) {
-            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;">' +
-                '<span style="color:#94A3B8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px;">' + label + '</span>' +
-                '<span style="color:#636B76;font-size:10px;width:50px;text-align:right;">n=' + b.n + '</span>' +
-                '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;width:60px;text-align:right;">' + b.winRate + '%</span>' +
-                '<span style="color:' + pnlColor(b.pnl) + ';font-weight:600;width:80px;text-align:right;">' + pnlStr(b.pnl) + '</span>' +
-            '</div>';
-        }
-
-        function section(title, obj, sortByPnl) {
-            if (!obj || Object.keys(obj).length === 0) return '';
-            var keys = Object.keys(obj);
-            if (sortByPnl) keys.sort(function(a, b){ return obj[b].pnl - obj[a].pnl; });
-            else keys.sort(function(a, b){ return obj[b].n - obj[a].n; });
-            var html = '<div style="margin-bottom:18px;">' +
-                '<div style="font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + title + '</div>' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;padding:0 0 4px;border-bottom:1px solid rgba(255,255,255,0.06);font-size:9px;color:#4A5060;text-transform:uppercase;">' +
-                    '<span style="flex:1;">Группа</span>' +
-                    '<span style="width:50px;text-align:right;">N</span>' +
-                    '<span style="width:60px;text-align:right;">WR</span>' +
-                    '<span style="width:80px;text-align:right;">P&L</span>' +
-                '</div>';
-            keys.forEach(function(k) { html += bucketRow(k, obj[k]); });
-            html += '</div>';
-            return html;
-        }
-
-        // Инсайты
-        var insightsHtml = '';
-        if (d.insights && d.insights.length > 0) {
-            insightsHtml = '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px 14px;margin-bottom:18px;">' +
-                '<div style="font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Топ инсайты</div>';
-            d.insights.forEach(function(ins) {
-                var color = ins.type === 'good' ? '#26a69a' : ins.type === 'bad' ? '#ef5350' : '#F59E0B';
-                insightsHtml += '<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;font-size:12px;color:#E2E8F0;">' +
-                    '<span style="font-size:14px;flex-shrink:0;">' + ins.icon + '</span>' +
-                    '<span style="line-height:1.4;border-left:2px solid ' + color + ';padding-left:8px;">' + ins.text + '</span>' +
-                '</div>';
-            });
-            insightsHtml += '</div>';
-        }
-
-        // Общий блок KPI
-        var ov = d.overall;
-        var beNote = d.breakEvenWR != null
-            ? (ov.winRate < d.breakEvenWR
-                ? '<span style="color:#ef5350;font-size:10px;"> · ⚠ ниже break-even ' + d.breakEvenWR + '%</span>'
-                : '<span style="color:#26a69a;font-size:10px;"> · выше break-even ' + d.breakEvenWR + '%</span>')
-            : '';
-        var feeNote = d.feesAsPercentOfGross != null
-            ? '<span style="color:#94A3B8;font-size:10px;"> · ' + d.feesAsPercentOfGross + '% от gross</span>'
-            : '';
-
-        var kpiHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;">' +
-            // Сделки
-            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
-                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Сделок</div>' +
-                '<div style="font-size:18px;font-weight:700;color:#E2E8F0;margin-top:2px;">' + d.totalTrades + '</div>' +
-                '<div style="font-size:10px;color:#94A3B8;margin-top:1px;">' + ov.wins + ' ✓ / ' + ov.losses + ' ✗</div>' +
-            '</div>' +
-            // Win rate
-            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
-                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Winrate</div>' +
-                '<div style="font-size:18px;font-weight:700;color:' + wrColor(ov.winRate) + ';margin-top:2px;">' + ov.winRate + '%</div>' +
-                '<div style="margin-top:1px;">' + beNote + '</div>' +
-            '</div>' +
-            // P&L Net
-            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
-                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">P&L Net</div>' +
-                '<div style="font-size:18px;font-weight:700;color:' + pnlColor(ov.pnl) + ';margin-top:2px;">' + pnlStr(ov.pnl) + '</div>' +
-                '<div style="font-size:10px;color:#94A3B8;margin-top:1px;">сред. ' + pnlStr(ov.avgPnl) + '</div>' +
-            '</div>' +
-            // Комиссии
-            '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;">' +
-                '<div style="font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:0.5px;">Комиссии</div>' +
-                '<div style="font-size:18px;font-weight:700;color:#94A3B8;margin-top:2px;">$' + d.totalFees.toFixed(2) + '</div>' +
-                '<div style="margin-top:1px;">' + feeNote + '</div>' +
-            '</div>' +
-        '</div>';
-
-        // Win/Loss средние
-        var wlHtml = '<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px 12px;margin-bottom:18px;font-size:12px;color:#94A3B8;display:flex;justify-content:space-between;">' +
-            '<span>Средний WIN: <span style="color:#26a69a;font-weight:600;">' + pnlStr(ov.avgWin) + '</span></span>' +
-            '<span>Средний LOSS: <span style="color:#ef5350;font-weight:600;">' + pnlStr(ov.avgLoss) + '</span></span>' +
-            '<span>R:R: <span style="color:#E2E8F0;font-weight:600;">' + (ov.avgLoss !== 0 ? Math.abs(ov.avgWin / ov.avgLoss).toFixed(2) : '—') + '</span></span>' +
-        '</div>';
-
-        return insightsHtml + kpiHtml + wlHtml +
-            section('По стратегии', d.byStrategy) +
-            section('По стороне', d.bySide) +
-            section('По паре', d.byPair, true) +
-            section('По окну торговли', d.byWindow) +
-            section('По согласованности режима (4h·15m·5m)', d.byRegimeAgreement) +
-            section('По часу UTC', d.byHour) +
-            section('По выходу', d.byExit) +
-            section('По боту', d.byBot, true);
-    }
 
     /* ══════════════════════════════════════════
        ЖУРНАЛ СДЕЛОК БОТА
@@ -4540,11 +4395,16 @@
     //  scope: null = все боты юзера, иначе botId конкретного бота.
     // ════════════════════════════════════════════════════════════
 
-    var _analyticsState = { hours: 24, scope: null, data: null, loading: false };
+    // hours удалён — теперь всегда показываем "Всё".
+    // tab: 'general' (общий по всем стратегиям) или 'scalper' (только скальпер с разрезами по уровням).
+    // scalperData кэшируется отдельно — у двух вкладок разные эндпоинты.
+    var _analyticsState = { tab: 'general', scope: null, data: null, scalperData: null, loading: false };
 
     function openAnalytics(botId) {
         _analyticsState.scope = botId || null;
-        _analyticsState.hours = 24; // по умолчанию открываем "24ч"
+        _analyticsState.tab = 'general';
+        _analyticsState.data = null;
+        _analyticsState.scalperData = null;
         renderAnalyticsModal();
         loadAnalyticsData();
     }
@@ -4553,18 +4413,32 @@
         _analyticsState.loading = true;
         renderAnalyticsModal();
         var uid = getUid();
-        var params = ['uid=' + encodeURIComponent(uid), 'hours=' + _analyticsState.hours];
+        // hours=0 → бэк отдаст всю историю
+        var params = ['uid=' + encodeURIComponent(uid), 'hours=0'];
         if (_analyticsState.scope) params.push('botId=' + encodeURIComponent(_analyticsState.scope));
-        fetch('/api/bot/analytics?' + params.join('&'))
+
+        var url = _analyticsState.tab === 'scalper'
+            ? '/api/bot/analytics/scalper?' + params.filter(function(p){ return p.indexOf('hours=') !== 0; }).join('&')
+            : '/api/bot/analytics?' + params.join('&');
+
+        fetch(url)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 _analyticsState.loading = false;
-                _analyticsState.data = data;
+                if (_analyticsState.tab === 'scalper') {
+                    _analyticsState.scalperData = data;
+                } else {
+                    _analyticsState.data = data;
+                }
                 renderAnalyticsModal();
             })
             .catch(function(e) {
                 _analyticsState.loading = false;
-                _analyticsState.data = { error: e.message };
+                if (_analyticsState.tab === 'scalper') {
+                    _analyticsState.scalperData = { error: e.message };
+                } else {
+                    _analyticsState.data = { error: e.message };
+                }
                 renderAnalyticsModal();
             });
     }
@@ -4594,27 +4468,12 @@
 
         // Заголовок скоупа
         var scopeLabel = 'Все боты';
-        if (_analyticsState.scope && _analyticsState.data && _analyticsState.data.scope && _analyticsState.data.scope.label) {
-            scopeLabel = _analyticsState.data.scope.label;
+        var anyData = _analyticsState.data || _analyticsState.scalperData;
+        if (_analyticsState.scope && anyData && anyData.scope && anyData.scope.label) {
+            scopeLabel = anyData.scope.label;
         } else if (_analyticsState.scope) {
             scopeLabel = 'Этот бот';
         }
-
-        // Переключатель периода (24ч / 7д / Всё) — три кнопки
-        function periodBtn(label, hours) {
-            var active = _analyticsState.hours === hours;
-            var bg = active ? 'rgba(38,166,154,0.15)' : 'transparent';
-            var border = active ? 'rgba(38,166,154,0.50)' : 'rgba(255,255,255,0.10)';
-            var color = active ? '#26a69a' : '#94A3B8';
-            return '<div data-hours="' + hours + '" class="bam-period-btn" style="cursor:pointer;font-size:' + (isMobile ? '12px' : '11px') + ';padding:' + (isMobile ? '6px 12px' : '4px 10px') + ';border-radius:5px;border:1px solid ' + border + ';background:' + bg + ';color:' + color + ';transition:all 0.15s;">' + label + '</div>';
-        }
-
-        var periodToggle =
-            '<div style="display:flex;gap:6px;">' +
-                periodBtn('24ч', 24) +
-                periodBtn('7д', 168) +
-                periodBtn('Всё', 0) +
-            '</div>';
 
         var headerHtml =
             '<div style="' + headerPad + 'display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;">' +
@@ -4623,7 +4482,6 @@
                 '</svg>' +
                 '<span style="font-size:' + (isMobile ? '15px' : '13px') + ';font-weight:700;color:#E2E8F0;">Анализ</span>' +
                 '<div style="flex:1;"></div>' +
-                periodToggle +
                 '<div id="botAnalyticsClose" style="cursor:pointer;color:#94A3B8;width:' + (isMobile ? 36 : 24) + 'px;height:' + (isMobile ? 36 : 24) + 'px;display:flex;align-items:center;justify-content:center;border-radius:6px;margin-left:6px;">' +
                     '<svg width="' + closeIconSize + '" height="' + closeIconSize + '" viewBox="0 0 12 12" fill="none">' +
                         '<line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
@@ -4632,51 +4490,84 @@
                 '</div>' +
             '</div>';
 
-        // Скоуп-строка под заголовком
+        // Вкладки: Общий / Скальпер
+        function tabBtn(label, tabKey, count) {
+            var active = _analyticsState.tab === tabKey;
+            var color = active ? '#26a69a' : '#64748B';
+            var border = active ? '2px solid #26a69a' : '2px solid transparent';
+            var fontWeight = active ? '600' : '400';
+            var countSpan = count != null
+                ? '<span style="color:#475569;font-weight:400;margin-left:4px;">' + count + '</span>'
+                : '';
+            return '<span data-tab="' + tabKey + '" class="bam-tab-btn" style="padding:' + (isMobile ? '12px 16px' : '10px 14px') + ';font-size:' + (isMobile ? '13px' : '12px') + ';color:' + color + ';border-bottom:' + border + ';cursor:pointer;font-weight:' + fontWeight + ';">' + label + countSpan + '</span>';
+        }
+        var scalperCount = (_analyticsState.scalperData && _analyticsState.scalperData.totalTrades != null)
+            ? _analyticsState.scalperData.totalTrades : null;
+        var tabsRow =
+            '<div style="' + (isMobile ? 'padding:0 16px;' : 'padding:0 16px;') + 'display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,0.04);flex-shrink:0;">' +
+                tabBtn('Общий', 'general', null) +
+                tabBtn('Скальпер', 'scalper', scalperCount) +
+            '</div>';
+
+        // Скоуп-строка
         var scopeRow =
             '<div style="' + (isMobile ? 'padding:8px 16px;' : 'padding:6px 16px;') + 'border-bottom:1px solid rgba(255,255,255,0.04);font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;flex-shrink:0;">' +
                 'Скоуп: <span style="color:#94A3B8;">' + escapeHtml(scopeLabel) + '</span>' +
             '</div>';
 
         var bodyHtml = '';
+        var currentData = _analyticsState.tab === 'scalper'
+            ? _analyticsState.scalperData
+            : _analyticsState.data;
+
         if (_analyticsState.loading) {
             bodyHtml = '<div style="' + bodyPad + 'flex:1;display:flex;align-items:center;justify-content:center;color:#636B76;font-size:12px;">Загрузка...</div>';
-        } else if (!_analyticsState.data) {
+        } else if (!currentData) {
             bodyHtml = '<div style="' + bodyPad + 'flex:1;color:#636B76;font-size:12px;">Нет данных</div>';
-        } else if (_analyticsState.data.error) {
-            bodyHtml = '<div style="' + bodyPad + 'flex:1;color:#EF4444;font-size:12px;">Ошибка: ' + escapeHtml(_analyticsState.data.error) + '</div>';
-        } else if (_analyticsState.data.empty) {
-            bodyHtml = '<div style="' + bodyPad + 'flex:1;display:flex;align-items:center;justify-content:center;color:#636B76;font-size:12px;text-align:center;">' +
-                'Нет сделок за выбранный период.<br>' +
-                'Попробуй увеличить период (7 дней или Всё).' +
-            '</div>';
+        } else if (currentData.error) {
+            bodyHtml = '<div style="' + bodyPad + 'flex:1;color:#EF4444;font-size:12px;">Ошибка: ' + escapeHtml(currentData.error) + '</div>';
+        } else if (currentData.empty || currentData.totalTrades === 0) {
+            var emptyMsg = _analyticsState.tab === 'scalper'
+                ? 'Нет скальпер-сделок со снэпшотом уровней.<br>Подожди пока бот совершит несколько сделок после включения этой функции.'
+                : 'Нет сделок.';
+            bodyHtml = '<div style="' + bodyPad + 'flex:1;display:flex;align-items:center;justify-content:center;color:#636B76;font-size:12px;text-align:center;">' + emptyMsg + '</div>';
+        } else if (_analyticsState.tab === 'scalper') {
+            bodyHtml = renderScalperAnalyticsBody(currentData, isMobile);
         } else {
-            bodyHtml = renderAnalyticsBody(_analyticsState.data, isMobile);
+            bodyHtml = renderAnalyticsBody(currentData, isMobile);
         }
 
         var bodyWrap = '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;">' + bodyHtml + '</div>';
 
-        modal.innerHTML = '<div style="' + innerStyle + '">' + headerHtml + scopeRow + bodyWrap + '</div>';
+        modal.innerHTML = '<div style="' + innerStyle + '">' + headerHtml + tabsRow + scopeRow + bodyWrap + '</div>';
 
         if (isMobile) {
             document.body.appendChild(modal);
         } else {
             // На десктопе модалка анализа открывается ПОВЕРХ журнала, не заменяя его.
-            // Привязываем к body чтобы перекрыть всё включая журнал.
             document.body.appendChild(modal);
         }
 
         modal.querySelector('#botAnalyticsClose').onclick = function() { modal.remove(); };
-        // Клики по кнопкам периода
-        var periodBtns = modal.querySelectorAll('.bam-period-btn');
-        periodBtns.forEach(function(btn) {
+
+        // Клики по вкладкам
+        var tabBtns = modal.querySelectorAll('.bam-tab-btn');
+        tabBtns.forEach(function(btn) {
             btn.onclick = function() {
-                var h = parseInt(btn.getAttribute('data-hours'));
-                if (h === _analyticsState.hours) return;
-                _analyticsState.hours = h;
-                loadAnalyticsData();
+                var t = btn.getAttribute('data-tab');
+                if (t === _analyticsState.tab) return;
+                _analyticsState.tab = t;
+                // Если данных по этой вкладке ещё нет — грузим. Иначе просто перерисовываем.
+                var alreadyHave = (t === 'scalper' && _analyticsState.scalperData)
+                               || (t === 'general' && _analyticsState.data);
+                if (alreadyHave) {
+                    renderAnalyticsModal();
+                } else {
+                    loadAnalyticsData();
+                }
             };
         });
+
         // Закрытие по клику в фон (только десктоп)
         if (!isMobile) {
             modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
@@ -4822,6 +4713,81 @@
         }
 
         return '<div style="' + pad + '">' + overallBlock + insightsBlock + breakdowns + byBotBlock + '</div>';
+    }
+
+
+    /* ── Рендер вкладки "Скальпер" в модалке Анализ ──
+       Группировки специфичные для скальпера: позиция в коридоре, ранг ближайшего уровня,
+       ширина коридора, дошла ли цена до уровня к выходу. Помогает проверить гипотезу
+       что вход от внешних границ работает лучше внутренних. */
+    function renderScalperAnalyticsBody(d, isMobile) {
+        var pad = isMobile ? 'padding:14px 16px;' : 'padding:14px 18px;';
+
+        function fmtMoney(v) {
+            if (v == null || isNaN(v)) return '$0.00';
+            var sign = v >= 0 ? '+' : '';
+            return sign + '$' + Number(v).toFixed(2);
+        }
+        function colorFor(v) { return v >= 0 ? '#10B981' : '#EF4444'; }
+        function wrColor(wr) { return wr >= 60 ? '#10B981' : wr >= 45 ? '#FBBF24' : '#EF4444'; }
+
+        // Рендер списка-разбивки (массив бакетов из API).
+        // Каждый бакет: {key, n, winRate, netPnl, avgPnl}
+        function renderBuckets(title, buckets) {
+            if (!buckets || buckets.length === 0) return '';
+            var maxN = buckets.reduce(function(m, b){ return Math.max(m, b.n); }, 1);
+            var rows = buckets.map(function(b) {
+                var barWidth = Math.max(8, Math.round(b.winRate));
+                return '<div style="display:grid;grid-template-columns:1fr 50px 1fr 70px;gap:10px;padding:6px 0;font-size:' + (isMobile ? '11px' : '11px') + ';align-items:center;border-bottom:1px solid rgba(255,255,255,0.04);">' +
+                    '<span style="color:#94A3B8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(b.key) + '">' + escapeHtml(b.key) + '</span>' +
+                    '<span style="color:#636B76;font-variant-numeric:tabular-nums;">n=' + b.n + '</span>' +
+                    '<span style="display:flex;align-items:center;gap:6px;">' +
+                        '<span style="height:4px;background:' + wrColor(b.winRate) + ';width:' + barWidth + '%;border-radius:2px;flex-shrink:0;"></span>' +
+                        '<span style="color:' + wrColor(b.winRate) + ';font-variant-numeric:tabular-nums;">' + b.winRate + '%</span>' +
+                    '</span>' +
+                    '<span style="color:' + colorFor(b.netPnl) + ';font-weight:600;text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(b.netPnl) + '</span>' +
+                '</div>';
+            }).join('');
+            return '<div style="margin-bottom:18px;">' +
+                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + title + '</div>' +
+                rows +
+            '</div>';
+        }
+
+        // ── Общая сводка ──
+        var ov = d.overall || {};
+        var overallBlock = '<div style="margin-bottom:18px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:6px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:' + (isMobile ? '11px' : '12px') + ';">' +
+            '<span>Сделок: <span style="color:#E2E8F0;font-weight:600;font-variant-numeric:tabular-nums;">' + (ov.n || 0) + '</span></span>' +
+            '<span>WR: <span style="color:' + wrColor(ov.winRate || 0) + ';font-weight:600;">' + (ov.winRate || 0) + '%</span></span>' +
+            '<span>P&amp;L: <span style="color:' + colorFor(ov.netPnl || 0) + ';font-weight:600;">' + fmtMoney(ov.netPnl || 0) + '</span></span>' +
+            '<span>Средняя: <span style="color:' + colorFor(ov.avgPnl || 0) + ';font-weight:600;">' + fmtMoney(ov.avgPnl || 0) + '</span></span>' +
+        '</div>';
+
+        // ── Инсайты ──
+        var insightsBlock = '';
+        if (d.insights && d.insights.length > 0) {
+            var insightsHtml = d.insights.map(function(ins) {
+                var bg, border;
+                if (ins.type === 'good')      { bg = 'rgba(16,185,129,0.06)';  border = '#10B981'; }
+                else if (ins.type === 'warn') { bg = 'rgba(239,68,68,0.06)';   border = '#EF4444'; }
+                else                          { bg = 'rgba(251,191,36,0.06)'; border = '#FBBF24'; }
+                return '<div style="background:' + bg + ';border-left:3px solid ' + border + ';padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:6px;font-size:12px;color:#cbd5e1;line-height:1.4;">' +
+                    escapeHtml(ins.text) +
+                '</div>';
+            }).join('');
+            insightsBlock = '<div style="margin-bottom:18px;">' +
+                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Инсайты</div>' +
+                insightsHtml +
+            '</div>';
+        }
+
+        var breakdowns =
+            renderBuckets('По позиции в коридоре при входе', d.byPosInChannel) +
+            renderBuckets('По рангу ближайшего уровня', d.byNearestRank) +
+            renderBuckets('По ширине коридора', d.byChannelWidth) +
+            renderBuckets('Дошла ли цена до уровня к моменту выхода', d.byPriceReached);
+
+        return '<div style="' + pad + '">' + overallBlock + insightsBlock + breakdowns + '</div>';
     }
 
     // ── CSV-экспорт журнала сделок ──

@@ -942,6 +942,116 @@ module.exports = function(app) {
 
 
     /* ══════════════════════════════════════════
+       5b. LEVELS SNAPSHOT — для скальперского анализа
+       Сохраняет полную картину микроуровней относительно цены
+       на момент входа/выхода. Используется только для скальпера.
+    ══════════════════════════════════════════ */
+
+    /**
+     * Строит снэпшот уровней относительно заданной цены.
+     * Возвращает: полный список уровней + производные метрики для аналитики.
+     *
+     * levels:  массив текущих уровней сессии (session.levels)
+     * price:   цена в момент снимка (entry / exit / current)
+     *
+     * Производные:
+     * - posInChannel: позиция цены в коридоре, % (0 = у нижней границы, 100 = у верхней)
+     * - channelHigh / channelLow / channelWidthPct: границы и ширина коридора
+     * - resistancesAbove / supportsBelow: счётчики уровней с обеих сторон от цены
+     * - nearestAboveRank / nearestBelowRank: позиция ближайшего уровня в иерархии
+     *   своего типа (1 = самый внешний / крайний). Полезно для проверки гипотезы
+     *   "вход от внешних уровней работает лучше внутренних".
+     * - nearestAboveTouches / nearestBelowTouches: сила ближайших уровней
+     * - distToTopPct / distToBottomPct: расстояние до границ коридора в %
+     */
+    function buildLevelsSnapshot(levels, price) {
+        if (!levels || levels.length === 0 || !price || price <= 0) return null;
+
+        // Полный список уровней — компактный формат для хранения
+        const list = levels.map(l => ({
+            price:            l.price,
+            type:             l.type,
+            totalTouches:     l.totalTouches || l.touches || 0,
+            touchesFromAbove: l.touchesFromAbove != null ? l.touchesFromAbove : null,
+            touchesFromBelow: l.touchesFromBelow != null ? l.touchesFromBelow : null,
+        }));
+
+        // Границы коридора = max и min цена среди всех уровней
+        const sortedByPrice = list.slice().sort((a, b) => b.price - a.price);
+        const channelHigh = sortedByPrice[0].price;
+        const channelLow  = sortedByPrice[sortedByPrice.length - 1].price;
+        const channelWidth = channelHigh - channelLow;
+        const channelWidthPct = channelWidth > 0 ? (channelWidth / price * 100) : 0;
+
+        // Позиция цены в коридоре (0..100 %)
+        let posInChannel = 50;
+        if (channelWidth > 0) {
+            posInChannel = ((price - channelLow) / channelWidth) * 100;
+            posInChannel = Math.max(0, Math.min(100, posInChannel));
+        }
+
+        // Уровни выше цены (отсортированы от ближайшего к дальнему)
+        // Ранг 1 = самый дальний (внешний край коридора), N = ближайший (внутри).
+        // То есть для сопротивлений считаем сверху вниз: первый встреченный = rank=N, последний = rank=1.
+        const above = sortedByPrice.filter(l => l.price > price); // от дальнего сверху к ближайшему
+        const below = sortedByPrice.filter(l => l.price < price); // от ближайшего снизу к дальнему
+
+        let nearestAboveRank = null, nearestAboveTouches = null, nearestAbovePrice = null;
+        if (above.length > 0) {
+            // Ближайший сверху = последний в массиве above (он ближе всего к цене).
+            // Его ранг = 1 если он самый дальний (т.е. above.length === 1), иначе rank = above.length.
+            // Удобнее: rank ближайшего сверху = its position from top (1 = самый верхний).
+            // Если above = [76348, 76172, 76094] и price=76000, то ближайший = 76094 — он 3-й сверху, rank=3.
+            const nearest = above[above.length - 1];
+            nearestAbovePrice   = nearest.price;
+            nearestAboveTouches = nearest.totalTouches;
+            nearestAboveRank    = above.length; // позиция от верхнего края (rank=1 = самый внешний)
+        }
+
+        let nearestBelowRank = null, nearestBelowTouches = null, nearestBelowPrice = null;
+        if (below.length > 0) {
+            // below отсортирован от ближайшего вниз. Ближайший снизу = below[0].
+            // Его ранг от нижнего края: rank=1 если он самый нижний (below.length===1), иначе rank=below.length.
+            const nearest = below[0];
+            nearestBelowPrice   = nearest.price;
+            nearestBelowTouches = nearest.totalTouches;
+            nearestBelowRank    = below.length;
+        }
+
+        const distToTopPct    = (channelHigh - price) / price * 100;
+        const distToBottomPct = (price - channelLow) / price * 100;
+
+        return {
+            ts: Date.now(),
+            price: price,
+            // Полный список (для отладки и возможной визуализации)
+            levels: list,
+            // Границы коридора
+            channelHigh:     channelHigh,
+            channelLow:      channelLow,
+            channelWidthPct: Math.round(channelWidthPct * 1000) / 1000,
+            // Позиция цены
+            posInChannel:    Math.round(posInChannel * 10) / 10,
+            // Контекст
+            resistancesAbove: above.filter(l => l.type === 'resistance').length,
+            supportsAbove:    above.filter(l => l.type === 'support').length,
+            resistancesBelow: below.filter(l => l.type === 'resistance').length,
+            supportsBelow:    below.filter(l => l.type === 'support').length,
+            // Ближайшие
+            nearestAbovePrice:   nearestAbovePrice,
+            nearestAboveRank:    nearestAboveRank,
+            nearestAboveTouches: nearestAboveTouches,
+            nearestBelowPrice:   nearestBelowPrice,
+            nearestBelowRank:    nearestBelowRank,
+            nearestBelowTouches: nearestBelowTouches,
+            // Расстояния
+            distToTopPct:    Math.round(distToTopPct * 1000) / 1000,
+            distToBottomPct: Math.round(distToBottomPct * 1000) / 1000,
+        };
+    }
+
+
+    /* ══════════════════════════════════════════
        5c. MARKET REGIME — EMA50 + EMA200 на двух ТФ
        Определяет глобальный тренд: up / down / flat
        Блокирует вход против старшего тренда
@@ -2249,6 +2359,12 @@ module.exports = function(app) {
                 tf5mMove:     session.regime.tf5m  ? session.regime.tf5m.move   : null,
                 allowed:      session.regime.allowed,
             } : null,
+            // ── Снэпшот микроуровней при входе (только для скальпера) ──
+            // Используется для проверки гипотезы о торговле от границ коридора.
+            // На MR/manual не пишем — там уровни в логике не участвуют.
+            entryLevels:     (session.strategy === 'scalper')
+                ? buildLevelsSnapshot(session.levels, entryPrice)
+                : null,
             // ── Трекинг max/min для анализа ──
             maxUnrealized:   0,
             maxDrawdown:     0,
@@ -3344,6 +3460,20 @@ module.exports = function(app) {
                     trade.exitBbUpper  = exitBb.upper;
                     trade.exitBbMiddle = exitBb.middle;
                     trade.exitBbLower  = exitBb.lower;
+                }
+            }
+
+            // ── Снэпшоты микроуровней (только для скальпера) ──
+            // entryLevels копируем из позиции (был зафиксирован в момент открытия,
+            // даже если коридор за время сделки полностью переменился — мы помним тогдашний).
+            // exitLevels строим прямо сейчас по текущей цене и текущему списку уровней.
+            if ((pos.strategy || session.strategy) === 'scalper') {
+                if (pos.entryLevels) {
+                    trade.entryLevels = pos.entryLevels;
+                }
+                const exitSnapshot = buildLevelsSnapshot(session.levels, exitPrice);
+                if (exitSnapshot) {
+                    trade.exitLevels = exitSnapshot;
                 }
             }
         } catch(e) {}
@@ -5573,6 +5703,209 @@ module.exports = function(app) {
             });
         } catch(e) {
             console.error('[ANALYTICS] error:', e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+
+    /* ══════════════════════════════════════════
+       GET /api/bot/analytics/scalper
+       Аналитика только для скальперских сделок — с разрезами по микроуровням.
+       Параметры:
+       - uid:      пользователь
+       - botId:    опционально, фильтр по конкретному боту (иначе все боты пользователя)
+       Период не фильтруется — всегда вся история. Используется для проверки
+       гипотезы "вход от внешних уровней работает лучше внутренних".
+    ══════════════════════════════════════════ */
+    app.get('/api/bot/analytics/scalper', (req, res) => {
+        try {
+            const uid = req.query.uid || 'anonymous';
+            const botId = req.query.botId || null;
+
+            // Собираем скальпер-сделки с уровнями
+            let trades = [];
+            for (const [key, session] of sessions) {
+                if (!key.startsWith(uid + ':')) continue;
+                const sessBotId = key.split(':')[1];
+                if (botId && sessBotId !== botId) continue;
+                if (!session.trades || session.trades.length === 0) continue;
+
+                session.trades.forEach(t => {
+                    if (t.strategy !== 'scalper' && (session.strategy !== 'scalper' || t.strategy)) return;
+                    if (!t.entryLevels) return; // только сделки с записанным снэпшотом
+                    trades.push(t);
+                });
+            }
+
+            if (trades.length === 0) {
+                return res.json({
+                    totalTrades: 0,
+                    insights: [{ text: 'Нет скальпер-сделок со снэпшотом уровней. Подожди пока бот совершит несколько сделок после включения этой функции.', type: 'info' }],
+                    byPosInChannel: [],
+                    byNearestRank: [],
+                    byChannelWidth: [],
+                    byPriceReached: [],
+                    overall: null,
+                });
+            }
+
+            // Хелпер: bucket по pnl + winrate
+            const aggregate = (key, items) => {
+                const wins = items.filter(t => t.netPnl > 0).length;
+                const totalPnl = items.reduce((s, t) => s + (t.netPnl || 0), 0);
+                return {
+                    key: key,
+                    n: items.length,
+                    winRate: items.length > 0 ? Math.round((wins / items.length) * 100) : 0,
+                    netPnl: Math.round(totalPnl * 100) / 100,
+                    avgPnl: items.length > 0 ? Math.round((totalPnl / items.length) * 100) / 100 : 0,
+                };
+            };
+
+            // ── 1. По позиции цены в коридоре при входе ──
+            // Бакеты: top10 (90-100%), top10_30 (70-90%), mid (30-70%), bot10_30 (10-30%), bot10 (0-10%)
+            const buckets = {
+                'Верх 0–10%':   [],
+                'Верх 10–30%':  [],
+                'Середина':     [],
+                'Низ 10–30%':   [],
+                'Низ 0–10%':    [],
+            };
+            trades.forEach(t => {
+                const pos = t.entryLevels.posInChannel;
+                if (pos == null) return;
+                if (pos >= 90)      buckets['Верх 0–10%'].push(t);
+                else if (pos >= 70) buckets['Верх 10–30%'].push(t);
+                else if (pos > 30)  buckets['Середина'].push(t);
+                else if (pos > 10)  buckets['Низ 10–30%'].push(t);
+                else                buckets['Низ 0–10%'].push(t);
+            });
+            const byPosInChannel = Object.keys(buckets).map(k => aggregate(k, buckets[k])).filter(x => x.n > 0);
+
+            // ── 2. По рангу ближайшего уровня (в направлении сделки) ──
+            // SHORT → смотрим nearestAboveRank (ближайший сверху, в который упрётся цена)
+            // LONG  → смотрим nearestBelowRank
+            // rank=1 — самый внешний край коридора, rank≥3 — внутренний уровень
+            const rankBuckets = { 'rank = 1': [], 'rank = 2': [], 'rank ≥ 3': [] };
+            trades.forEach(t => {
+                let rank;
+                if (t.side === 'SHORT')      rank = t.entryLevels.nearestAboveRank;
+                else if (t.side === 'LONG')  rank = t.entryLevels.nearestBelowRank;
+                if (rank == null) return;
+                if (rank === 1)      rankBuckets['rank = 1'].push(t);
+                else if (rank === 2) rankBuckets['rank = 2'].push(t);
+                else                 rankBuckets['rank ≥ 3'].push(t);
+            });
+            const byNearestRank = Object.keys(rankBuckets).map(k => aggregate(k, rankBuckets[k])).filter(x => x.n > 0);
+
+            // ── 3. По ширине коридора ──
+            const widthBuckets = {
+                'Узкий <0.5%':   [],
+                'Средний 0.5–1.5%': [],
+                'Широкий >1.5%': [],
+            };
+            trades.forEach(t => {
+                const w = t.entryLevels.channelWidthPct;
+                if (w == null) return;
+                if (w < 0.5)      widthBuckets['Узкий <0.5%'].push(t);
+                else if (w < 1.5) widthBuckets['Средний 0.5–1.5%'].push(t);
+                else              widthBuckets['Широкий >1.5%'].push(t);
+            });
+            const byChannelWidth = Object.keys(widthBuckets).map(k => aggregate(k, widthBuckets[k])).filter(x => x.n > 0);
+
+            // ── 4. Дошла ли цена до уровня к моменту выхода ──
+            // Логика: для SHORT цель — поддержка снизу. Если на выходе price <= entryLevels.nearestBelowPrice
+            // (или близко к нему, в пределах 0.05%) — "дошла". Для LONG — наоборот.
+            const reachedBuckets = {
+                'Дошла до уровня':  [],
+                'Не дошла, +PnL':   [],
+                'Не дошла, −PnL':   [],
+            };
+            trades.forEach(t => {
+                if (!t.exitLevels) return;
+                const exitPrice = t.exitLevels.price;
+                const targetLevel = t.side === 'SHORT'
+                    ? t.entryLevels.nearestBelowPrice
+                    : t.entryLevels.nearestAbovePrice;
+                if (targetLevel == null) return;
+                const reached = t.side === 'SHORT'
+                    ? (exitPrice <= targetLevel * 1.0005)  // допуск 0.05%
+                    : (exitPrice >= targetLevel * 0.9995);
+                if (reached) {
+                    reachedBuckets['Дошла до уровня'].push(t);
+                } else if ((t.netPnl || 0) > 0) {
+                    reachedBuckets['Не дошла, +PnL'].push(t);
+                } else {
+                    reachedBuckets['Не дошла, −PnL'].push(t);
+                }
+            });
+            const byPriceReached = Object.keys(reachedBuckets).map(k => aggregate(k, reachedBuckets[k])).filter(x => x.n > 0);
+
+            // ── Общая сводка ──
+            const wins = trades.filter(t => t.netPnl > 0).length;
+            const totalPnl = trades.reduce((s, t) => s + (t.netPnl || 0), 0);
+            const overall = {
+                n: trades.length,
+                winRate: Math.round((wins / trades.length) * 100),
+                netPnl: Math.round(totalPnl * 100) / 100,
+                avgPnl: Math.round((totalPnl / trades.length) * 100) / 100,
+            };
+
+            // ── Инсайты ──
+            const insights = [];
+            // Середина коридора
+            const midBucket = byPosInChannel.find(b => b.key === 'Середина');
+            if (midBucket && midBucket.n >= 5 && midBucket.netPnl < 0) {
+                insights.push({
+                    text: `Сделки в середине коридора (30–70%): WR ${midBucket.winRate}% · n=${midBucket.n} · net $${midBucket.netPnl} — рассмотри запрет входа внутри`,
+                    type: 'warn',
+                });
+            }
+            // Внешние уровни
+            const rank1 = byNearestRank.find(b => b.key === 'rank = 1');
+            if (rank1 && rank1.n >= 5 && rank1.netPnl > 0 && rank1.winRate >= 60) {
+                insights.push({
+                    text: `Сделки от rank=1 уровней (внешние края): WR ${rank1.winRate}% · n=${rank1.n} · net $${rank1.netPnl} — границы коридора работают`,
+                    type: 'good',
+                });
+            }
+            // Внутренние уровни
+            const rankDeep = byNearestRank.find(b => b.key === 'rank ≥ 3');
+            if (rankDeep && rankDeep.n >= 5 && rankDeep.netPnl < 0) {
+                insights.push({
+                    text: `Сделки от внутренних уровней (rank≥3): WR ${rankDeep.winRate}% · n=${rankDeep.n} · net $${rankDeep.netPnl} — внутри коридора убыточно`,
+                    type: 'warn',
+                });
+            }
+            // Узкий коридор
+            const narrow = byChannelWidth.find(b => b.key === 'Узкий <0.5%');
+            if (narrow && narrow.n >= 5 && narrow.winRate < 50) {
+                insights.push({
+                    text: `Узкий коридор <0.5%: WR ${narrow.winRate}% · n=${narrow.n} — тесные коридоры даются хуже`,
+                    type: 'warn',
+                });
+            }
+            // Дошла vs стоп
+            const reached = byPriceReached.find(b => b.key === 'Дошла до уровня');
+            const stopped = byPriceReached.find(b => b.key === 'Не дошла, −PnL');
+            if (reached && stopped && stopped.n >= reached.n) {
+                insights.push({
+                    text: `Цена не дошла до целевого уровня в ${stopped.n} из ${trades.length} сделок — настрой ближе TP или фильтруй вход`,
+                    type: 'warn',
+                });
+            }
+
+            res.json({
+                totalTrades: trades.length,
+                overall: overall,
+                byPosInChannel: byPosInChannel,
+                byNearestRank: byNearestRank,
+                byChannelWidth: byChannelWidth,
+                byPriceReached: byPriceReached,
+                insights: insights.slice(0, 5),
+            });
+        } catch(e) {
+            console.error('[SCALPER ANALYTICS] error:', e);
             res.status(500).json({ error: e.message });
         }
     });
