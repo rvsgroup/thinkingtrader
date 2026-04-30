@@ -4137,7 +4137,7 @@
                 if (g2.length) detailBlocks.push(g2.join(' · '));
                 if (g3.length) detailBlocks.push(g3.join(' · '));
                 var detailsHtml = detailBlocks.length
-                    ? '<div style="font-size:9px;color:#475569;margin-top:3px;line-height:1.5;">' + detailBlocks.join(' <span style="color:#2a2e39;">│</span> ') + '</div>'
+                    ? '<div style="font-size:9px;color:#94A3B8;margin-top:3px;line-height:1.5;">' + detailBlocks.join(' <span style="color:#475569;">│</span> ') + '</div>'
                     : '';
 
                 rowsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">' +
@@ -4733,7 +4733,8 @@
 
         // Рендер списка-разбивки (массив бакетов из API).
         // Каждый бакет: {key, n, winRate, netPnl, avgPnl}
-        function renderBuckets(title, buckets) {
+        // subtitle (опционально) — мелкая поясняющая строка под заголовком секции.
+        function renderBuckets(title, buckets, subtitle) {
             if (!buckets || buckets.length === 0) return '';
             var maxN = buckets.reduce(function(m, b){ return Math.max(m, b.n); }, 1);
             var rows = buckets.map(function(b) {
@@ -4748,15 +4749,19 @@
                     '<span style="color:' + colorFor(b.netPnl) + ';font-weight:600;text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(b.netPnl) + '</span>' +
                 '</div>';
             }).join('');
+            var subtitleHtml = subtitle
+                ? '<div style="font-size:' + (isMobile ? '10px' : '10px') + ';color:#636B76;font-style:italic;margin-bottom:8px;line-height:1.4;">' + subtitle + '</div>'
+                : '';
             return '<div style="margin-bottom:18px;">' +
-                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + title + '</div>' +
+                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:' + (subtitle ? '4px' : '6px') + ';font-weight:600;">' + title + '</div>' +
+                subtitleHtml +
                 rows +
             '</div>';
         }
 
         // ── Общая сводка ──
         var ov = d.overall || {};
-        var overallBlock = '<div style="margin-bottom:18px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:6px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:' + (isMobile ? '11px' : '12px') + ';">' +
+        var overallBlock = '<div style="margin-bottom:18px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:6px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:' + (isMobile ? '11px' : '12px') + ';color:#94A3B8;">' +
             '<span>Сделок: <span style="color:#E2E8F0;font-weight:600;font-variant-numeric:tabular-nums;">' + (ov.n || 0) + '</span></span>' +
             '<span>WR: <span style="color:' + wrColor(ov.winRate || 0) + ';font-weight:600;">' + (ov.winRate || 0) + '%</span></span>' +
             '<span>P&amp;L: <span style="color:' + colorFor(ov.netPnl || 0) + ';font-weight:600;">' + fmtMoney(ov.netPnl || 0) + '</span></span>' +
@@ -4782,10 +4787,26 @@
         }
 
         var breakdowns =
-            renderBuckets('По позиции в коридоре при входе', d.byPosInChannel) +
-            renderBuckets('По рангу ближайшего уровня', d.byNearestRank) +
-            renderBuckets('По ширине коридора', d.byChannelWidth) +
-            renderBuckets('Дошла ли цена до уровня к моменту выхода', d.byPriceReached);
+            renderBuckets(
+                'По позиции в коридоре при входе',
+                d.byPosInChannel,
+                '0% = у нижней полосы коридора, 100% = у верхней. Разделено по направлению сделки.'
+            ) +
+            renderBuckets(
+                'По рангу ближайшего уровня',
+                d.byNearestRank,
+                'rank=1 — ближайший уровень это внешняя граница коридора. rank≥3 — внутренний уровень. Для SHORT смотрим уровень сверху, для LONG — снизу.'
+            ) +
+            renderBuckets(
+                'По ширине коридора',
+                d.byChannelWidth,
+                'Расстояние от нижней до верхней полосы, в % от цены входа.'
+            ) +
+            renderBuckets(
+                'Дошла ли цена до уровня к моменту выхода',
+                d.byPriceReached,
+                'Целевой уровень = ближайший в направлении сделки. SHORT → поддержка снизу, LONG → сопротивление сверху.'
+            );
 
         return '<div style="' + pad + '">' + overallBlock + insightsBlock + breakdowns + '</div>';
     }

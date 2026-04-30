@@ -5731,7 +5731,10 @@ module.exports = function(app) {
                 if (!session.trades || session.trades.length === 0) continue;
 
                 session.trades.forEach(t => {
-                    if (t.strategy !== 'scalper' && (session.strategy !== 'scalper' || t.strategy)) return;
+                    // Фильтруем по стратегии: смотрим на t.strategy (записывается в сам trade).
+                    // Если стратегия не указана и сессия скальпер — считаем скальпером (legacy).
+                    const tradeStrategy = t.strategy || session.strategy || 'scalper';
+                    if (tradeStrategy !== 'scalper') return;
                     if (!t.entryLevels) return; // только сделки с записанным снэпшотом
                     trades.push(t);
                 });
@@ -5751,8 +5754,8 @@ module.exports = function(app) {
 
             // Хелпер: bucket по pnl + winrate
             const aggregate = (key, items) => {
-                const wins = items.filter(t => t.netPnl > 0).length;
-                const totalPnl = items.reduce((s, t) => s + (t.netPnl || 0), 0);
+                const wins = items.filter(t => (t.pnl || 0) > 0).length;
+                const totalPnl = items.reduce((s, t) => s + (t.pnl || 0), 0);
                 return {
                     key: key,
                     n: items.length,
@@ -5762,23 +5765,32 @@ module.exports = function(app) {
                 };
             };
 
-            // ── 1. По позиции цены в коридоре при входе ──
-            // Бакеты: top10 (90-100%), top10_30 (70-90%), mid (30-70%), bot10_30 (10-30%), bot10 (0-10%)
+            // ── 1. По позиции цены в коридоре при входе — отдельно SHORT и LONG ──
+            // SHORT'ы и LONG'ы имеют разную логику (от верха коридора шортить — это разворотный SHORT;
+            // от верха коридора лонгить — это пробой), смешивать их в одну группу некорректно.
             const buckets = {
-                'Верх 0–10%':   [],
-                'Верх 10–30%':  [],
-                'Середина':     [],
-                'Низ 10–30%':   [],
-                'Низ 0–10%':    [],
+                'SHORT · Верх 0–10%':   [],
+                'SHORT · Верх 10–30%':  [],
+                'SHORT · Середина':     [],
+                'SHORT · Низ 10–30%':   [],
+                'SHORT · Низ 0–10%':    [],
+                'LONG · Верх 0–10%':    [],
+                'LONG · Верх 10–30%':   [],
+                'LONG · Середина':      [],
+                'LONG · Низ 10–30%':    [],
+                'LONG · Низ 0–10%':     [],
             };
             trades.forEach(t => {
                 const pos = t.entryLevels.posInChannel;
                 if (pos == null) return;
-                if (pos >= 90)      buckets['Верх 0–10%'].push(t);
-                else if (pos >= 70) buckets['Верх 10–30%'].push(t);
-                else if (pos > 30)  buckets['Середина'].push(t);
-                else if (pos > 10)  buckets['Низ 10–30%'].push(t);
-                else                buckets['Низ 0–10%'].push(t);
+                const sidePrefix = (t.side === 'SHORT') ? 'SHORT · ' : 'LONG · ';
+                let zone;
+                if (pos >= 90)      zone = 'Верх 0–10%';
+                else if (pos >= 70) zone = 'Верх 10–30%';
+                else if (pos > 30)  zone = 'Середина';
+                else if (pos > 10)  zone = 'Низ 10–30%';
+                else                zone = 'Низ 0–10%';
+                buckets[sidePrefix + zone].push(t);
             });
             const byPosInChannel = Object.keys(buckets).map(k => aggregate(k, buckets[k])).filter(x => x.n > 0);
 
@@ -5833,7 +5845,7 @@ module.exports = function(app) {
                     : (exitPrice >= targetLevel * 0.9995);
                 if (reached) {
                     reachedBuckets['Дошла до уровня'].push(t);
-                } else if ((t.netPnl || 0) > 0) {
+                } else if ((t.pnl || 0) > 0) {
                     reachedBuckets['Не дошла, +PnL'].push(t);
                 } else {
                     reachedBuckets['Не дошла, −PnL'].push(t);
@@ -5842,8 +5854,8 @@ module.exports = function(app) {
             const byPriceReached = Object.keys(reachedBuckets).map(k => aggregate(k, reachedBuckets[k])).filter(x => x.n > 0);
 
             // ── Общая сводка ──
-            const wins = trades.filter(t => t.netPnl > 0).length;
-            const totalPnl = trades.reduce((s, t) => s + (t.netPnl || 0), 0);
+            const wins = trades.filter(t => (t.pnl || 0) > 0).length;
+            const totalPnl = trades.reduce((s, t) => s + (t.pnl || 0), 0);
             const overall = {
                 n: trades.length,
                 winRate: Math.round((wins / trades.length) * 100),
@@ -5853,11 +5865,16 @@ module.exports = function(app) {
 
             // ── Инсайты ──
             const insights = [];
-            // Середина коридора
-            const midBucket = byPosInChannel.find(b => b.key === 'Середина');
-            if (midBucket && midBucket.n >= 5 && midBucket.netPnl < 0) {
+            // Середина коридора (SHORT + LONG вместе)
+            const midShort = byPosInChannel.find(b => b.key === 'SHORT · Середина');
+            const midLong  = byPosInChannel.find(b => b.key === 'LONG · Середина');
+            const midN     = (midShort ? midShort.n : 0) + (midLong ? midLong.n : 0);
+            const midPnl   = (midShort ? midShort.netPnl : 0) + (midLong ? midLong.netPnl : 0);
+            const midWins  = Math.round(((midShort ? midShort.winRate * midShort.n : 0) + (midLong ? midLong.winRate * midLong.n : 0)) / 100);
+            const midWR    = midN > 0 ? Math.round((midWins / midN) * 100) : 0;
+            if (midN >= 5 && midPnl < 0) {
                 insights.push({
-                    text: `Сделки в середине коридора (30–70%): WR ${midBucket.winRate}% · n=${midBucket.n} · net $${midBucket.netPnl} — рассмотри запрет входа внутри`,
+                    text: `Сделки в середине коридора (30–70%): WR ${midWR}% · n=${midN} · net $${Math.round(midPnl * 100) / 100} — рассмотри запрет входа внутри`,
                     type: 'warn',
                 });
             }
