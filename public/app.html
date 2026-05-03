@@ -9677,16 +9677,18 @@
                 .then(r => r.json())
                 .then(data => {
                     if (!data) return;
-                    if (data.strategy === 'mean_reversion') {
-                        clearBotLevelLines();
-                        if (data.bbHistory && data.bbHistory.length) {
-                            drawBBLines(data.bbHistory);
-                        }
+                    // BB и уровни рисуются независимо — ориентируемся на наличие данных,
+                    // а не на стратегию. Сервер сам решает что отдавать в зависимости от
+                    // strategy/manualShowBB/manualShowLevels.
+                    if (data.bbHistory && data.bbHistory.length) {
+                        drawBBLines(data.bbHistory);
                     } else {
                         clearBBSeries();
-                        if (data.levels) {
-                            drawBotLevels(data.levels);
-                        }
+                    }
+                    if (data.levels && data.levels.length) {
+                        drawBotLevels(data.levels);
+                    } else {
+                        clearBotLevelLines();
                     }
                 })
                 .catch(() => {});
@@ -9727,6 +9729,12 @@
         window._startBotLevels = startBotLevelsPolling;
         window._stopBotLevels = stopBotLevelsPolling;
         window._isBotLevelsActive = function() { return _botLevelsActive; };
+        // Принудительный пересчёт без ожидания следующего тика поллинга.
+        // Используется при клике на чипы "BB / Уровни" в ручном режиме —
+        // чтобы изменения видны были моментально, а не через 10 секунд.
+        window._refreshBotLevels = function() {
+            if (_botLevelsActive) fetchAndDrawBotLevels();
+        };
 
         // Глобальный хук для переключения монеты из bot-panel.js
         window._switchChartCoin = function(symbol) {

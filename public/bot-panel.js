@@ -43,9 +43,14 @@
         smaReturnTolerance: '5',
         atrFilterEnabled: false,
         atrFilterThreshold: '2.0',
+        // Manual: визуализация (по умолчанию обе выкл — пользователь сам включает что нужно)
+        manualShowBB:     false,
+        manualShowLevels: false,
         maxProfitPct: '1.0',
         cooldownCandles: '5',
         stopAtrMultiplier: '1.5',
+        stopMode: 'atr',          // 'atr' | 'fixed' — режим стоп-лосса
+        stopFixedPct: '0.5',      // % от цены входа при stopMode='fixed'
         clusterExitConfirm: '1',
         strategy: 'scalper',        // 'scalper' | 'mean_reversion' | 'manual'
         direction: 'both',          // 'both' | 'long' | 'short'
@@ -215,6 +220,10 @@
                 </div>\
             </div>\
             \
+            <!-- Чипы "BB / Уровни" — отображаются только в ручном режиме (manual).\
+                 Расположены сразу под лейблом-селектором бота, перед остальными секциями. -->\
+            <div id="botManualVizToggles" style="display:none;padding:0 10px;"></div>\
+            \
             <div class="bot-w-section" id="botWidgetLevelsSection">\
                 <div class="bot-w-collapsible-title" id="botLevelsToggle">\
                     <span class="bot-w-collapsible-label">Микроуровни <span id="botLevelCount" style="color:#475569;font-weight:400;">—</span></span>\
@@ -236,9 +245,13 @@
                 </div>\
             </div>\
             \
-            <!-- Группа "РЫНОК": ATR / Режим рынка / Кластеры под одной шапкой -->\
+            <!-- Группа "РЫНОК": ATR / Режим рынка / Кластеры под одной шапкой. Сворачиваемая. -->\
             <div class="bot-w-group" id="botMarketGroup" style="display:none;">\
-                <div class="bot-w-group-title">Рынок</div>\
+                <div class="bot-w-collapsible-title" id="botMarketToggle">\
+                    <span class="bot-w-collapsible-label">Рынок</span>\
+                    <svg id="botMarketArrow" class="bot-w-collapsible-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,5 7,8.5 10,5"/></svg>\
+                </div>\
+                <div id="botMarketCollapsible">\
                 <div class="bot-w-group-body">\
                     <div class="bot-w-section" id="botAtrSection" style="display:none;">\
                         <div id="botAtrContainer"></div>\
@@ -300,6 +313,7 @@
                             </label>\
                         </div>\
                     </div>\
+                </div>\
                 </div>\
             </div>\
             \
@@ -486,6 +500,52 @@
             }
             cb.dispatchEvent(new Event('change'));
         });
+
+        // Клики по чипам "BB / Уровни" (только для manual режима).
+        widget.addEventListener('click', function(e) {
+            var chip = e.target.closest('.bot-w-manual-viz-chip');
+            if (!chip) return;
+            var key = chip.getAttribute('data-key');
+            // Маппинг лейбла на поле _state и серверное поле
+            var stateKey, payloadKey;
+            if (key === 'BB')          { stateKey = 'manualShowBB';     payloadKey = 'manualShowBB'; }
+            else if (key === 'Уровни') { stateKey = 'manualShowLevels'; payloadKey = 'manualShowLevels'; }
+            else return;
+
+            var newVal = !_state[stateKey];
+            _state[stateKey] = newVal;
+
+            // Моментально перерисовываем чипы и связанные секции
+            renderManualVizToggles();
+            // Триггерим полный пересчёт видимости BB/Levels секций
+            // (тот же блок что в основном render-цикле)
+            var levelsSection = document.getElementById('botWidgetLevelsSection');
+            var bbSection = document.getElementById('botBBSection');
+            if (bbSection)     bbSection.style.display     = _state.manualShowBB ? '' : 'none';
+            if (levelsSection) levelsSection.style.display = _state.manualShowLevels ? '' : 'none';
+            if (_state.manualShowBB) renderBBContent();
+
+            // Перезапускаем поллинг уровней/BB на графике под новые галочки
+            if (typeof syncBotLevelsVisibility === 'function') syncBotLevelsVisibility();
+
+            // Сохраняем на сервере и сразу после ответа дёргаем refresh —
+            // чтобы изменения были видны моментально, не через 10 сек тика поллинга.
+            var uid = getUid();
+            var payload = { uid: uid, botId: _state.botId };
+            payload[payloadKey] = newVal;
+            fetch('/api/bot/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(function() {
+                loadBotList();
+                // Принудительный refetch /api/bot/levels — иначе график обновится
+                // только через 10 сек (следующий тик поллинга).
+                if (typeof window._refreshBotLevels === 'function') {
+                    window._refreshBotLevels();
+                }
+            }).catch(function() {});
+        });
         widget.querySelector('#botWidgetStop').onclick  = stopBot;
         widget.querySelector('#botSaveSettings').onclick = saveSettingsHot;
         widget.querySelector('#botWidgetResume').onclick = resumeBot;
@@ -536,6 +596,35 @@
                     var arrow = widget.querySelector('#botBBArrow');
                     if (body) body.style.display = 'none';
                     if (arrow) arrow.style.transform = 'rotate(-90deg)';
+                }
+            } catch(e) {}
+        }
+
+        // Группа "Рынок" — сворачивается, состояние в localStorage (по аналогии с BB)
+        var marketToggle = widget.querySelector('#botMarketToggle');
+        if (marketToggle) {
+            marketToggle.onclick = function() {
+                var body = document.getElementById('botMarketCollapsible');
+                var arrow = document.getElementById('botMarketArrow');
+                if (!body) return;
+                var isHidden = body.style.display === 'none';
+                if (isHidden) {
+                    body.style.display = '';
+                    if (arrow) arrow.style.transform = 'rotate(0deg)';
+                    try { localStorage.setItem('botMarketCollapsed', '0'); } catch(e) {}
+                } else {
+                    body.style.display = 'none';
+                    if (arrow) arrow.style.transform = 'rotate(-90deg)';
+                    try { localStorage.setItem('botMarketCollapsed', '1'); } catch(e) {}
+                }
+            };
+            // Восстанавливаем состояние при загрузке
+            try {
+                if (localStorage.getItem('botMarketCollapsed') === '1') {
+                    var mBody = widget.querySelector('#botMarketCollapsible');
+                    var mArrow = widget.querySelector('#botMarketArrow');
+                    if (mBody) mBody.style.display = 'none';
+                    if (mArrow) mArrow.style.transform = 'rotate(-90deg)';
                 }
             } catch(e) {}
         }
@@ -704,6 +793,13 @@
         if (data.atrFilterThreshold !== undefined) {
             _state.atrFilterThreshold = data.atrFilterThreshold;
         }
+        // Manual: визуализация BB / уровней
+        if (data.manualShowBB !== undefined) {
+            _state.manualShowBB = !!data.manualShowBB;
+        }
+        if (data.manualShowLevels !== undefined) {
+            _state.manualShowLevels = !!data.manualShowLevels;
+        }
         // 3 состояния: серый (остановлен) / зелёный (ждёт сигнала) / янтарный пульс (в позиции).
         // Здесь это КРИТИЧНО: функция вызывается при каждом поллинге статуса, и раньше она
         // безусловно затирала янтарный цвет на зелёный.
@@ -724,85 +820,35 @@
         // ── Переключение секций по стратегии ──
         // Scalper → показываем микроуровни S/R (они нужны как подсказка/сигнал).
         // MR      → показываем BB/RSI блок (основная аналитика для контртренда).
-        // Manual  → скрываем и то, и другое. Трейдер сам решает по графику.
+        // Manual  → две независимых галочки: показать BB / показать уровни.
+        //           По умолчанию обе выключены — пользователь сам решает, что включить.
         // Тумблер кластеров управляется отдельно в renderClusterPanel().
         var levelsSection = document.getElementById('botWidgetLevelsSection');
         var bbSection = document.getElementById('botBBSection');
+        var manualToggles = document.getElementById('botManualVizToggles');
+
+        // Решаем что показывать
+        var showBB, showLevels, showManualToggles;
         if (_state.strategy === 'mean_reversion') {
-            if (levelsSection) levelsSection.style.display = 'none';
-            if (bbSection) bbSection.style.display = '';
-            // Рисуем BB/RSI данные
-            var bbContainer = document.getElementById('botBBContainer');
-            if (bbContainer && _state.bbData) {
-                var bb = _state.bbData;
-                var price = _state.currentPrice;
-                // Динамические пороги RSI из настроек (используются и в торговой логике на сервере).
-                var rsiOS = parseInt(_state.rsiOversold) || 35;
-                var rsiOB = parseInt(_state.rsiOverbought) || 65;
-                var rsiVal = Math.max(0, Math.min(100, bb.rsi));
-                var rsiColor = bb.rsi >= rsiOB ? '#EF4444' : bb.rsi <= rsiOS ? '#10B981' : '#E2E8F0';
-                var posInBand = price > 0 && bb.upper > bb.lower
-                    ? Math.round((price - bb.lower) / (bb.upper - bb.lower) * 100) : 50;
-                var posClamped = Math.max(0, Math.min(100, posInBand));
-                // Зоны для шкалы позиции в канале: <=5 у нижней, >=95 у верхней (как в bot-server).
-                var posBadge = '';
-                if (posInBand >= 95)      posBadge = '<span class="bb-badge bb-badge-red">у верхней</span>';
-                else if (posInBand <= 5)  posBadge = '<span class="bb-badge bb-badge-green">у нижней</span>';
-                else if (posInBand >= 70) posBadge = '<span class="bb-badge bb-badge-amber">верхняя половина</span>';
-                else if (posInBand <= 30) posBadge = '<span class="bb-badge bb-badge-amber">нижняя половина</span>';
-                else                      posBadge = '<span class="bb-badge bb-badge-mute">в середине</span>';
-                // Бадж для RSI на основе тех же настроек.
-                var rsiBadge;
-                if (bb.rsi >= rsiOB)      rsiBadge = '<span class="bb-badge bb-badge-red">перекуплен</span>';
-                else if (bb.rsi <= rsiOS) rsiBadge = '<span class="bb-badge bb-badge-green">перепродан</span>';
-                else                      rsiBadge = '<span class="bb-badge bb-badge-mute">нейтрально</span>';
-                // Линейный градиент шкалы RSI — границы цветных зон совпадают с порогами.
-                var rsiBg = 'linear-gradient(90deg,' +
-                    '#10B981 0%,#10B981 ' + rsiOS + '%,' +
-                    'rgba(255,255,255,0.08) ' + rsiOS + '%,rgba(255,255,255,0.08) ' + rsiOB + '%,' +
-                    '#EF4444 ' + rsiOB + '%,#EF4444 100%)';
-                bbContainer.innerHTML = '\
-                    <div class="bb-tiles">\
-                        <div class="bb-tile bb-tile-upper">\
-                            <div class="bb-tile-head"><span class="bb-tile-label">Верх</span><span class="bb-tile-arrow">▲</span></div>\
-                            <div class="bb-tile-value">' + bb.upper.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
-                        </div>\
-                        <div class="bb-tile bb-tile-middle">\
-                            <div class="bb-tile-head"><span class="bb-tile-label">Средняя</span><span class="bb-tile-arrow">─</span></div>\
-                            <div class="bb-tile-value">' + bb.middle.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
-                        </div>\
-                        <div class="bb-tile bb-tile-lower">\
-                            <div class="bb-tile-head"><span class="bb-tile-label">Низ</span><span class="bb-tile-arrow">▼</span></div>\
-                            <div class="bb-tile-value">' + bb.lower.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
-                        </div>\
-                    </div>\
-                    <div class="bb-divider"></div>\
-                    <div class="bb-metric-head"><span class="bb-metric-label">Позиция в канале</span><span class="bb-metric-right"><span class="bb-metric-value">' + posInBand + '%</span>' + posBadge + '</span></div>\
-                    <div class="bb-scale">\
-                        <div class="bb-scale-mid"></div>\
-                        <div class="bb-scale-dot" style="left:' + posClamped + '%;background:#3B82F6;"></div>\
-                    </div>\
-                    <div class="bb-metric-head" style="margin-top:10px;"><span class="bb-metric-label">RSI <span class="bb-sub">(' + (_state.rsiPeriod || 14) + ')</span></span><span class="bb-metric-right"><span class="bb-metric-value" style="color:' + rsiColor + ';">' + bb.rsi + '</span>' + rsiBadge + '</span></div>\
-                    <div class="bb-scale" style="background:' + rsiBg + ';">\
-                        <div class="bb-scale-dot" style="left:' + rsiVal + '%;background:#FFFFFF;border:2px solid ' + rsiColor + ';"></div>\
-                    </div>\
-                    <div class="bb-scale-ticks">\
-                        <span style="left:0;">0</span>\
-                        <span style="left:' + rsiOS + '%;color:#10B981;">' + rsiOS + '</span>\
-                        <span style="left:' + rsiOB + '%;color:#EF4444;">' + rsiOB + '</span>\
-                        <span style="left:100%;">100</span>\
-                    </div>';
-            } else if (bbContainer) {
-                bbContainer.innerHTML = '<span style="color:#475569;font-style:italic;">Ожидание данных...</span>';
-            }
+            showBB = true;  showLevels = false; showManualToggles = false;
         } else if (_state.strategy === 'manual') {
-            if (levelsSection) levelsSection.style.display = 'none';
-            if (bbSection) bbSection.style.display = 'none';
+            showBB = !!_state.manualShowBB;
+            showLevels = !!_state.manualShowLevels;
+            showManualToggles = true;
         } else {
             // scalper
-            if (levelsSection) levelsSection.style.display = '';
-            if (bbSection) bbSection.style.display = 'none';
+            showBB = false; showLevels = true; showManualToggles = false;
         }
+
+        if (bbSection)     bbSection.style.display     = showBB ? '' : 'none';
+        if (levelsSection) levelsSection.style.display = showLevels ? '' : 'none';
+        if (manualToggles) manualToggles.style.display = showManualToggles ? '' : 'none';
+
+        // Рендер содержимого BB-секции (когда она видима)
+        if (showBB) renderBBContent();
+
+        // Рендер чипов "BB / Уровни" для manual (когда они видимы)
+        if (showManualToggles) renderManualVizToggles();
 
         // ── Тумблеры "Учитывать при входе" (ATR / Режим рынка / Кластеры) ──
         // В manual-стратегии эти фильтры бессмысленны: они фильтруют автосигналы,
@@ -1259,6 +1305,104 @@
             '</div>';
     }
 
+    /* Рендер содержимого блока Bollinger Bands / RSI.
+       Используется для MR (всегда) и для manual (когда включён manualShowBB).
+       Раньше код был дважды — теперь функция одна. */
+    function renderBBContent() {
+        var bbContainer = document.getElementById('botBBContainer');
+        if (!bbContainer) return;
+        if (!_state.bbData) {
+            bbContainer.innerHTML = '<span style="color:#475569;font-style:italic;">Ожидание данных...</span>';
+            return;
+        }
+        var bb = _state.bbData;
+        var price = _state.currentPrice;
+        var rsiOS = parseInt(_state.rsiOversold) || 35;
+        var rsiOB = parseInt(_state.rsiOverbought) || 65;
+        var rsiVal = Math.max(0, Math.min(100, bb.rsi));
+        var rsiColor = bb.rsi >= rsiOB ? '#EF4444' : bb.rsi <= rsiOS ? '#10B981' : '#E2E8F0';
+        var posInBand = price > 0 && bb.upper > bb.lower
+            ? Math.round((price - bb.lower) / (bb.upper - bb.lower) * 100) : 50;
+        var posClamped = Math.max(0, Math.min(100, posInBand));
+
+        var posBadge;
+        if (posInBand >= 95)      posBadge = '<span class="bb-badge bb-badge-red">у верхней</span>';
+        else if (posInBand <= 5)  posBadge = '<span class="bb-badge bb-badge-green">у нижней</span>';
+        else if (posInBand >= 70) posBadge = '<span class="bb-badge bb-badge-amber">верхняя половина</span>';
+        else if (posInBand <= 30) posBadge = '<span class="bb-badge bb-badge-amber">нижняя половина</span>';
+        else                      posBadge = '<span class="bb-badge bb-badge-mute">в середине</span>';
+
+        var rsiBadge;
+        if (bb.rsi >= rsiOB)      rsiBadge = '<span class="bb-badge bb-badge-red">перекуплен</span>';
+        else if (bb.rsi <= rsiOS) rsiBadge = '<span class="bb-badge bb-badge-green">перепродан</span>';
+        else                      rsiBadge = '<span class="bb-badge bb-badge-mute">нейтрально</span>';
+
+        var rsiBg = 'linear-gradient(90deg,' +
+            '#10B981 0%,#10B981 ' + rsiOS + '%,' +
+            'rgba(255,255,255,0.08) ' + rsiOS + '%,rgba(255,255,255,0.08) ' + rsiOB + '%,' +
+            '#EF4444 ' + rsiOB + '%,#EF4444 100%)';
+
+        bbContainer.innerHTML = '\
+            <div class="bb-tiles">\
+                <div class="bb-tile bb-tile-upper">\
+                    <div class="bb-tile-head"><span class="bb-tile-label">Верх</span><span class="bb-tile-arrow">▲</span></div>\
+                    <div class="bb-tile-value">' + bb.upper.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
+                </div>\
+                <div class="bb-tile bb-tile-middle">\
+                    <div class="bb-tile-head"><span class="bb-tile-label">Средняя</span><span class="bb-tile-arrow">─</span></div>\
+                    <div class="bb-tile-value">' + bb.middle.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
+                </div>\
+                <div class="bb-tile bb-tile-lower">\
+                    <div class="bb-tile-head"><span class="bb-tile-label">Низ</span><span class="bb-tile-arrow">▼</span></div>\
+                    <div class="bb-tile-value">' + bb.lower.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div>\
+                </div>\
+            </div>\
+            <div class="bb-divider"></div>\
+            <div class="bb-metric-head"><span class="bb-metric-label">Позиция в канале</span><span class="bb-metric-right"><span class="bb-metric-value">' + posInBand + '%</span>' + posBadge + '</span></div>\
+            <div class="bb-scale">\
+                <div class="bb-scale-mid"></div>\
+                <div class="bb-scale-dot" style="left:' + posClamped + '%;background:#3B82F6;"></div>\
+            </div>\
+            <div class="bb-metric-head" style="margin-top:10px;"><span class="bb-metric-label">RSI <span class="bb-sub">(' + (_state.rsiPeriod || 14) + ')</span></span><span class="bb-metric-right"><span class="bb-metric-value" style="color:' + rsiColor + ';">' + bb.rsi + '</span>' + rsiBadge + '</span></div>\
+            <div class="bb-scale" style="background:' + rsiBg + ';">\
+                <div class="bb-scale-dot" style="left:' + rsiVal + '%;background:#FFFFFF;border:2px solid ' + rsiColor + ';"></div>\
+            </div>\
+            <div class="bb-scale-ticks">\
+                <span style="left:0;">0</span>\
+                <span style="left:' + rsiOS + '%;color:#10B981;">' + rsiOS + '</span>\
+                <span style="left:' + rsiOB + '%;color:#EF4444;">' + rsiOB + '</span>\
+                <span style="left:100%;">100</span>\
+            </div>';
+    }
+
+    /* Чипы "BB / Уровни" для ручного режима — показываются под лейблом-селектором
+       бота, перед остальными секциями. На MR/SC скрыты (там стратегия сама
+       диктует что показывать). Контейнер уже имеет padding:0 10px от обёртки. */
+    function renderManualVizToggles() {
+        var container = document.getElementById('botManualVizToggles');
+        if (!container) return;
+
+        function chip(label, active) {
+            var bg     = active ? 'rgba(38,166,154,0.15)' : 'rgba(255,255,255,0.04)';
+            var border = active ? '#26a69a' : 'rgba(255,255,255,0.08)';
+            var color  = active ? '#26a69a' : '#9598A1';
+            return '<span class="bot-w-manual-viz-chip" data-key="' + label + '" style="' +
+                'display:inline-block;padding:4px 12px;border-radius:5px;font-size:11px;font-weight:500;' +
+                'background:' + bg + ';border:1px solid ' + border + ';color:' + color + ';' +
+                'cursor:pointer;white-space:nowrap;transition:all 0.15s;">' +
+                label +
+            '</span>';
+        }
+
+        container.innerHTML =
+            '<div style="display:flex;align-items:center;gap:8px;padding:8px 0 4px 0;">' +
+                '<span style="font-size:10px;color:#636B76;letter-spacing:0.4px;text-transform:uppercase;">Показать на графике</span>' +
+                '<div style="flex:1;"></div>' +
+                chip('BB', !!_state.manualShowBB) +
+                chip('Уровни', !!_state.manualShowLevels) +
+            '</div>';
+    }
+
     function renderPosition() {
         var section = document.getElementById('botWidgetPositionSection');
         var container = document.getElementById('botWidgetPosition');
@@ -1605,6 +1749,11 @@
         }
 
         line.style.display = '';
+        // Сброс inline-стилей, которые могут быть выставлены веткой "allReady"
+        // (зелёная плашка при 4/4). Без сброса — стили "залипали" бы при
+        // переходе в paused/position/fallback состояния.
+        line.style.borderLeftColor = '';
+        line.style.background = '';
         var isSpot = _state.market === 'spot';
 
         if (_state.paused) {
@@ -1623,9 +1772,44 @@
         }
 
         if (_state.levels && _state.levels.length > 0 && _state.currentPrice > 0) {
+            // ── Кандидаты на вход ──
+            // Сервер торгует только от КРАЙНИХ уровней:
+            //   SHORT — самый верхний resistance (top R)
+            //   LONG  — самый нижний support     (bot S)
+            // Дополнительно: если кластер УЖЕ требует конкретную сторону
+            // (clusterInfo.signalSide), кандидат единственный — соответствующий
+            // крайний уровень. Если кластер нейтрален (signalSide=null), берём
+            // ближайший из разрешённых направлением+маркетом.
+            var direction = _state.direction || 'both';
+            var allowShort = !isSpot && direction !== 'long';
+            var allowLong  = direction !== 'short';
+
+            var ci = _state.clusterInfo || null;
+            var signalSide = ci && ci.signalSide ? ci.signalSide : null;
+
+            var resistances = _state.levels.filter(function(l) { return l.type === 'resistance'; });
+            var supports    = _state.levels.filter(function(l) { return l.type === 'support'; });
+            var topR = resistances.length > 0
+                ? resistances.reduce(function(max, l) { return l.price > max.price ? l : max; }, resistances[0])
+                : null;
+            var botS = supports.length > 0
+                ? supports.reduce(function(min, l) { return l.price < min.price ? l : min; }, supports[0])
+                : null;
+
+            var candidates = [];
+            if (signalSide === 'SHORT') {
+                if (allowShort && topR) candidates.push(topR);
+            } else if (signalSide === 'LONG') {
+                if (allowLong && botS) candidates.push(botS);
+            } else {
+                // Нет сигнала кластера — показываем ближайший из разрешённых направлением.
+                if (allowShort && topR) candidates.push(topR);
+                if (allowLong  && botS) candidates.push(botS);
+            }
+
             var nearest = null;
             var minDist = Infinity;
-            _state.levels.forEach(function(l) {
+            candidates.forEach(function(l) {
                 var dist = Math.abs(_state.currentPrice - l.price) / l.price;
                 if (dist < minDist) { minDist = dist; nearest = l; }
             });
@@ -1634,28 +1818,208 @@
                 var distPct = (minDist * 100).toFixed(2);
                 var isSupport = nearest.type === 'support';
                 var levelName = isSupport ? 'поддержки' : 'сопротивления';
-                var action = isSupport ? 'LONG' : (isSpot ? 'пропуск' : 'SHORT');
+                var action = isSupport ? 'LONG' : 'SHORT';
 
-                if (minDist < 0.001) {
-                    var volHtml = '';
-                    var vol = _state.volumeInfo;
-                    if (vol) {
-                        var volColor = vol.confirmed ? '#26a69a' : '#636B76';
-                        volHtml = '<div class="bot-w-status-vol">' +
-                            'Объём: <span style="color:' + volColor + '">' + vol.ratio.toFixed(1) + 'x</span>' +
-                            ' (нужно ' + vol.needed.toFixed(1) + 'x)' +
-                            '</div>';
+                var tolerance = (typeof _state.touchTolerance === 'number') ? _state.touchTolerance : 0.001;
+                var tolPct = (tolerance * 100).toFixed(2);
+                var inZone = minDist <= tolerance;
+
+                // ══════════════════════════════════════════════════════════
+                // Состояние всех гейтов входа (синхронизировано с сервером):
+                //   1. Кластер триггер-свечи: ≥ threshold (default 80%)
+                //   2. Кластер фона:          ≥ bgThreshold (60%)
+                //   3. Объём:                 ≥ multiplier (default 1.5x)
+                //   4. Толеранс касания:      ≤ touchTolerance (0.10%)
+                // Каждый гейт вычисляется отдельно, без зависимости от других.
+                // ══════════════════════════════════════════════════════════
+                var triggerNeeded = ci ? ci.threshold : 80;
+                var triggerForSide = ci
+                    ? (action === 'SHORT' ? (100 - ci.lastCandleBuy) : ci.lastCandleBuy)
+                    : null;
+                var triggerOk = ci
+                    ? (action === 'SHORT' ? ci.triggerOkShort : ci.triggerOkLong)
+                    : false;
+
+                var bgPct = ci
+                    ? (action === 'SHORT' ? ci.sellPct : ci.buyPct)
+                    : null;
+                var bgNeeded = ci ? ci.bgThreshold : 60;
+                var bgOk = ci
+                    ? (action === 'SHORT' ? ci.bgOkShort : ci.bgOkLong)
+                    : false;
+
+                var vol = _state.volumeInfo;
+                var volOk = vol ? vol.confirmed : false;
+
+                var tolOk = inZone;
+
+                // ── Подсчёт пройденных гейтов (только тех, что реально считаются) ──
+                // Если нет clusterInfo — кластер/фон не учитываем в total, чтобы не
+                // занижать "Готово X/N" из-за отсутствия данных.
+                var gates = [];
+                if (ci) gates.push({ key: 'trigger', ok: triggerOk });
+                if (ci) gates.push({ key: 'bg',      ok: bgOk });
+                if (vol) gates.push({ key: 'vol',    ok: volOk });
+                gates.push({ key: 'tol', ok: tolOk });
+
+                var passed = gates.filter(function(g) { return g.ok; }).length;
+                var total  = gates.length;
+                var failed = gates.filter(function(g) { return !g.ok; }).map(function(g) { return g.key; });
+                var soleBlocker = failed.length === 1 ? failed[0] : null;
+                var allReady = passed === total && total > 0;
+
+                // Цвета пилюль:
+                //   ok           → зелёная заливка + зелёный текст
+                //   sole blocker → красная заливка + красный текст
+                //   pending      → нейтральная заливка + серый текст
+                function pillStyle(name, ok) {
+                    if (ok) {
+                        return {
+                            bg:     'rgba(38,166,154,0.08)',
+                            border: 'rgba(38,166,154,0.20)',
+                            dot:    '#26a69a',
+                            value:  '#26a69a',
+                        };
                     }
-                    line.innerHTML = 'Цена у ' + levelName + ' ' +
+                    if (soleBlocker === name) {
+                        return {
+                            bg:     'rgba(239,68,68,0.08)',
+                            border: 'rgba(239,68,68,0.25)',
+                            dot:    '#EF4444',
+                            value:  '#EF4444',
+                        };
+                    }
+                    return {
+                        bg:     'rgba(255,255,255,0.04)',
+                        border: 'rgba(255,255,255,0.08)',
+                        dot:    '#888780',
+                        value:  '#888780',
+                    };
+                }
+
+                function buildPill(name, ok, label, valueText, neededText) {
+                    var s = pillStyle(name, ok);
+                    return '<span style="display:inline-flex;align-items:center;gap:6px;' +
+                        'padding:4px 10px;background:' + s.bg + ';' +
+                        'border:0.5px solid ' + s.border + ';border-radius:4px;font-size:12px;">' +
+                        '<span style="width:6px;height:6px;border-radius:50%;background:' + s.dot + ';flex-shrink:0;"></span>' +
+                        '<span style="color:#636B76;">' + label + '</span>' +
+                        '<span style="color:' + s.value + ';">' + valueText + '</span>' +
+                        '<span style="color:#475569;">/' + neededText + '</span>' +
+                        '</span>';
+                }
+
+                // Специальная пилюля для триггер-кластера: «перетягивание каната».
+                // - Бар: слева buyPct (зелёное), справа sellPct (красный фон).
+                // - Две риски: 20% (порог SHORT) и 80% (порог LONG).
+                // - Активная риска (та, к которой бот сейчас идёт) — яркая,
+                //   неактивная — приглушена.
+                // - При прохождении порога фон пилюли становится зелёным
+                //   (через тот же pillStyle, что и у обычных пилюль).
+                function buildClusterPill(ok, buyPct, side) {
+                    var s = pillStyle('trigger', ok);
+                    var sellPct = 100 - buyPct;
+                    var buyW    = Math.max(0, Math.min(100, buyPct));
+
+                    // Какая риска активна. action='SHORT' → левая риска (20%) яркая,
+                    // правая (80%) приглушена. Для LONG — наоборот.
+                    var leftActive  = side === 'SHORT';
+                    var rightActive = side === 'LONG';
+                    // Цвет активной риски: ok → зелёный (порог пробит), иначе белый.
+                    var leftColor   = leftActive  ? (ok ? '#26a69a' : '#E2E8F0') : 'rgba(255,255,255,0.18)';
+                    var rightColor  = rightActive ? (ok ? '#26a69a' : '#E2E8F0') : 'rgba(255,255,255,0.18)';
+
+                    // Бар: фон = красный (продавцы), поверх зелёная заливка слева до buyPct.
+                    // При прохождении порога SHORT (buyPct ≤ 20%) красный фон логично виден почти полностью.
+                    // При прохождении порога LONG (buyPct ≥ 80%) зелёная заливка почти всю ширину.
+                    var bar = '<span style="position:relative;display:inline-block;width:80px;height:8px;' +
+                        'background:rgba(239,68,68,0.25);border-radius:2px;overflow:hidden;flex-shrink:0;">' +
+                        '<span style="position:absolute;top:0;left:0;height:100%;width:' + buyW + '%;' +
+                            'background:rgba(38,166,154,0.7);"></span>' +
+                        '<span style="position:absolute;top:-2px;bottom:-2px;left:20%;width:1px;background:' + leftColor + ';"></span>' +
+                        '<span style="position:absolute;top:-2px;bottom:-2px;left:80%;width:1px;background:' + rightColor + ';"></span>' +
+                        '</span>';
+
+                    return '<span style="display:inline-flex;align-items:center;gap:8px;' +
+                        'padding:4px 10px;background:' + s.bg + ';' +
+                        'border:0.5px solid ' + s.border + ';border-radius:4px;font-size:12px;">' +
+                        '<span style="color:#636B76;">Кластер</span>' +
+                        '<span style="display:inline-flex;align-items:center;gap:4px;">' +
+                            '<span style="color:#26a69a;font-variant-numeric:tabular-nums;">' + Math.round(buyPct) + '</span>' +
+                            bar +
+                            '<span style="color:#EF4444;font-variant-numeric:tabular-nums;">' + Math.round(sellPct) + '</span>' +
+                        '</span>' +
+                        '</span>';
+                }
+
+                var pills = [];
+                if (ci && triggerForSide !== null) {
+                    // У ci.lastCandleBuy — настоящий buyPct триггер-свечи (0..100).
+                    // action — что бот сейчас ждёт (LONG/SHORT), определяет какая риска активна.
+                    pills.push(buildClusterPill(triggerOk, ci.lastCandleBuy, action));
+                }
+                if (ci && bgPct !== null) {
+                    pills.push(buildPill('bg', bgOk, 'Фон',
+                        Math.round(bgPct), bgNeeded + '%'));
+                }
+                if (vol) {
+                    pills.push(buildPill('vol', volOk, 'Объём',
+                        vol.ratio.toFixed(1), vol.needed.toFixed(1) + 'x'));
+                }
+                pills.push(buildPill('tol', tolOk, 'Дист',
+                    distPct, tolPct + '%'));
+
+                // ── Счётчик "Готово X/N" ──
+                var counterColor = passed > 0 ? '#26a69a' : '#888780';
+                var counterHtml = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:6px;' +
+                    'font-size:11px;color:#636B76;padding:3px 8px;background:rgba(255,255,255,0.04);' +
+                    'border:0.5px solid rgba(255,255,255,0.08);border-radius:4px;white-space:nowrap;">' +
+                    'Готово <span style="color:' + counterColor + ';font-weight:500;">' + passed + '</span>' +
+                    '<span style="color:#475569;">/' + total + '</span>' +
+                    '</span>';
+
+                // ── Заголовок плашки ──
+                // 4/4 → "открытие" (зелёная плашка). Иначе "ожидание" / "ближайший уровень".
+                var headlineText;
+                if (allReady) {
+                    headlineText = 'Цена у ' + levelName + ' ' +
                         nearest.price.toLocaleString('en-US') +
-                        ' — ожидание объёма для ' + action +
-                        volHtml;
-                    line.className = 'bot-w-status-line ' + (isSupport ? 'status-long' : 'status-short');
+                        ' — открытие ' + action;
+                } else if (inZone) {
+                    headlineText = 'Цена у ' + levelName + ' ' +
+                        nearest.price.toLocaleString('en-US') +
+                        ' — ожидание ' + action;
                 } else {
-                    line.innerHTML = 'Ближайший уровень ' + levelName + ': ' +
+                    headlineText = 'Ближайший уровень ' + levelName + ': ' +
                         nearest.price.toLocaleString('en-US') +
-                        ' (' + distPct + '%) — ' + action;
-                    line.className = 'bot-w-status-line ' + (isSupport ? 'status-long' : 'status-short');
+                        ' — ' + action;
+                }
+
+                var headerRow = '<div style="display:flex;align-items:center;justify-content:space-between;' +
+                    'gap:12px;margin-bottom:10px;">' +
+                    '<span style="line-height:1.4;' + (allReady ? 'color:#26a69a;' : '') + '">' +
+                        headlineText +
+                    '</span>' +
+                    counterHtml +
+                    '</div>';
+
+                // flex-wrap: при узкой панели пилюли переносятся на 2-ю строку.
+                var pillsRow = '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+                    pills.join('') +
+                    '</div>';
+
+                line.innerHTML = headerRow + pillsRow;
+                line.className = 'bot-w-status-line ' + (isSupport ? 'status-long' : 'status-short');
+
+                // При 4/4 перебиваем красную/зелёную полоску слева на зелёную (allReady),
+                // чтобы плашка целиком сигнализировала готовность к входу.
+                // Иначе оставляем дефолт класса (status-long/status-short).
+                if (allReady) {
+                    line.style.borderLeftColor = '#26a69a';
+                    line.style.background = 'rgba(38,166,154,0.06)';
+                } else {
+                    line.style.borderLeftColor = '';
+                    line.style.background = '';
                 }
                 return;
             }
@@ -1896,14 +2260,15 @@
                             <div class="bst-lbl">BB множ.</div>\
                             <input class="bst-input" id="bstBbMult" type="number" min="1.0" max="3.0" step="0.1" value="' + _state.bbMultiplier + '">\
                         </div>\
-                        <div class="bst-col">\
+                        <div class="bst-col" id="bstRsiPeriodCol">\
                             <div class="bst-lbl">RSI период</div>\
                             <input class="bst-input" id="bstRsiPeriod" type="number" min="5" max="30" step="1" value="' + _state.rsiPeriod + '">\
                         </div>\
                     </div>\
                     \
                     <!-- RSI диапазон (один ползунок — влево строже, вправо мягче) -->\
-                    <div class="bst-rsi-wrap">\
+                    <!-- Виден только в Mean Reversion (в Scalper RSI не используется в логике входа). -->\
+                    <div class="bst-rsi-wrap" id="bstRsiRangeWrap">\
                         <div class="bst-rsi-header">\
                             <span class="bst-lbl">RSI диапазон</span>\
                             <span class="bst-rsi-vals"><span class="bst-rsi-os" id="bstRsiOSVal">' + rsiOS + '</span><span class="bst-rsi-dash"> — </span><span class="bst-rsi-ob" id="bstRsiOBVal">' + rsiOB + '</span></span>\
@@ -1994,8 +2359,11 @@
                             <input class="bst-input" id="bstCooldown" type="number" min="1" max="20" step="1" value="' + _state.cooldownCandles + '">\
                         </div>\
                         <div class="bst-col">\
-                            <div class="bst-lbl">Стоп (×ATR)</div>\
-                            <input class="bst-input" id="bstStopAtr" type="number" min="0.5" max="5" step="0.1" value="' + _state.stopAtrMultiplier + '">\
+                            <div class="bst-lbl">Стоп · ' + (_state.stopMode === 'fixed' ? '%' : '×ATR') + '\
+                                <span class="bst-stop-mode-toggle" id="bstStopModeToggle" style="margin-left:8px;cursor:pointer;font-size:10px;color:#26a69a;text-decoration:underline;">' + (_state.stopMode === 'fixed' ? 'ATR' : 'Fixed%') + '</span>\
+                            </div>\
+                            <input class="bst-input" id="bstStopAtr" type="number" min="0.5" max="5" step="0.1" value="' + _state.stopAtrMultiplier + '" style="' + (_state.stopMode === 'fixed' ? 'display:none;' : '') + '">\
+                            <input class="bst-input" id="bstStopFixed" type="number" min="0.1" max="3" step="0.05" value="' + _state.stopFixedPct + '" style="' + (_state.stopMode === 'fixed' ? '' : 'display:none;') + '">\
                         </div>\
                     </div>\
                 </div>\
@@ -2266,6 +2634,16 @@
             });
             var manualSection = body.querySelector('#bstManualSection');
             if (manualSection) manualSection.style.display = isManual ? '' : 'none';
+
+            // RSI-поля скрываем только в Scalper — там RSI не используется
+            // в торговой логике. В Mean Reversion и Manual RSI остаётся видимым.
+            // DOM-элементы всегда в форме, скрытие через display:none —
+            // значения сохраняются в state как раньше.
+            var isScalper = strategyValue === 'scalper';
+            var rsiPeriodCol = body.querySelector('#bstRsiPeriodCol');
+            var rsiRangeWrap = body.querySelector('#bstRsiRangeWrap');
+            if (rsiPeriodCol) rsiPeriodCol.style.display = isScalper ? 'none' : '';
+            if (rsiRangeWrap) rsiRangeWrap.style.display = isScalper ? 'none' : '';
         }
 
         bindToggleGroup('bstStrategySeg', 'strategy', function(v) {
@@ -2909,6 +3287,7 @@
         var inputMap = {
             bstBbPeriod: 'bbPeriod', bstBbMult: 'bbMultiplier', bstRsiPeriod: 'rsiPeriod',
             bstTakeProfit: 'maxProfitPct', bstCooldown: 'cooldownCandles', bstStopAtr: 'stopAtrMultiplier',
+            bstStopFixed: 'stopFixedPct',
             bstRiskPct: 'riskPct', bstDayLimit: 'dayLimitPct', bstMaxLosses: 'maxLosses',
             bstBalance: 'virtualBalance', bstTrailOffset: 'trailingOffset', bstTrailAct: 'trailingActivation',
             bstStepTpTrigger: 'stepTpTrigger', bstStepTpStep: 'stepTpStep', bstStepTpTolerance: 'stepTpTolerance',
@@ -2922,6 +3301,29 @@
                 inp.oninput = function() { _state[inputMap[id]] = inp.value; updateSummary(); };
             }
         });
+
+        // ── Переключатель режима стопа: ATR ↔ Fixed% ──
+        var stopModeToggle = body.querySelector('#bstStopModeToggle');
+        if (stopModeToggle) {
+            stopModeToggle.onclick = function() {
+                _state.stopMode = (_state.stopMode === 'fixed') ? 'atr' : 'fixed';
+                var atrInp   = body.querySelector('#bstStopAtr');
+                var fixedInp = body.querySelector('#bstStopFixed');
+                var lblParent = stopModeToggle.parentElement;
+                if (_state.stopMode === 'fixed') {
+                    if (atrInp)   atrInp.style.display   = 'none';
+                    if (fixedInp) fixedInp.style.display = '';
+                    if (lblParent) lblParent.firstChild.textContent = 'Стоп · % ';
+                    stopModeToggle.textContent = 'ATR';
+                } else {
+                    if (atrInp)   atrInp.style.display   = '';
+                    if (fixedInp) fixedInp.style.display = 'none';
+                    if (lblParent) lblParent.firstChild.textContent = 'Стоп · ×ATR ';
+                    stopModeToggle.textContent = 'Fixed%';
+                }
+                updateSummary();
+            };
+        }
 
         // ── Push-уведомления: тумблер ──
         var notifyEl = body.querySelector('#bstNotify');
@@ -3083,6 +3485,8 @@
                     maxProfitPct: parseFloat(_state.maxProfitPct) || 1.0,
                     cooldownCandles: parseInt(_state.cooldownCandles) || 5,
                     stopAtrMultiplier: parseFloat(_state.stopAtrMultiplier) || 1.5,
+                    stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
+                    stopFixedPct: parseFloat(_state.stopFixedPct) || 0.5,
                     trailingEnabled: !!_state.trailingEnabled,
                     trailingOffset: _state.trailingOffset,
                     trailingActivation: _state.trailingActivation,
@@ -3151,12 +3555,18 @@
             pairsLabel = _state.pair;
         }
 
+        // RSI-строку прячем только в Scalper — там RSI не используется в логике.
+        // В Mean Reversion и Manual оставляем как было.
+        var rsiSummaryRow = _state.strategy !== 'scalper'
+            ? '<div class="bst-sum-row"><span class="bst-sum-key">RSI</span><span class="bst-sum-val"><span class="bst-rsi-os">' + rsiOS + '</span><span class="bst-rsi-dash"> / </span><span class="bst-rsi-ob">' + rsiOB + '</span></span></div>'
+            : '';
+
         el.innerHTML = '\
             <div class="bst-sum-row"><span class="bst-sum-key">Стратегия</span><span class="bst-sum-val bst-sum-accent">' + stratLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Пара / ТФ</span><span class="bst-sum-val">' + pairsLabel + ' · ' + _state.timeframe + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Направление / Вход</span><span class="bst-sum-val">' + dirLabel + ' · ' + entryLabel + '</span></div>\
-            <div class="bst-sum-row"><span class="bst-sum-key">RSI</span><span class="bst-sum-val"><span class="bst-rsi-os">' + rsiOS + '</span><span class="bst-rsi-dash"> / </span><span class="bst-rsi-ob">' + rsiOB + '</span></span></div>\
-            <div class="bst-sum-row"><span class="bst-sum-key">Стоп / Тейк</span><span class="bst-sum-val">' + _state.stopAtrMultiplier + '× ATR / ' + _state.maxProfitPct + '%</span></div>\
+            ' + rsiSummaryRow + '\
+            <div class="bst-sum-row"><span class="bst-sum-key">Стоп / Тейк</span><span class="bst-sum-val">' + (_state.stopMode === 'fixed' ? (_state.stopFixedPct + '% fixed') : (_state.stopAtrMultiplier + '× ATR')) + ' / ' + _state.maxProfitPct + '%</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Трейлинг</span><span class="bst-sum-val ' + (_state.trailingEnabled ? 'bst-sum-accent' : '') + '">' + trailLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Шаговый TP</span><span class="bst-sum-val ' + (_state.stepTpEnabled ? 'bst-sum-accent' : '') + '">' + stepTpLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Риск / Плечо</span><span class="bst-sum-val">' + _state.riskPct + '% / ' + _state.maxLeverage + 'x</span></div>\
@@ -3185,15 +3595,22 @@
             ? window.firebase.auth().currentUser.uid : 'anonymous';
     }
 
-    // Синхронизирует отрисовку S/R-уровней бота на графике с текущей стратегией.
-    // В manual-стратегии уровни не нужны — трейдер ориентируется по графику сам.
-    // В scalper/MR — уровни показываем (они отражают логику бота).
+    // Синхронизирует отрисовку BB/уровней бота на графике с текущей стратегией.
+    // - MR/Scalper: всегда поллим (там стратегия сама диктует что рисовать)
+    // - Manual: поллим только если включена галочка BB или Уровни — иначе нет смысла
+    //   дёргать сервер. Если обе выключены — останавливаем и очищаем график.
     // Вызывается из всех точек, где раньше звались _startBotLevels/_stopBotLevels напрямую.
     function syncBotLevelsVisibility() {
+        var needPolling;
         if (_state.strategy === 'manual') {
-            if (typeof window._stopBotLevels === 'function') window._stopBotLevels();
+            needPolling = !!(_state.manualShowBB || _state.manualShowLevels);
         } else {
+            needPolling = true;
+        }
+        if (needPolling) {
             if (typeof window._startBotLevels === 'function') window._startBotLevels();
+        } else {
+            if (typeof window._stopBotLevels === 'function') window._stopBotLevels();
         }
     }
 
@@ -3232,6 +3649,8 @@
                 maxProfitPct: _state.maxProfitPct,
                 cooldownCandles: _state.cooldownCandles,
                 stopAtrMultiplier: _state.stopAtrMultiplier,
+                stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
+                stopFixedPct: _state.stopFixedPct,
                 clusterExitConfirm: _state.clusterExitConfirm,
                 strategy: _state.strategy,
                 direction: _state.direction,
@@ -4596,9 +5015,27 @@
         return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5L13 12H1L7 1.5z" stroke="#FBBF24" stroke-width="1.2" stroke-linejoin="round" fill="none"/><line x1="7" y1="6" x2="7" y2="9" stroke="#FBBF24" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="10.5" r="0.7" fill="#FBBF24"/></svg>';
     }
 
+    // ── Хелперы для часов: UTC → МСК (UTC+3) и определение сессии ──
+    // МСК всегда UTC+3 (без перехода на летнее).
+    function utcToMsk(hourUtc) {
+        return (hourUtc + 3) % 24;
+    }
+    // Сессия по часу UTC: Азия 00–06, Европа 07–12, США 13–20, "ночь" 21–23
+    function sessionFromUtc(hourUtc) {
+        if (hourUtc >= 0 && hourUtc <= 6)  return { name: 'Азия',   color: '#FB923C' };
+        if (hourUtc >= 7 && hourUtc <= 12) return { name: 'Европа', color: '#60A5FA' };
+        if (hourUtc >= 13 && hourUtc <= 20) return { name: 'США',    color: '#A78BFA' };
+        return { name: 'Ночь', color: '#64748B' };
+    }
+    // Парсит ключ вида "07:00 UTC" → 7
+    function parseHourKey(k) {
+        var m = String(k).match(/^(\d{1,2}):/);
+        return m ? parseInt(m[1], 10) : null;
+    }
+
     // Рендер тела отчёта (без шапки и скоупа — это снаружи)
     function renderAnalyticsBody(d, isMobile) {
-        var pad = isMobile ? 'padding:14px 16px;' : 'padding:14px 18px;';
+        var pad = isMobile ? 'padding:14px 16px;' : 'padding:16px 18px;';
 
         function fmtMoney(v) {
             if (v == null || isNaN(v)) return '$0.00';
@@ -4613,70 +5050,83 @@
             options = options || {};
             var keys = Object.keys(obj);
             if (keys.length === 0) return '';
-            // Сортировка по убыванию n или по pnl
             keys.sort(function(a, b) {
                 if (options.sortBy === 'pnl') return (obj[b].pnl || 0) - (obj[a].pnl || 0);
                 return (obj[b].n || 0) - (obj[a].n || 0);
             });
-            // Маппер ключа на красивое имя
             var keyMap = options.keyMap || {};
             var rows = keys.map(function(k) {
                 var b = obj[k];
                 var name = keyMap[k] || k;
-                return '<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;padding:5px 0;font-size:' + (isMobile ? '11px' : '10.5px') + ';border-bottom:1px solid rgba(255,255,255,0.03);">' +
-                    '<span style="color:#94A3B8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
-                    '<span style="color:#636B76;">n=' + b.n + '</span>' +
-                    '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;">' + b.winRate + '%</span>' +
-                    '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;min-width:60px;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
+                return '<div style="display:grid;grid-template-columns:1fr 36px 50px 64px;gap:8px;padding:6px 0;font-size:' + (isMobile ? '11px' : '12px') + ';border-bottom:1px solid rgba(255,255,255,0.04);align-items:center;">' +
+                    '<span style="color:#CBD5E1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
+                    '<span style="color:#636B76;font-variant-numeric:tabular-nums;text-align:right;">n=' + b.n + '</span>' +
+                    '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + b.winRate + '%</span>' +
+                    '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
                 '</div>';
             }).join('');
-            return '<div style="margin-bottom:18px;">' +
-                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + title + '</div>' +
+            // Карточный обёртка для каждой группировки
+            return '<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px 14px;margin-bottom:10px;">' +
+                '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">' + title + '</div>' +
                 rows +
             '</div>';
         }
 
-        // ── Общая картина ──
-        var feesPctRow = '';
-        if (d.feesAsPercentOfGross != null && Math.abs(d.grossPnl) > 0.01) {
-            feesPctRow = '<div style="font-size:' + (isMobile ? '11px' : '10.5px') + ';color:#636B76;margin-top:4px;">' +
-                'Комиссии съели ' + d.feesAsPercentOfGross + '% от валового P&L' +
-            '</div>';
-        }
-        var beNote = '';
+        // ── Общая картина: 4 крупные карточки ──
+        var beBelow = (d.breakEvenWR != null) && (d.overall.winRate < d.breakEvenWR);
+        var beSubtext = '';
         if (d.breakEvenWR != null) {
-            var below = d.overall.winRate < d.breakEvenWR;
-            beNote = '<div style="font-size:' + (isMobile ? '11px' : '10.5px') + ';color:' + (below ? '#EF4444' : '#10B981') + ';margin-top:4px;">' +
-                'Break-even WR: ' + d.breakEvenWR + '% · ' + (below ? 'фактический ниже — математически в минусе' : 'фактический выше — система прибыльна') +
+            beSubtext = '<div style="font-size:10px;color:#636B76;margin-top:3px;font-variant-numeric:tabular-nums;">break-even ' + d.breakEvenWR + '%</div>';
+        }
+        var feesSubtext = '';
+        if (d.feesAsPercentOfGross != null && Math.abs(d.grossPnl) > 0.01) {
+            var feesEat = d.feesAsPercentOfGross >= 80;
+            feesSubtext = '<div style="font-size:10px;color:' + (feesEat ? '#EF4444' : '#636B76') + ';margin-top:3px;font-variant-numeric:tabular-nums;">съели ' + d.feesAsPercentOfGross + '% валового</div>';
+        }
+
+        function metricCard(label, value, valueColor, subtext) {
+            return '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 14px;">' +
+                '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + label + '</div>' +
+                '<div style="font-size:' + (isMobile ? '18px' : '20px') + ';color:' + valueColor + ';font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;">' + value + '</div>' +
+                (subtext || '') +
             '</div>';
         }
 
         var overallBlock =
-            '<div style="margin-bottom:18px;">' +
-                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Общая картина</div>' +
-                '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 4) + ',1fr);gap:10px;">' +
-                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">Сделок</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:#E2E8F0;font-weight:700;">' + d.overall.n + '</div></div>' +
-                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">Win Rate</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:' + wrColor(d.overall.winRate) + ';font-weight:700;">' + d.overall.winRate + '%</div></div>' +
-                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">P&L Net</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:' + colorFor(d.overall.pnl) + ';font-weight:700;">' + fmtMoney(d.overall.pnl) + '</div></div>' +
-                    '<div><div style="font-size:9px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;">Комиссии</div><div style="font-size:' + (isMobile ? '15px' : '14px') + ';color:#FBBF24;font-weight:700;">$' + d.overall.fees.toFixed(2) + '</div></div>' +
-                '</div>' +
-                feesPctRow +
-                beNote +
+            '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 4) + ',1fr);gap:8px;margin-bottom:14px;">' +
+                metricCard('Сделок', d.overall.n, '#E2E8F0', '') +
+                metricCard('Win rate', d.overall.winRate + '%', wrColor(d.overall.winRate), beSubtext) +
+                metricCard('P&L net', fmtMoney(d.overall.pnl), colorFor(d.overall.pnl), '') +
+                metricCard('Комиссии', '$' + d.overall.fees.toFixed(2), '#FBBF24', feesSubtext) +
             '</div>';
 
-        // ── Инсайты ──
+        // Главное предупреждение про break-even — отдельно, ярко
+        var beAlert = '';
+        if (beBelow) {
+            beAlert = '<div style="background:rgba(239,68,68,0.08);border-left:3px solid #EF4444;border-radius:4px;padding:10px 12px;margin-bottom:14px;font-size:' + (isMobile ? '12px' : '12px') + ';color:#FCA5A5;">' +
+                'WR ' + d.overall.winRate + '% ниже break-even ' + d.breakEvenWR + '% — текущий R:R математически проигрышный' +
+            '</div>';
+        }
+
+        // ── Инсайты — без дублирования break-even ──
         var insightsBlock = '';
         if (d.insights && d.insights.length > 0) {
-            var insightsRows = d.insights.map(function(ins) {
-                return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:rgba(255,255,255,0.02);border-radius:6px;margin-bottom:6px;">' +
-                    '<div style="flex-shrink:0;margin-top:1px;">' + insightIconSvg(ins.type) + '</div>' +
-                    '<div style="font-size:' + (isMobile ? '12px' : '11px') + ';color:#CBD5E1;line-height:1.4;">' + escapeHtml(ins.text) + '</div>' +
+            // фильтруем инсайт про break-even, он уже наверху
+            var filtered = d.insights.filter(function(ins) {
+                return !/break-even|R:R математически/i.test(ins.text || '');
+            });
+            if (filtered.length > 0) {
+                var insightsRows = filtered.map(function(ins) {
+                    return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(251,191,36,0.05);border-radius:6px;margin-bottom:5px;">' +
+                        '<div style="flex-shrink:0;margin-top:1px;">' + insightIconSvg(ins.type) + '</div>' +
+                        '<div style="font-size:' + (isMobile ? '12px' : '12px') + ';color:#FDE68A;line-height:1.45;">' + escapeHtml(ins.text) + '</div>' +
+                    '</div>';
+                }).join('');
+                insightsBlock = '<div style="margin-bottom:14px;">' +
+                    '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Инсайты</div>' +
+                    insightsRows +
                 '</div>';
-            }).join('');
-            insightsBlock = '<div style="margin-bottom:18px;">' +
-                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Инсайты</div>' +
-                insightsRows +
-            '</div>';
+            }
         }
 
         // ── Разбивки ──
@@ -4697,14 +5147,23 @@
             'cluster_exit': 'Кластер', 'bb_exit': 'Bollinger', 'manual': 'Ручной', 'external_close': 'Внешнее',
         };
 
-        var breakdowns =
+        // На десктопе — двухколоночная сетка для группировок
+        var leftCol =
             renderBreakdown('По стратегии', d.byStrategy, { keyMap: strategyMap }) +
-            renderBreakdown('По направлению', d.bySide, { keyMap: sideMap }) +
             renderBreakdown('По парам', d.byPair, { sortBy: 'pnl' }) +
+            renderBreakdown('По режиму при входе', d.byRegimeAgreement, { keyMap: regimeMap });
+
+        var rightCol =
+            renderBreakdown('По направлению', d.bySide, { keyMap: sideMap }) +
             renderBreakdown('По окну торговли', d.byWindow, { keyMap: windowMap }) +
-            renderBreakdown('По режиму при входе', d.byRegimeAgreement, { keyMap: regimeMap }) +
-            renderBreakdown('По часам UTC', d.byHour) +
             renderBreakdown('По выходу', d.byExit, { keyMap: exitMap });
+
+        var breakdownsGrid = isMobile
+            ? '<div>' + leftCol + rightCol + '</div>'
+            : '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;"><div>' + leftCol + '</div><div>' + rightCol + '</div></div>';
+
+        // ── По часам — отдельный блок с тремя сессиями ──
+        var hoursBlock = renderHoursBySession(d.byHour, isMobile, fmtMoney, colorFor, wrColor);
 
         // По ботам — только если "Все боты"
         var byBotBlock = '';
@@ -4712,7 +5171,72 @@
             byBotBlock = renderBreakdown('По ботам', d.byBot, { sortBy: 'pnl' });
         }
 
-        return '<div style="' + pad + '">' + overallBlock + insightsBlock + breakdowns + byBotBlock + '</div>';
+        return '<div style="' + pad + '">' + overallBlock + beAlert + insightsBlock + breakdownsGrid + hoursBlock + byBotBlock + '</div>';
+    }
+
+    // ── Рендер блока "По часам" с группировкой по сессиям и временем в МСК ──
+    function renderHoursBySession(byHour, isMobile, fmtMoney, colorFor, wrColor) {
+        if (!byHour || Object.keys(byHour).length === 0) return '';
+
+        // Группируем часы по сессиям
+        var sessions = {
+            'Азия':   { color: '#FB923C', range: '03–09 МСК', items: [] },
+            'Европа': { color: '#60A5FA', range: '10–15 МСК', items: [] },
+            'США':    { color: '#A78BFA', range: '16–23 МСК', items: [] },
+            'Ночь':   { color: '#64748B', range: '00–02 МСК', items: [] },
+        };
+
+        Object.keys(byHour).forEach(function(k) {
+            var hourUtc = parseHourKey(k);
+            if (hourUtc == null) return;
+            var sess = sessionFromUtc(hourUtc);
+            var hourMsk = utcToMsk(hourUtc);
+            var b = byHour[k];
+            sessions[sess.name].items.push({
+                hourMsk: hourMsk,
+                hourUtc: hourUtc,
+                bucket: b,
+            });
+        });
+
+        // Сортируем по часу МСК внутри каждой сессии
+        Object.keys(sessions).forEach(function(name) {
+            sessions[name].items.sort(function(a, b) { return a.hourMsk - b.hourMsk; });
+        });
+
+        // Видимые сессии (с данными)
+        var visibleSessions = ['Азия', 'Европа', 'США', 'Ночь'].filter(function(name) {
+            return sessions[name].items.length > 0;
+        });
+        if (visibleSessions.length === 0) return '';
+
+        function fmtHour(h) { return String(h).padStart(2, '0') + ':00'; }
+
+        function renderSessionColumn(name) {
+            var sess = sessions[name];
+            var rowsHtml = sess.items.map(function(item) {
+                var b = item.bucket;
+                return '<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:5px 0;font-size:' + (isMobile ? '11px' : '12px') + ';align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);">' +
+                    '<span style="color:#CBD5E1;font-variant-numeric:tabular-nums;">' + fmtHour(item.hourMsk) + ' МСК <span style="color:#636B76;font-size:10px;">(' + fmtHour(item.hourUtc) + ' UTC)</span></span>' +
+                    '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;font-size:' + (isMobile ? '10px' : '11px') + ';">' + b.winRate + '%</span>' +
+                    '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;min-width:54px;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
+                '</div>';
+            }).join('');
+            return '<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px 14px;">' +
+                '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">' +
+                    '<div style="width:6px;height:6px;background:' + sess.color + ';border-radius:50%;"></div>' +
+                    '<span style="font-size:10px;color:' + sess.color + ';font-weight:600;letter-spacing:0.4px;text-transform:uppercase;">' + name + ' · ' + sess.range + '</span>' +
+                '</div>' +
+                rowsHtml +
+            '</div>';
+        }
+
+        var columns = visibleSessions.map(renderSessionColumn).join('');
+        var cols = isMobile ? 1 : Math.min(visibleSessions.length, 3);
+        return '<div style="margin-bottom:10px;">' +
+            '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;padding-left:2px;">По часам торговли · время МСК</div>' +
+            '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:8px;">' + columns + '</div>' +
+        '</div>';
     }
 
 
@@ -4721,7 +5245,7 @@
        ширина коридора, дошла ли цена до уровня к выходу. Помогает проверить гипотезу
        что вход от внешних границ работает лучше внутренних. */
     function renderScalperAnalyticsBody(d, isMobile) {
-        var pad = isMobile ? 'padding:14px 16px;' : 'padding:14px 18px;';
+        var pad = isMobile ? 'padding:14px 16px;' : 'padding:16px 18px;';
 
         function fmtMoney(v) {
             if (v == null || isNaN(v)) return '$0.00';
@@ -4731,84 +5255,153 @@
         function colorFor(v) { return v >= 0 ? '#10B981' : '#EF4444'; }
         function wrColor(wr) { return wr >= 60 ? '#10B981' : wr >= 45 ? '#FBBF24' : '#EF4444'; }
 
-        // Рендер списка-разбивки (массив бакетов из API).
-        // Каждый бакет: {key, n, winRate, netPnl, avgPnl}
-        // subtitle (опционально) — мелкая поясняющая строка под заголовком секции.
-        function renderBuckets(title, buckets, subtitle) {
+        // Мини-индикатор позиции цены в коридоре для строк "SHORT · Верх 0–10%" и т.п.
+        // Возвращает SVG 44x22: верхняя/нижняя серые границы коридора + цветная полоска
+        // (красная для SHORT, зелёная для LONG) на нужной высоте.
+        function channelMiniIndicator(key, side) {
+            // Парсим зону. Внутренняя область коридора по Y: от 3 до 19 (16px высоты).
+            // Полоска шириной 3px. Чем ближе зона к границе — тем ближе полоска.
+            var stripeY = null;
+            if (/Верх 0[–-]10/.test(key))       stripeY = 2;   // у самого потолка
+            else if (/Верх 10[–-]30/.test(key))  stripeY = 6;
+            else if (/Середина/.test(key))       stripeY = 10;
+            else if (/Низ 10[–-]30/.test(key))   stripeY = 14;
+            else if (/Низ 0[–-]10/.test(key))    stripeY = 17;  // у самого пола
+            if (stripeY == null) return '';
+            var color = (side === 'SHORT') ? '#EF4444' : '#22C55E';
+            return '<svg width="44" height="22" style="flex-shrink:0;" viewBox="0 0 44 22">' +
+                // Верхняя и нижняя границы коридора (потолок и пол)
+                '<line x1="2" y1="3" x2="42" y2="3" stroke="#94A3B8" stroke-width="1" opacity="0.7"/>' +
+                '<line x1="2" y1="19" x2="42" y2="19" stroke="#94A3B8" stroke-width="1" opacity="0.7"/>' +
+                // Боковые рамки — обозначают что это коридор
+                '<rect x="0" y="3" width="2" height="16" fill="rgba(255,255,255,0.15)"/>' +
+                '<rect x="42" y="3" width="2" height="16" fill="rgba(255,255,255,0.15)"/>' +
+                // Цветная полоска — позиция цены
+                '<rect x="4" y="' + stripeY + '" width="36" height="3" rx="1" fill="' + color + '"/>' +
+            '</svg>';
+        }
+
+        // Цвет лейбла для позиции/выхода
+        function labelColor(key) {
+            if (/^SHORT/.test(key) || /−PnL$/.test(key)) return '#F87171';
+            if (/^LONG/.test(key) || /\+PnL$/.test(key)) return '#4ADE80';
+            return '#CBD5E1';
+        }
+
+        // Общий рендер строки бакета
+        function renderRow(b, opts) {
+            opts = opts || {};
+            var labelHtml = escapeHtml(b.key);
+            var labelExtra = opts.labelExtra ? '<span style="color:#64748B;font-size:10px;"> ' + opts.labelExtra(b.key) + '</span>' : '';
+            var indicator = '';
+            if (opts.showChannelIndicator) {
+                var side = /^SHORT/.test(b.key) ? 'SHORT' : 'LONG';
+                indicator = channelMiniIndicator(b.key, side);
+            }
+            return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:' + (isMobile ? '11px' : '12px') + ';border-bottom:1px solid rgba(255,255,255,0.04);">' +
+                (indicator ? indicator : '') +
+                '<span style="color:' + labelColor(b.key) + ';flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(b.key) + '">' + labelHtml + labelExtra + '</span>' +
+                '<span style="color:#64748B;font-size:10px;font-variant-numeric:tabular-nums;">n=' + b.n + '</span>' +
+                '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;min-width:38px;text-align:right;">' + b.winRate + '%</span>' +
+                '<span style="color:' + colorFor(b.netPnl) + ';font-weight:600;font-variant-numeric:tabular-nums;min-width:56px;text-align:right;">' + fmtMoney(b.netPnl) + '</span>' +
+            '</div>';
+        }
+
+        // Карточка-секция группировки
+        function renderSection(title, subtitle, buckets, opts) {
             if (!buckets || buckets.length === 0) return '';
-            var maxN = buckets.reduce(function(m, b){ return Math.max(m, b.n); }, 1);
-            var rows = buckets.map(function(b) {
-                var barWidth = Math.max(8, Math.round(b.winRate));
-                return '<div style="display:grid;grid-template-columns:1fr 50px 1fr 70px;gap:10px;padding:6px 0;font-size:' + (isMobile ? '11px' : '11px') + ';align-items:center;border-bottom:1px solid rgba(255,255,255,0.04);">' +
-                    '<span style="color:#94A3B8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(b.key) + '">' + escapeHtml(b.key) + '</span>' +
-                    '<span style="color:#636B76;font-variant-numeric:tabular-nums;">n=' + b.n + '</span>' +
-                    '<span style="display:flex;align-items:center;gap:6px;">' +
-                        '<span style="height:4px;background:' + wrColor(b.winRate) + ';width:' + barWidth + '%;border-radius:2px;flex-shrink:0;"></span>' +
-                        '<span style="color:' + wrColor(b.winRate) + ';font-variant-numeric:tabular-nums;">' + b.winRate + '%</span>' +
-                    '</span>' +
-                    '<span style="color:' + colorFor(b.netPnl) + ';font-weight:600;text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(b.netPnl) + '</span>' +
-                '</div>';
-            }).join('');
-            var subtitleHtml = subtitle
-                ? '<div style="font-size:' + (isMobile ? '10px' : '10px') + ';color:#636B76;font-style:italic;margin-bottom:8px;line-height:1.4;">' + subtitle + '</div>'
-                : '';
-            return '<div style="margin-bottom:18px;">' +
-                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:' + (subtitle ? '4px' : '6px') + ';font-weight:600;">' + title + '</div>' +
-                subtitleHtml +
+            var rows = buckets.map(function(b){ return renderRow(b, opts || {}); }).join('');
+            return '<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:14px;">' +
+                '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;font-weight:600;">' + title + '</div>' +
+                (subtitle ? '<div style="font-size:11px;color:#64748B;font-style:italic;margin-bottom:10px;line-height:1.4;">' + subtitle + '</div>' : '<div style="margin-bottom:6px;"></div>') +
                 rows +
             '</div>';
         }
 
-        // ── Общая сводка ──
+        // ── Метрики наверху — 4 карточки в один ряд (как на вкладке Общий) ──
         var ov = d.overall || {};
-        var overallBlock = '<div style="margin-bottom:18px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:6px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:' + (isMobile ? '11px' : '12px') + ';color:#94A3B8;">' +
-            '<span>Сделок: <span style="color:#E2E8F0;font-weight:600;font-variant-numeric:tabular-nums;">' + (ov.n || 0) + '</span></span>' +
-            '<span>WR: <span style="color:' + wrColor(ov.winRate || 0) + ';font-weight:600;">' + (ov.winRate || 0) + '%</span></span>' +
-            '<span>P&amp;L: <span style="color:' + colorFor(ov.netPnl || 0) + ';font-weight:600;">' + fmtMoney(ov.netPnl || 0) + '</span></span>' +
-            '<span>Средняя: <span style="color:' + colorFor(ov.avgPnl || 0) + ';font-weight:600;">' + fmtMoney(ov.avgPnl || 0) + '</span></span>' +
-        '</div>';
+        function metricCard(label, value, valueColor) {
+            return '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 14px;">' +
+                '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + label + '</div>' +
+                '<div style="font-size:' + (isMobile ? '18px' : '20px') + ';color:' + valueColor + ';font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;">' + value + '</div>' +
+            '</div>';
+        }
+        var overallBlock =
+            '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 4) + ',1fr);gap:8px;margin-bottom:14px;">' +
+                metricCard('Сделок', ov.n || 0, '#F1F5F9') +
+                metricCard('Win rate', (ov.winRate || 0) + '%', wrColor(ov.winRate || 0)) +
+                metricCard('P&L net', fmtMoney(ov.netPnl || 0), colorFor(ov.netPnl || 0)) +
+                metricCard('Средняя', fmtMoney(ov.avgPnl || 0), colorFor(ov.avgPnl || 0)) +
+            '</div>';
 
-        // ── Инсайты ──
-        var insightsBlock = '';
-        if (d.insights && d.insights.length > 0) {
-            var insightsHtml = d.insights.map(function(ins) {
-                var bg, border;
-                if (ins.type === 'good')      { bg = 'rgba(16,185,129,0.06)';  border = '#10B981'; }
-                else if (ins.type === 'warn') { bg = 'rgba(239,68,68,0.06)';   border = '#EF4444'; }
-                else                          { bg = 'rgba(251,191,36,0.06)'; border = '#FBBF24'; }
-                return '<div style="background:' + bg + ';border-left:3px solid ' + border + ';padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:6px;font-size:12px;color:#cbd5e1;line-height:1.4;">' +
-                    escapeHtml(ins.text) +
-                '</div>';
-            }).join('');
-            insightsBlock = '<div style="margin-bottom:18px;">' +
-                '<div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Инсайты</div>' +
-                insightsHtml +
+        // ── Предупреждение про размер выборки ──
+        var sampleAlert = '';
+        var totalN = ov.n || 0;
+        if (totalN > 0 && totalN < 30) {
+            sampleAlert = '<div style="background:rgba(251,191,36,0.06);border-left:3px solid #FBBF24;border-radius:4px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#FDE68A;">' +
+                'Выборка маленькая — ' + totalN + ' сделок. Для надёжных выводов нужно ≥ 30. Пока смотрим как тенденцию, не как факт.' +
             '</div>';
         }
 
-        var breakdowns =
-            renderBuckets(
-                'По позиции в коридоре при входе',
-                d.byPosInChannel,
-                '0% = у нижней полосы коридора, 100% = у верхней. Разделено по направлению сделки.'
-            ) +
-            renderBuckets(
-                'По рангу ближайшего уровня',
-                d.byNearestRank,
-                'rank=1 — ближайший уровень это внешняя граница коридора. rank≥3 — внутренний уровень. Для SHORT смотрим уровень сверху, для LONG — снизу.'
-            ) +
-            renderBuckets(
-                'По ширине коридора',
-                d.byChannelWidth,
-                'Расстояние от нижней до верхней полосы, в % от цены входа.'
-            ) +
-            renderBuckets(
-                'Дошла ли цена до уровня к моменту выхода',
-                d.byPriceReached,
-                'Целевой уровень = ближайший в направлении сделки. SHORT → поддержка снизу, LONG → сопротивление сверху.'
-            );
+        // ── Инсайты от сервера (если есть) ──
+        var insightsBlock = '';
+        if (d.insights && d.insights.length > 0) {
+            // Отфильтровываем "info" про маленькую выборку, мы уже показали свой alert
+            var filtered = d.insights.filter(function(ins) {
+                return !/Нет скальпер|подожди пока бот/i.test(ins.text || '');
+            });
+            if (filtered.length > 0) {
+                var insightsHtml = filtered.map(function(ins) {
+                    var bg, border, color;
+                    if (ins.type === 'good')      { bg = 'rgba(16,185,129,0.06)';  border = '#10B981'; color = '#A7F3D0'; }
+                    else if (ins.type === 'warn') { bg = 'rgba(239,68,68,0.06)';   border = '#EF4444'; color = '#FCA5A5'; }
+                    else                          { bg = 'rgba(251,191,36,0.06)'; border = '#FBBF24'; color = '#FDE68A'; }
+                    return '<div style="background:' + bg + ';border-left:3px solid ' + border + ';padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:5px;font-size:12px;color:' + color + ';line-height:1.45;">' +
+                        escapeHtml(ins.text) +
+                    '</div>';
+                }).join('');
+                insightsBlock = '<div style="margin-bottom:14px;">' +
+                    '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Инсайты</div>' +
+                    insightsHtml +
+                '</div>';
+            }
+        }
 
-        return '<div style="' + pad + '">' + overallBlock + insightsBlock + breakdowns + '</div>';
+        // ── 4 группировки в 2 колонки на десктопе ──
+        var s1 = renderSection(
+            'Позиция в коридоре',
+            '0% = низ, 100% = верх. Где была цена в момент входа.',
+            d.byPosInChannel,
+            { showChannelIndicator: true }
+        );
+        var s2 = renderSection(
+            'Ранг ближайшего уровня',
+            'rank=1 — внешняя граница. rank≥3 — внутренний уровень.',
+            d.byNearestRank,
+            {
+                labelExtra: function(key) {
+                    if (/rank = 1/.test(key)) return '(граница)';
+                    if (/rank ≥ 3/.test(key)) return '(внутри)';
+                    return '';
+                }
+            }
+        );
+        var s3 = renderSection(
+            'Ширина коридора',
+            'Расстояние от низа до верха, % от цены.',
+            d.byChannelWidth
+        );
+        var s4 = renderSection(
+            'Дошла ли цена до цели',
+            'SHORT → поддержка снизу, LONG → сопротивление сверху.',
+            d.byPriceReached
+        );
+
+        var grid = isMobile
+            ? s1 + '<div style="height:8px;"></div>' + s2 + '<div style="height:8px;"></div>' + s3 + '<div style="height:8px;"></div>' + s4
+            : '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' + s1 + s2 + s3 + s4 + '</div>';
+
+        return '<div style="' + pad + '">' + overallBlock + sampleAlert + insightsBlock + grid + '</div>';
     }
 
     // ── CSV-экспорт журнала сделок ──
@@ -5173,7 +5766,10 @@
             windowTag = ' ' + s + ' ' + wT;
         }
         var rsiStr = '';
-        if (bot.rsiOversold || bot.rsiOverbought) {
+        // RSI используется только в Mean Reversion. В Scalper RSI игнорируется
+        // в торговой логике, поэтому в ярлыке его не показываем (раньше вводил
+        // в заблуждение «STP · 35/65»).
+        if ((bot.rsiOversold || bot.rsiOverbought) && bot.strategy !== 'scalper') {
             rsiStr = ' ' + s + ' ' + (bot.rsiOversold || 35) + '/' + (bot.rsiOverbought || 65);
         }
         return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + windowTag + rsiStr;
@@ -5499,6 +6095,8 @@
                 maxProfitPct: _state.maxProfitPct,
                 cooldownCandles: _state.cooldownCandles,
                 stopAtrMultiplier: _state.stopAtrMultiplier,
+                stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
+                stopFixedPct: _state.stopFixedPct,
                 trailingEnabled: _state.trailingEnabled,
                 trailingOffset: _state.trailingOffset,
                 trailingActivation: _state.trailingActivation,

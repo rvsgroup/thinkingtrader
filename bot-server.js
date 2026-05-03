@@ -24,6 +24,15 @@ const credsStore = require('./credentials-store');
 module.exports = function(app) {
 
     /* ══════════════════════════════════════════
+       КОНСТАНТЫ СТРАТЕГИЙ
+       Вынесено сюда, чтобы UI и сервер использовали одно и то же значение.
+       SCALPER_TOUCH_TOLERANCE — фильтр касания крайнего уровня (top R / bottom S):
+       SHORT/LONG входы возможны только если |цена − уровень| / уровень ≤ этого порога.
+       Также пробрасывается в state (поле touchTolerance) для отображения в UI.
+    ══════════════════════════════════════════ */
+    const SCALPER_TOUCH_TOLERANCE = 0.001; // 0.1%
+
+    /* ══════════════════════════════════════════
        ХРАНИЛИЩЕ СЕССИЙ
        uid → { settings, position, candles, levels, ... }
        Персистентность: автосохранение в bot-sessions.json каждые 30с
@@ -62,6 +71,9 @@ module.exports = function(app) {
         'rsiPeriod', 'rsiOversold', 'rsiOverbought',
         'bbPeriod', 'bbMultiplier',
         'levelTouches', 'levelTolerance',
+        // ── Manual режим: опциональная визуализация BB / уровней ──
+        // Эти поля управляют только визуализацией для ручного режима, на торговую логику не влияют.
+        'manualShowBB', 'manualShowLevels',
         // ── Live mode (API ключи НЕ персистим — только флаги) ──
         // apiKey/apiSecret хранятся отдельно в зашифрованном виде (см. credentials store)
         'mode', 'apiTestnet',
@@ -430,6 +442,12 @@ module.exports = function(app) {
                 // ── ATR-фильтр волатильности (ненаправленный) ──
                 atrFilterEnabled:    false,  // если true — блокируем вход когда multiplier >= threshold
                 atrFilterThreshold:  2.0,    // отношение atr14/atr50, выше которого это "импульс"
+
+                // ── Manual: опциональная визуализация ──
+                // По умолчанию выключено — пользователь сам решает что показывать на ручном режиме.
+                // На торговую логику эти поля не влияют, только на отрисовку.
+                manualShowBB:     false,
+                manualShowLevels: false,
 
                 // ── Push-уведомления ──
                 notifyEnabled:   true,      // уведомлять о закрытии сделок и остановке бота
@@ -1885,6 +1903,45 @@ module.exports = function(app) {
 
         if (!side) return null;
 
+        // ══════════════════════════════════════════════════════════════════
+        // ФИЛЬТР КАСАНИЯ КРАЙНЕГО УРОВНЯ (только для скальпера)
+        // Скальпер торгует ТОЛЬКО от внешних границ коридора:
+        //   SHORT — при касании самого верхнего resistance
+        //   LONG  — при касании самого нижнего support
+        // Внутри коридора (между крайними уровнями) — не входим.
+        // tolerance 0.1% от цены уровня — что считаем "касанием".
+        // Кластерный анализ + объём (выше) — остаются как фильтры подтверждения.
+        // ══════════════════════════════════════════════════════════════════
+        if (session.strategy === 'scalper') {
+            if (!levels || levels.length === 0) return null;
+
+            // Используем модульную константу SCALPER_TOUCH_TOLERANCE (см. начало файла) —
+            // то же значение пробрасывается в state.touchTolerance для UI.
+
+            if (side === 'SHORT') {
+                // Самый верхний resistance в списке уровней
+                const resistances = levels.filter(l => l.type === 'resistance');
+                if (resistances.length === 0) return null;
+                const topR = resistances.reduce((max, l) => l.price > max.price ? l : max, resistances[0]);
+
+                const dist = Math.abs(price - topR.price) / topR.price;
+                if (dist > SCALPER_TOUCH_TOLERANCE) {
+                    // Цена не у верхнего уровня — не входим
+                    return null;
+                }
+            } else {
+                // LONG: самый нижний support
+                const supports = levels.filter(l => l.type === 'support');
+                if (supports.length === 0) return null;
+                const botS = supports.reduce((min, l) => l.price < min.price ? l : min, supports[0]);
+
+                const dist = Math.abs(price - botS.price) / botS.price;
+                if (dist > SCALPER_TOUCH_TOLERANCE) {
+                    return null;
+                }
+            }
+        }
+
         // На споте нельзя шортить
         if (market === 'spot' && side === 'SHORT') return null;
 
@@ -1901,14 +1958,24 @@ module.exports = function(app) {
             return null;
         }
 
-        // ── ATR-based стоп ──
+        // ── Стоп-лосс: ATR-based ИЛИ Fixed % от цены входа ──
         const atr = calcATR(candles, 20);
         if (atr <= 0) return null;
 
-        const stopDist = atr * (session.stopAtrMultiplier || 1.5);
-        const stop = side === 'LONG'
-            ? price - stopDist
-            : price + stopDist;
+        let stop;
+        if (session.stopMode === 'fixed') {
+            // Фиксированный % от цены входа
+            const stopPct = (session.stopFixedPct || 0.5) / 100;
+            stop = side === 'LONG'
+                ? price * (1 - stopPct)
+                : price * (1 + stopPct);
+        } else {
+            // ATR-based (по умолчанию, старое поведение)
+            const stopDist = atr * (session.stopAtrMultiplier || 1.5);
+            stop = side === 'LONG'
+                ? price - stopDist
+                : price + stopDist;
+        }
 
         // ── Таргет = maxProfitPct от цены входа ──
         const tp = side === 'LONG'
@@ -4372,6 +4439,11 @@ module.exports = function(app) {
         session.maxProfitPct    = parseFloat(settings.maxProfitPct)     || 1.0;
         session.cooldownCandles = parseInt(settings.cooldownCandles)    || 5;
         session.stopAtrMultiplier = parseFloat(settings.stopAtrMultiplier) || 1.5;
+        // ── Режим стоп-лосса (для скальпера / MR) ──
+        // 'atr'   — стоп = entry ± ATR × stopAtrMultiplier (старое поведение)
+        // 'fixed' — стоп = entry ± stopFixedPct% (фикс % от цены входа)
+        session.stopMode      = settings.stopMode === 'fixed' ? 'fixed' : 'atr';
+        session.stopFixedPct  = parseFloat(settings.stopFixedPct) || 0.5;
 
         // ── Стратегия ──
         session.strategy = settings.strategy || 'scalper'; // 'scalper' | 'mean_reversion' | 'manual'
@@ -5090,6 +5162,16 @@ module.exports = function(app) {
                 changed.push(`windowUS:${session.tradingWindowUS ? 'ON' : 'OFF'}`);
             }
 
+            // Manual: показ BB / уровней (только визуализация, на торговую логику не влияет)
+            if (s.manualShowBB !== undefined) {
+                session.manualShowBB = !!s.manualShowBB;
+                changed.push(`manualShowBB:${session.manualShowBB ? 'ON' : 'OFF'}`);
+            }
+            if (s.manualShowLevels !== undefined) {
+                session.manualShowLevels = !!s.manualShowLevels;
+                changed.push(`manualShowLevels:${session.manualShowLevels ? 'ON' : 'OFF'}`);
+            }
+
             // Направление
             if (s.direction) { session.direction = s.direction; changed.push(`direction:${s.direction}`); }
 
@@ -5399,6 +5481,8 @@ module.exports = function(app) {
                 tradingWindowUS: !!session.tradingWindowUS,
                 atrFilterEnabled: session.atrFilterEnabled || false,
                 atrFilterThreshold: session.atrFilterThreshold || 2.0,
+                manualShowBB:     !!session.manualShowBB,
+                manualShowLevels: !!session.manualShowLevels,
                 clusterThreshold: session.clusterThreshold,
                 clusterExitConfirm: session.clusterExitConfirm,
                 clusterLookback: session.clusterLookback,
@@ -5438,6 +5522,9 @@ module.exports = function(app) {
                 volumeInfo: getVolumeInfo(session),
                 clusterInfo: getClusterInfo(session),
                 strategy: session.strategy || 'scalper',
+                // Толеранс касания крайнего уровня (для отображения в UI рядом с volumeInfo).
+                // Используется только в scalper-стратегии.
+                touchTolerance: SCALPER_TOUCH_TOLERANCE,
                 regime: session.regime || null,
                 atrRegime: session.atrRegime || null,
                 // Manual-стратегия: настройки + ожидающая лимитка
@@ -5964,9 +6051,14 @@ module.exports = function(app) {
             const botId = req.query.botId || 'default';
             const session = getSession(uid, botId);
 
-            // BB данные для Mean Reversion (история для кривых линий)
+            // BB данные:
+            //  - всегда для Mean Reversion (это его основной индикатор)
+            //  - для manual только если включена галочка manualShowBB (опциональная визуализация)
+            //  - для scalper не считаем (там уровни)
             let bbHistory = null;
-            if (session.strategy === 'mean_reversion') {
+            const needBB = session.strategy === 'mean_reversion'
+                        || (session.strategy === 'manual' && session.manualShowBB);
+            if (needBB) {
                 const closedCandles = session.candles.filter(c => c.closed);
                 const bbPeriod = session.bbPeriod || 20;
                 const bbMult = session.bbMultiplier || 2.0;
@@ -5985,8 +6077,19 @@ module.exports = function(app) {
                 }
             }
 
+            // Уровни:
+            //  - для scalper всегда (рассчитываются в основном цикле и лежат в session.levels)
+            //  - для manual только если включена галочка manualShowLevels
+            //  - для MR не показываем
+            let levelsToReturn = null;
+            if (session.strategy === 'scalper') {
+                levelsToReturn = session.levels;
+            } else if (session.strategy === 'manual' && session.manualShowLevels) {
+                levelsToReturn = session.levels;
+            }
+
             res.json({
-                levels: session.levels,
+                levels: levelsToReturn,
                 currentPrice: session.currentPrice,
                 strategy: session.strategy || 'scalper',
                 bbHistory: bbHistory,
@@ -6053,14 +6156,44 @@ module.exports = function(app) {
         const lastCandle = closedCandles[closedCandles.length - 1];
         const lastBuyPct = Math.round(analyzeCandleCluster(lastCandle));
 
+        // ── Зеркало серверной логики выбора стороны ──
+        // (см. findEntrySignal для scalper, ~стр. 1880).
+        // Триггер-свеча должна иметь buyPct ≥ threshold (для LONG)
+        // или sellPct ≥ threshold (для SHORT).
+        // Фон должен подтверждать направление с перевесом ≥ 60%.
+        // Тренд фона "затухает против нас" — отменяет сторону.
+        // Эти же значения используем для UI, чтобы плашка
+        // показывала ровно тот side, какой бот реально определил.
+        const BG_THRESHOLD = 60;
+        const triggerBuyers  = lastBuyPct >= threshold;
+        const triggerSellers = (100 - lastBuyPct) >= threshold;
+        const bgConfirmLong  = bg.buyPct >= BG_THRESHOLD;
+        const bgConfirmShort = bg.buyPct <= (100 - BG_THRESHOLD); // sellPct ≥ 60
+
+        let signalSide = null;
+        if (triggerBuyers && bgConfirmLong)        signalSide = 'LONG';
+        else if (triggerSellers && bgConfirmShort) signalSide = 'SHORT';
+
+        // Тренд фона может отменить сигнал
+        if (signalSide === 'LONG'  && bg.trend === 'buyers_decreasing') signalSide = null;
+        if (signalSide === 'SHORT' && bg.trend === 'buyers_increasing') signalSide = null;
+
         return {
-            buyPct:        bg.buyPct,
-            sellPct:       bg.sellPct,
-            concentration: bg.concentration,
-            trend:         bg.trend,
-            lastCandleBuy: lastBuyPct,
+            buyPct:         bg.buyPct,
+            sellPct:        bg.sellPct,
+            concentration:  bg.concentration,
+            trend:          bg.trend,
+            lastCandleBuy:  lastBuyPct,
             lastCandleSell: 100 - lastBuyPct,
-            lookback:      bgCandles.length,
+            lookback:       bgCandles.length,
+            // ── Поля для UI (синхронизация с торговой логикой) ──
+            threshold:      threshold,        // порог триггер-свечи (clusterThreshold, default 80)
+            bgThreshold:    BG_THRESHOLD,     // порог фона (захардкожен 60)
+            triggerOkLong:  triggerBuyers,
+            triggerOkShort: triggerSellers,
+            bgOkLong:       bgConfirmLong,
+            bgOkShort:      bgConfirmShort,
+            signalSide:     signalSide,       // 'LONG' | 'SHORT' | null — какую сторону бот хочет ПРЯМО СЕЙЧАС
         };
     }
 
