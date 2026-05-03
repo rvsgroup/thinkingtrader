@@ -318,6 +318,59 @@
             background: rgba(99,102,241,0.08) !important;
         }
 
+        /* Сворачивание панели инструментов рисования (admin-only).
+           Класс .tools-collapsed применяется по дефолту и скрывает все кнопки
+           внутри #smallAnnTools, оставляя саму панель в потоке (нулевая ширина).
+           Кнопка-переключатель #adminToolsToggleBtn снимает класс и применяет
+           через JS — состояние сохраняется в localStorage. */
+        .small-ann-tools.tools-collapsed {
+            display: none !important;
+        }
+        #adminToolsToggleBtn.active {
+            background: rgba(38,166,154,0.15) !important;
+            border-color: #26a69a !important;
+            color: #26a69a !important;
+        }
+
+        /* Текстовые чипы-индикаторы (BB / Уровни) в тулбаре графика.
+           Стиль согласован с чипами в виджете ручного бота (см. renderManualVizToggles
+           в bot-panel.js). Неактивные — серые на тёмном фоне; активные — зелёная
+           подсветка под цвет teal акцент-линии всего трейдинг-интерфейса. */
+        /* ── Сворачивание таймфреймов ──
+           По дефолту .chart-period-buttons имеет класс .tf-collapsed (через JS при загрузке),
+           который через :has-селектор скрывает все кнопки кроме той, что с классом .active.
+           Клик по стрелке #tfToggleBtn убирает/добавляет класс. */
+        .chart-period-buttons.tf-collapsed:has(.period-btn.active) .period-btn {
+            display: none;
+        }
+        .chart-period-buttons.tf-collapsed:has(.period-btn.active) .period-btn.active {
+            display: inline-flex;
+        }
+
+        .chart-indicator-chip {
+            padding: 4px 10px !important;
+            border-radius: 5px !important;
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            line-height: 1 !important;
+            background: rgba(255,255,255,0.04) !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+            color: #9598A1 !important;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s ease;
+            flex-shrink: 0;
+        }
+        .chart-indicator-chip:hover {
+            background: rgba(255,255,255,0.07) !important;
+            color: #C8CACE !important;
+        }
+        .chart-indicator-chip.active {
+            background: rgba(38,166,154,0.15) !important;
+            border-color: #26a69a !important;
+            color: #26a69a !important;
+        }
+
         /* — chart-type-toggle контейнер — */
         .chart-type-toggle {
             display: flex;
@@ -6393,7 +6446,17 @@
                 <div class="chart-header">
                     <div id="ourChartControls" style="display:flex;align-items:center;gap:6px;width:100%;justify-content:space-between;">
                         <div style="display:flex;align-items:center;gap:4px;">
-                            <div class="chart-period-buttons">
+                            <!-- Кнопка-стрелка для сворачивания/разворачивания таймфреймов.
+                                 По дефолту таймфреймы свёрнуты — виден только активный TF.
+                                 Клик переключает класс tf-collapsed на .chart-period-buttons.
+                                 Состояние сохраняется в localStorage под ключом tfPanelExpanded.
+                                 Стрелка указывает вправо ▶ когда свёрнуто, влево ◀ когда развёрнуто. -->
+                            <button id="tfToggleBtn" class="chart-indicator-chip" title="Развернуть таймфреймы" style="padding:4px 6px !important;">
+                                <svg id="tfToggleIcon" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3.5,2 6.5,5 3.5,8"/>
+                                </svg>
+                            </button>
+                            <div class="chart-period-buttons" id="chartPeriodButtons">
                                 <button class="period-btn" data-period="0.0007">1М</button>
                                 <button class="period-btn" data-period="0.003">5М</button>
                                 <button class="period-btn" data-period="0.01">15М</button>
@@ -6416,31 +6479,58 @@
                             </div>
                         </div>
                         <div id="chartToolsRight" style="display:flex;align-items:center;gap:4px;">
-                            <!-- Replay (admin only) -->
-                            <div class="replay-inline admin-only" id="replayInline" style="display:none;">
-                                <button class="replay-toggle-btn" id="replayToggleBtn" title="Replay">Replay</button>
-                                <div class="replay-inline-controls" id="replayControls" style="display:none;">
-                                    <button class="replay-ctrl-btn replay-point-btn" id="replaySetPoint1" disabled><span style="color:#10B981">●</span> Entry</button>
-                                    <button class="replay-ctrl-btn replay-point-btn" id="replaySetPoint2" disabled><span style="color:#EF4444">●</span> Exit</button>
-                                    <div class="replay-sep-inline"></div>
-                                    <button class="replay-ctrl-btn replay-play-btn" id="replayPlayBtn" disabled>▶</button>
-                                    <button class="replay-ctrl-btn" id="replayPauseBtn" style="display:none">⏸</button>
-                                    <button class="replay-ctrl-btn" id="replayResetBtn" disabled>↺</button>
-                                    <div class="replay-sep-inline"></div>
-                                    <button class="replay-speed-btn" data-speed="2">x2</button>
-                                    <button class="replay-speed-btn active" data-speed="4">x4</button>
-                                    <button class="replay-speed-btn" data-speed="8">x8</button>
-                                    <button class="replay-speed-btn" data-speed="12">x12</button>
-                                    <span id="replayHint" style="display:none !important;"></span>
-                                    <button class="replay-ctrl-btn replay-exit-btn" id="replayExitBtn" title="Выйти из Replay">✕</button>
-                                </div>
-                                
-                            </div>
+                            <!--
+                                Индикаторы графика (работают независимо от запущенного бота).
+                                Стиль текстовых чипов согласован с виджетом ручного бота
+                                (см. renderManualVizToggles в bot-panel.js).
+                                BB     — Bollinger Bands (период 20, множитель 2.0).
+                                Уровни — горизонтальные micro-levels по последним 200 свечам.
+                                Состояние сохраняется в localStorage:
+                                chartShowBB / chartShowLevels.
+                            -->
+                            <button id="indicatorBbBtn" class="chart-indicator-chip" title="Полосы Боллинджера (20, 2.0)">BB</button>
+                            <button id="indicatorLevelsBtn" class="chart-indicator-chip" title="Микроуровни поддержки/сопротивления">Уровни</button>
+                            <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <!-- Инструменты аннотаций (admin only) -->
                             <!-- АКТУАЛЬНЫЙ тулбар аннотаций (тот, что реально видит пользователь
                                  в UI). Кнопки проксируют клики на скрытый #ann-bar по id
                                  `ann-tool-{name}` — см. регистрацию в ~line 16193. -->
-                            <div class="small-ann-tools admin-only" id="smallAnnTools" style="display:none;">
+                            <!-- Кнопка-переключатель видимости панели инструментов рисования.
+                                 Видна только админам (admin-only). По дефолту тулбар свёрнут,
+                                 чтобы не загромождать шапку — клик разворачивает.
+                                 Состояние сохраняется в localStorage под ключом adminToolsExpanded.
+                                 Внутри развёрнутого тулбара также живёт REPLAY-блок. -->
+                            <button class="admin-only chart-indicator-chip" id="adminToolsToggleBtn"
+                                    style="display:none;padding:4px 8px !important;"
+                                    title="Инструменты рисования">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                                    <path d="M2 2l7.586 7.586"/>
+                                    <circle cx="11" cy="11" r="2"/>
+                                </svg>
+                            </button>
+                            <div class="small-ann-tools admin-only tools-collapsed" id="smallAnnTools" style="display:none;">
+                                <!-- Replay (admin only) — переехал сюда чтобы сворачиваться вместе с инструментами -->
+                                <div class="replay-inline admin-only" id="replayInline" style="display:none;">
+                                    <button class="replay-toggle-btn" id="replayToggleBtn" title="Replay">Replay</button>
+                                    <div class="replay-inline-controls" id="replayControls" style="display:none;">
+                                        <button class="replay-ctrl-btn replay-point-btn" id="replaySetPoint1" disabled><span style="color:#10B981">●</span> Entry</button>
+                                        <button class="replay-ctrl-btn replay-point-btn" id="replaySetPoint2" disabled><span style="color:#EF4444">●</span> Exit</button>
+                                        <div class="replay-sep-inline"></div>
+                                        <button class="replay-ctrl-btn replay-play-btn" id="replayPlayBtn" disabled>▶</button>
+                                        <button class="replay-ctrl-btn" id="replayPauseBtn" style="display:none">⏸</button>
+                                        <button class="replay-ctrl-btn" id="replayResetBtn" disabled>↺</button>
+                                        <div class="replay-sep-inline"></div>
+                                        <button class="replay-speed-btn" data-speed="2">x2</button>
+                                        <button class="replay-speed-btn active" data-speed="4">x4</button>
+                                        <button class="replay-speed-btn" data-speed="8">x8</button>
+                                        <button class="replay-speed-btn" data-speed="12">x12</button>
+                                        <span id="replayHint" style="display:none !important;"></span>
+                                        <button class="replay-ctrl-btn replay-exit-btn" id="replayExitBtn" title="Выйти из Replay">✕</button>
+                                    </div>
+                                </div>
+                                <div class="replay-sep-inline" style="margin:0 4px;"></div>
                                 <button class="small-ann-btn" data-tool="text" title="Текст">
                                     <svg width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="3" x2="15" y2="3"/><line x1="9" y1="3" x2="9" y2="15"/><line x1="6" y1="15" x2="12" y2="15"/></svg>
                                 </button>
@@ -8846,6 +8936,10 @@
                 }
                 setTimeout(() => drawLWLevels(), 0);
 
+                // После загрузки/смены пары/таймфрейма — пересчитать клиентские
+                // индикаторы (BB, уровни) если кнопки включены. См. блок выше.
+                setTimeout(() => { try { applyChartIndicators(); } catch (e) { console.warn('[INDICATOR]', e); } }, 0);
+
                 updateChangeBadge(prices);
 
 
@@ -9376,6 +9470,10 @@
         }
 
         function drawBBLines(bbHistory) {
+            // Если кнопка-индикатор BB включена — клиентский расчёт имеет
+            // приоритет, ботовский рендер отказывается работать. Сам клиентский
+            // рендер использует _drawBBLinesRaw (см. ниже).
+            if (window.chartShowBB) return;
             if (!lwChart || !bbHistory || !bbHistory.length) return;
             clearBBSeries();
 
@@ -9416,7 +9514,236 @@
             lwBBSeries.push(lowerSeries);
         }
 
+        /* ════════════════════════════════════════════════════════════════
+           КЛИЕНТСКИЕ ИНДИКАТОРЫ ГРАФИКА (BB + Микроуровни)
+           ════════════════════════════════════════════════════════════════
+           Работают независимо от ботов — кнопки на тулбаре. Расчёт идёт
+           по rawOhlcCache (массив [t, o, h, l, c, v]). Параметры:
+             • BB: период 20, множитель 2.0 (стандарт Боллинджера).
+             • Уровни: окно 200 последних свечей, минимум 3 касания.
+           Состояние сохраняется в localStorage: chartShowBB, chartShowLevels.
+           
+           Конфликт с ботом: если соответствующая кнопка ВКЛЮЧЕНА, клиентский
+           расчёт имеет приоритет — ботовские drawBBLines/drawBotLevels блокируются
+           (см. wrap-обёртки внизу). Если кнопка ВЫКЛЮЧЕНА — работает как раньше.
+        ═══════════════════════════════════════════════════════════════ */
+
+        // Глобальные флаги (читаются также из ботовских обёрток ниже)
+        window.chartShowBB     = localStorage.getItem('chartShowBB')     === '1';
+        window.chartShowLevels = localStorage.getItem('chartShowLevels') === '1';
+
+        function _calcClientBB(ohlcArr, period, mult) {
+            // ohlcArr: [[t_ms, o, h, l, c, v?], ...] из rawOhlcCache.
+            // Возвращает массив { time(sec), upper, middle, lower } для каждой свечи
+            // начиная с (period-1)-й. Первые (period-1) свечей пропускаем — мало данных.
+            if (!ohlcArr || ohlcArr.length < period) return [];
+            const result = [];
+            const closes = ohlcArr.map(k => k[4]);
+            for (let i = period - 1; i < ohlcArr.length; i++) {
+                const slice = closes.slice(i - period + 1, i + 1);
+                let sum = 0;
+                for (let j = 0; j < slice.length; j++) sum += slice[j];
+                const mean = sum / period;
+                let varSum = 0;
+                for (let j = 0; j < slice.length; j++) {
+                    const d = slice[j] - mean;
+                    varSum += d * d;
+                }
+                const stdev = Math.sqrt(varSum / period);
+                result.push({
+                    time:   Math.floor(ohlcArr[i][0] / 1000),
+                    middle: mean,
+                    upper:  mean + mult * stdev,
+                    lower:  mean - mult * stdev,
+                });
+            }
+            return result;
+        }
+
+        function _calcClientLevels(ohlcArr, minTouches, lookback) {
+            // Упрощённая клиентская версия findMicroLevels (см. bot-server.js строка 570).
+            // Алгоритм:
+            //   1. Берём последние lookback свечей.
+            //   2. Каждую свечу как кандидат: high → resistance, low → support.
+            //   3. Считаем сколько других свечей касаются этой цены в пределах ±0.05%
+            //      (тот же tolerance что у бота по умолчанию).
+            //   4. Уровни с >= minTouches касаниями оставляем.
+            //   5. Слипшиеся уровни (разница < 0.1%) объединяем в один — берём с максимумом касаний.
+            if (!ohlcArr || ohlcArr.length < minTouches + 1) return [];
+            const tolerance = 0.0005;
+            const candles = ohlcArr.slice(-lookback);
+            const candidates = [];
+
+            for (let i = 0; i < candles.length; i++) {
+                const c = candles[i];
+                const high = c[2];
+                const low  = c[3];
+
+                // Проверим high как resistance
+                let touchesH = 0;
+                for (let j = 0; j < candles.length; j++) {
+                    if (j === i) continue;
+                    const cj = candles[j];
+                    if (Math.abs(cj[2] - high) / high <= tolerance ||
+                        Math.abs(cj[3] - high) / high <= tolerance) touchesH++;
+                }
+                if (touchesH + 1 >= minTouches) {
+                    candidates.push({ price: high, type: 'resistance', touches: touchesH + 1 });
+                }
+
+                // Проверим low как support
+                let touchesL = 0;
+                for (let j = 0; j < candles.length; j++) {
+                    if (j === i) continue;
+                    const cj = candles[j];
+                    if (Math.abs(cj[2] - low) / low <= tolerance ||
+                        Math.abs(cj[3] - low) / low <= tolerance) touchesL++;
+                }
+                if (touchesL + 1 >= minTouches) {
+                    candidates.push({ price: low, type: 'support', touches: touchesL + 1 });
+                }
+            }
+
+            // Дедупликация близких уровней (разница < 0.1%)
+            candidates.sort((a, b) => b.touches - a.touches);
+            const merged = [];
+            for (const cand of candidates) {
+                const dup = merged.find(m =>
+                    m.type === cand.type &&
+                    Math.abs(m.price - cand.price) / m.price < 0.001
+                );
+                if (!dup) merged.push(cand);
+            }
+            return merged.slice(0, 8); // максимум 8 уровней чтобы не захламлять график
+        }
+
+        function applyChartIndicators() {
+            // Оркестратор: смотрит флаги, считает по rawOhlcCache, рисует через
+            // существующие drawBBLines / drawBotLevels или очищает соответствующие серии.
+            if (!lwChart || !rawOhlcCache || !rawOhlcCache.length) return;
+
+            // ── BB ──
+            if (window.chartShowBB) {
+                const bb = _calcClientBB(rawOhlcCache, 20, 2.0);
+                if (bb.length) {
+                    // _drawBBLinesRaw — оригинальная функция без проверки флага.
+                    // drawBBLines (внешняя, для бота) теперь обёрнута и проверяет флаг.
+                    _drawBBLinesRaw(bb);
+                }
+            } else {
+                clearBBSeries();
+            }
+
+            // ── Уровни ──
+            if (window.chartShowLevels) {
+                const levels = _calcClientLevels(rawOhlcCache, 3, 200);
+                if (levels.length) {
+                    _drawBotLevelsRaw(levels);
+                } else {
+                    clearBotLevelLines();
+                }
+            } else {
+                clearBotLevelLines();
+            }
+        }
+
+        // Сохраняем оригинальные функции рендера (без проверки флага клиента) —
+        // их вызывают наши клиентские индикаторы напрямую. Боты вызывают «обёртки»
+        // drawBBLines / drawBotLevels (см. ниже определения), которые делегируют
+        // оригиналам только при выключенной клиентской кнопке.
+        // Реализация: временно сбрасываем флаг, вызываем оригинал, восстанавливаем.
+        function _drawBBLinesRaw(bbHistory) {
+            const wasOn = window.chartShowBB;
+            window.chartShowBB = false;
+            try { drawBBLines(bbHistory); }
+            finally { window.chartShowBB = wasOn; }
+        }
+        function _drawBotLevelsRaw(levels) {
+            const wasOn = window.chartShowLevels;
+            window.chartShowLevels = false;
+            try { drawBotLevels(levels); }
+            finally { window.chartShowLevels = wasOn; }
+        }
+
+        // ── Обработчики кнопок ──
+        function _setIndicatorBtnState(btnId, on) {
+            const btn = document.getElementById(btnId);
+            if (btn) btn.classList.toggle('active', !!on);
+        }
+
+        // Применяем сохранённое состояние кнопок при загрузке
+        _setIndicatorBtnState('indicatorBbBtn',     window.chartShowBB);
+        _setIndicatorBtnState('indicatorLevelsBtn', window.chartShowLevels);
+
+        const _bbBtn = document.getElementById('indicatorBbBtn');
+        if (_bbBtn) _bbBtn.addEventListener('click', () => {
+            window.chartShowBB = !window.chartShowBB;
+            localStorage.setItem('chartShowBB', window.chartShowBB ? '1' : '0');
+            _setIndicatorBtnState('indicatorBbBtn', window.chartShowBB);
+            applyChartIndicators();
+        });
+
+        const _levelsBtn = document.getElementById('indicatorLevelsBtn');
+        if (_levelsBtn) _levelsBtn.addEventListener('click', () => {
+            window.chartShowLevels = !window.chartShowLevels;
+            localStorage.setItem('chartShowLevels', window.chartShowLevels ? '1' : '0');
+            _setIndicatorBtnState('indicatorLevelsBtn', window.chartShowLevels);
+            applyChartIndicators();
+        });
+
+        // ── Кнопка раскрытия панели инструментов рисования (admin-only) ──
+        // По дефолту панель свёрнута через класс .tools-collapsed.
+        // Клик переключает: добавляет/убирает класс + сохраняет состояние.
+        // Восстанавливаем состояние при загрузке.
+        const _adminToolsBtn = document.getElementById('adminToolsToggleBtn');
+        const _adminTools    = document.getElementById('smallAnnTools');
+        function _applyAdminToolsState(expanded) {
+            if (!_adminTools) return;
+            if (expanded) _adminTools.classList.remove('tools-collapsed');
+            else          _adminTools.classList.add('tools-collapsed');
+            if (_adminToolsBtn) _adminToolsBtn.classList.toggle('active', !!expanded);
+        }
+        const _adminToolsExpanded = localStorage.getItem('adminToolsExpanded') === '1';
+        _applyAdminToolsState(_adminToolsExpanded);
+        if (_adminToolsBtn) _adminToolsBtn.addEventListener('click', () => {
+            const willExpand = _adminTools && _adminTools.classList.contains('tools-collapsed');
+            localStorage.setItem('adminToolsExpanded', willExpand ? '1' : '0');
+            _applyAdminToolsState(willExpand);
+        });
+
+        // ── Сворачивание/разворачивание таймфреймов ──
+        // Простая кнопка-стрелка: клик добавляет/убирает класс .tf-collapsed
+        // на .chart-period-buttons. CSS сам прячет неактивные кнопки.
+        // Состояние сохраняется в localStorage под ключом tfPanelExpanded.
+        // Никаких хуков на чужой код — кнопки таймфреймов работают как раньше.
+        const _tfBtn   = document.getElementById('tfToggleBtn');
+        const _tfBtns  = document.getElementById('chartPeriodButtons');
+        const _tfIcon  = document.getElementById('tfToggleIcon');
+        function _applyTfPanelState(expanded) {
+            if (!_tfBtns) return;
+            if (expanded) _tfBtns.classList.remove('tf-collapsed');
+            else          _tfBtns.classList.add('tf-collapsed');
+            // Стрелка: ▶ когда свёрнуто, ◀ когда развёрнуто
+            if (_tfIcon) {
+                _tfIcon.innerHTML = expanded
+                    ? '<polyline points="6.5,2 3.5,5 6.5,8"/>'
+                    : '<polyline points="3.5,2 6.5,5 3.5,8"/>';
+            }
+            if (_tfBtn) _tfBtn.title = expanded ? 'Свернуть таймфреймы' : 'Развернуть таймфреймы';
+        }
+        // Стартовое состояние — свёрнуто, если в localStorage не записано иное.
+        const _tfExpanded = localStorage.getItem('tfPanelExpanded') === '1';
+        _applyTfPanelState(_tfExpanded);
+        if (_tfBtn) _tfBtn.addEventListener('click', () => {
+            const willExpand = _tfBtns && _tfBtns.classList.contains('tf-collapsed');
+            localStorage.setItem('tfPanelExpanded', willExpand ? '1' : '0');
+            _applyTfPanelState(willExpand);
+        });
+
         function drawBotLevels(levels) {
+            // Если кнопка-индикатор уровней включена — клиентский расчёт имеет
+            // приоритет, ботовский рендер не вмешивается. См. _drawBotLevelsRaw ниже.
+            if (window.chartShowLevels) return;
             if (!lwSeries || !lwChart) return;
 
             // Удаляем старые линии бота
@@ -9453,17 +9780,17 @@
 
         // Рисует линии для открытой позиции и ожидающих лимиток.
         // Вызывается из bot-panel.js через window._drawBotPosition().
-        // position: { side, entryPrice, stop, ... } или null
+        // position: { side, entryPrice, stop, target, ... } или null
         // pendingExit: { price } или null — лимитный выход (manual)
         // pendingLimit: { side, price } или null — лимит на вход (manual, позиции ещё нет)
         function drawBotPositionLines(position, pendingExit, pendingLimit) {
             if (!lwSeries || !lwChart) return;
 
             // Линии позиции (entry / stop / target / pendingExit / pendingLimit) рисуются
-            // ТОЛЬКО для manual-стратегии. В scalper и mean_reversion бот управляет позицией
-            // сам — пунктирные линии на графике становятся визуальным шумом.
+            // для manual и scalper. В mean_reversion бот динамически двигает таргет
+            // (через BB middle / SMA) — линии будут прыгать на каждом тике, это шум.
             const botStrategy = typeof window._getBotStrategy === 'function' ? window._getBotStrategy() : null;
-            if (botStrategy && botStrategy !== 'manual') {
+            if (botStrategy === 'mean_reversion') {
                 clearBotPositionLines();
                 return;
             }
@@ -9510,10 +9837,14 @@
                         lwBotPositionLines.push(stopLineObj);
                     }
 
-                    // Лимитный выход (TP) — жёлтый пунктир
-                    if (pendingExit && pendingExit.price) {
+                    // Take Profit — жёлтый пунктир.
+                    // В manual-режиме TP — это лимитный ордер `pendingExit`.
+                    // В scalper таргет управляется ботом и приходит как `position.target`.
+                    // Если есть и то, и другое — приоритет у pendingExit (это явная заявка).
+                    const tpPrice = (pendingExit && pendingExit.price) || position.target || null;
+                    if (tpPrice) {
                         const tpLineObj = lwSeries.createPriceLine({
-                            price:              pendingExit.price,
+                            price:              tpPrice,
                             color:              '#FBBF24',
                             lineWidth:          1,
                             lineStyle:          2,  // пунктир

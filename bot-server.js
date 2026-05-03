@@ -1885,11 +1885,16 @@ module.exports = function(app) {
         const triggerBuyers = triggerBuyPct >= threshold;
         const triggerSellers = (100 - triggerBuyPct) >= threshold;
 
-        // Фон (background) должен ПОДТВЕРЖДАТЬ направление с перевесом ≥ 60%:
-        // - Для LONG:  быки в фоне ≥ 60%  (buyPct >= 60)
-        // - Для SHORT: медведи в фоне ≥ 60% (buyPct <= 40, т.е. sellPct >= 60)
-        const bgConfirmLong  = background.buyPct >= 60;
-        const bgConfirmShort = background.buyPct <= 40; // sellPct >= 60
+        // Фон (background) — не подтверждает, а только НЕ БЛОКИРУЕТ направление.
+        // Раньше требовалось чтобы фон ≥ 60% за нашу сторону — это душило развороты:
+        // скальпер ловит развороты у уровня, а в момент разворота фон 5 свечей часто
+        // ещё за противоположную сторону. Новая логика: входим если контр-сторона
+        // НЕ доминирует с перевесом >60%. То есть бот лезет в разворот, но отказывается
+        // от сделки только когда против нас явно прёт катком.
+        // - Для LONG:  buyPct ≥ 40 (продавцы в фоне НЕ доминируют сильнее 60%)
+        // - Для SHORT: buyPct ≤ 60 (покупатели в фоне НЕ доминируют сильнее 60%)
+        const bgConfirmLong  = background.buyPct >= 40;
+        const bgConfirmShort = background.buyPct <= 60;
 
         if (triggerBuyers && bgConfirmLong) {
             side = 'LONG';
@@ -3409,8 +3414,15 @@ module.exports = function(app) {
             exitFee  = liveResult.commission   || 0;
             totalFee = entryFee + exitFee;
         } else {
-            const entryFeeRate = 0.00055;  // taker
-            const exitFeeRate  = reason === 'take_profit' ? 0.0002 : 0.00055;
+            // Paper: симуляция комиссии VIP 5 (топовый достижимый уровень через прop-API).
+            // VIP 0 (без скидок) был taker 0.055% / maker 0.020% — round-trip max 0.110%.
+            // VIP 5: taker 0.030% / maker 0.000% — round-trip max 0.060%.
+            // Это ~в 2 раза ниже. ВАЖНО: изменено ТОЛЬКО в paper-расчёте P&L.
+            // Фильтр feePct=0.11 в findEntrySignal оставлен НАМЕРЕННО — он работает как
+            // фильтр качества сделок (отсекает шумовые входы с малым потенциалом),
+            // а не как оценка реальной комиссии. См. комментарий пользователя в чате.
+            const entryFeeRate = 0.00030;  // VIP 5 taker
+            const exitFeeRate  = reason === 'take_profit' ? 0.00000 : 0.00030; // maker для TP, taker для стопа
             entryFee = pos.size * entryFeeRate;
             exitFee  = pos.size * exitFeeRate;
             totalFee = entryFee + exitFee;
@@ -6160,15 +6172,20 @@ module.exports = function(app) {
         // (см. findEntrySignal для scalper, ~стр. 1880).
         // Триггер-свеча должна иметь buyPct ≥ threshold (для LONG)
         // или sellPct ≥ threshold (для SHORT).
-        // Фон должен подтверждать направление с перевесом ≥ 60%.
+        // Фон НЕ ПОДТВЕРЖДАЕТ направление, а лишь НЕ БЛОКИРУЕТ его —
+        // вход разрешён если контр-сторона в фоне ≤ 60% (то есть не доминирует
+        // тотально). Это сделано для скальпера-разворотника: ловить развороты
+        // у уровня, не требуя чтобы фон уже шёл в нашу сторону.
         // Тренд фона "затухает против нас" — отменяет сторону.
         // Эти же значения используем для UI, чтобы плашка
         // показывала ровно тот side, какой бот реально определил.
-        const BG_THRESHOLD = 60;
+        const BG_BLOCK_THRESHOLD = 60; // контр-сторона блокирует вход начиная с этого уровня
         const triggerBuyers  = lastBuyPct >= threshold;
         const triggerSellers = (100 - lastBuyPct) >= threshold;
-        const bgConfirmLong  = bg.buyPct >= BG_THRESHOLD;
-        const bgConfirmShort = bg.buyPct <= (100 - BG_THRESHOLD); // sellPct ≥ 60
+        // Для LONG блокирует если продавцы в фоне > 60% (т.е. buyPct < 40)
+        // Для SHORT блокирует если покупатели в фоне > 60% (т.е. buyPct > 60)
+        const bgConfirmLong  = bg.buyPct >= (100 - BG_BLOCK_THRESHOLD);
+        const bgConfirmShort = bg.buyPct <= BG_BLOCK_THRESHOLD;
 
         let signalSide = null;
         if (triggerBuyers && bgConfirmLong)        signalSide = 'LONG';
@@ -6188,7 +6205,10 @@ module.exports = function(app) {
             lookback:       bgCandles.length,
             // ── Поля для UI (синхронизация с торговой логикой) ──
             threshold:      threshold,        // порог триггер-свечи (clusterThreshold, default 80)
-            bgThreshold:    BG_THRESHOLD,     // порог фона (захардкожен 60)
+            // bgThreshold — это минимальная доля НАШЕЙ стороны в фоне для входа.
+            // По новой логике "не блокировать" контр-сторона ≤ 60% эквивалентно
+            // НАША сторона ≥ 40%. UI показывает строку "Фон X / 40%" и зелёный/серый.
+            bgThreshold:    100 - BG_BLOCK_THRESHOLD,
             triggerOkLong:  triggerBuyers,
             triggerOkShort: triggerSellers,
             bgOkLong:       bgConfirmLong,
