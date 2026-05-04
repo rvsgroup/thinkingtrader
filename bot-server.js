@@ -4699,6 +4699,87 @@ module.exports = function(app) {
         }
     });
 
+    // POST /api/bot/start-by-id — запустить бота по СОХРАНЁННЫМ настройкам сессии.
+    // Используется для массового запуска (кнопка START в шапке) и после рестарта сервера,
+    // когда настройки уже есть на диске, но нужно поднять бота не перезаписывая их.
+    // Body: { uid, botId }
+    // Принципиальное отличие от /api/bot/start — здесь мы НЕ переопределяем session.*,
+    // а наоборот формируем settings из session и передаём в startBot. Это безопасно
+    // потому что startBot всё равно делает session.X = settings.X || default — и поскольку
+    // settings.X = session.X, в результате значения сохраняются.
+    app.post('/api/bot/start-by-id', async (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            const botId = req.body.botId || 'default';
+            const session = getSession(uid, botId);
+
+            if (session.running) {
+                return res.json({ ok: true, alreadyRunning: true });
+            }
+
+            // Собираем все настройки из session — это снимок того что у бота сохранено
+            // в памяти/на диске. Поля совпадают с тем что ожидает startBot из req.body.
+            const settings = {
+                mode:               session.mode || 'paper',
+                market:             session.market,
+                pair:               session.pair,
+                timeframe:          session.timeframe,
+                strategy:           session.strategy,
+                direction:          session.direction,
+                entryMode:          session.entryMode,
+                riskPct:            session.riskPct,
+                dayLimitPct:        session.dayLimitPct,
+                maxLosses:          session.maxLosses,
+                maxLeverage:        session.maxLeverage,
+                virtualBalance:     session.virtualBalance,
+                volumeMultiplier:   session.volumeMultiplier,
+                positionTimeout:    session.positionTimeout,
+                trailingEnabled:    session.trailingEnabled,
+                trailingOffset:     session.trailingOffset,
+                trailingActivation: session.trailingActivation,
+                stepTpEnabled:      session.stepTpEnabled,
+                stepTpTrigger:      session.stepTpTrigger,
+                stepTpStep:         session.stepTpStep,
+                stepTpTolerance:    session.stepTpTolerance,
+                maxProfitPct:       session.maxProfitPct,
+                cooldownCandles:    session.cooldownCandles,
+                stopAtrMultiplier:  session.stopAtrMultiplier,
+                stopMode:           session.stopMode,
+                stopFixedPct:       session.stopFixedPct,
+                clusterEntryFilter: session.clusterEntryFilter,
+                clusterThreshold:   session.clusterThreshold,
+                clusterLookback:    session.clusterLookback,
+                clusterExitConfirm: session.clusterExitConfirm,
+                regimeFilterEnabled: session.regimeFilterEnabled,
+                tradingWindowEU:    session.tradingWindowEU,
+                tradingWindowUS:    session.tradingWindowUS,
+                rsiPeriod:          session.rsiPeriod,
+                rsiOversold:        session.rsiOversold,
+                rsiOverbought:      session.rsiOverbought,
+                bbPeriod:           session.bbPeriod,
+                bbMultiplier:       session.bbMultiplier,
+                bbExitEnabled:      session.bbExitEnabled,
+                bbExitTolerance:    session.bbExitTolerance,
+                smaReturnEnabled:   session.smaReturnEnabled,
+                smaReturnTolerance: session.smaReturnTolerance,
+                atrFilterEnabled:   session.atrFilterEnabled,
+                atrFilterThreshold: session.atrFilterThreshold,
+                levelTouches:       session.levelTouches,
+                levelTolerance:     session.levelTolerance,
+            };
+
+            const result = await startBot(uid, botId, settings);
+            if (result.ok) {
+                res.json({ ok: true, botId: botId });
+            } else {
+                res.status(500).json({ ok: false, error: result.error });
+            }
+        } catch(e) {
+            console.error('[BOT] /start-by-id error:', e.message);
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
     // POST /api/bot/stop — остановить бота
     // body.silent = true подавляет индивидуальные push (для массового стопа)
     app.post('/api/bot/stop', (req, res) => {

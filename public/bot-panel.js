@@ -176,8 +176,13 @@
                     <line x1="2" y1="9" x2="0.5" y2="9" stroke="#26a69a" stroke-width="1"/>\
                     <line x1="12" y1="9" x2="13.5" y2="9" stroke="#26a69a" stroke-width="1"/>\
                 </svg>\
-                <span class="bot-w-title">Algo Scalper</span>\
-                <span id="botStopAllBtn" title="Остановить всех ботов" style="cursor:pointer;margin-left:6px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid rgba(239,68,68,0.4);border-radius:4px;color:#EF4444;font-size:10px;font-weight:600;letter-spacing:0.5px;opacity:0.75;transition:opacity 0.2s, background 0.2s;" onmouseover="this.style.opacity=1;this.style.background=\'rgba(239,68,68,0.08)\'" onmouseout="this.style.opacity=0.75;this.style.background=\'transparent\'">\
+                <span id="botStartAllBtn" title="Запустить всех Paper-ботов" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid rgba(38,166,154,0.4);border-radius:4px;color:#26a69a;font-size:10px;font-weight:600;letter-spacing:0.5px;opacity:0.75;transition:opacity 0.2s, background 0.2s;" onmouseover="this.style.opacity=1;this.style.background=\'rgba(38,166,154,0.08)\'" onmouseout="this.style.opacity=0.75;this.style.background=\'transparent\'">\
+                    <svg width="9" height="9" viewBox="0 0 9 9" fill="currentColor" xmlns="http://www.w3.org/2000/svg">\
+                        <polygon points="1,0 9,4.5 1,9"/>\
+                    </svg>\
+                    START\
+                </span>\
+                <span id="botStopAllBtn" title="Остановить всех ботов" style="cursor:pointer;margin-left:4px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid rgba(239,68,68,0.4);border-radius:4px;color:#EF4444;font-size:10px;font-weight:600;letter-spacing:0.5px;opacity:0.75;transition:opacity 0.2s, background 0.2s;" onmouseover="this.style.opacity=1;this.style.background=\'rgba(239,68,68,0.08)\'" onmouseout="this.style.opacity=0.75;this.style.background=\'transparent\'">\
                     <svg width="9" height="9" viewBox="0 0 9 9" fill="currentColor" xmlns="http://www.w3.org/2000/svg">\
                         <rect x="0.5" y="0.5" width="8" height="8" rx="1"/>\
                     </svg>\
@@ -372,6 +377,8 @@
         widget.querySelector('#botJournalBtn').onclick = openJournal;
         var stopAllBtn = widget.querySelector('#botStopAllBtn');
         if (stopAllBtn) stopAllBtn.onclick = confirmStopAll;
+        var startAllBtn = widget.querySelector('#botStartAllBtn');
+        if (startAllBtn) startAllBtn.onclick = startAllPaperBots;
         var stopAllLiveBtn = widget.querySelector('#botStopAllLiveBtn');
         if (stopAllLiveBtn) stopAllLiveBtn.onclick = confirmStopAllLive;
         widget.querySelector('#botClusterEntryToggle').onchange = function() {
@@ -549,6 +556,15 @@
         widget.querySelector('#botWidgetStop').onclick  = stopBot;
         widget.querySelector('#botSaveSettings').onclick = saveSettingsHot;
         widget.querySelector('#botWidgetResume').onclick = resumeBot;
+        // Кнопка Paper trading в виджете — раньше не имела обработчика и поэтому
+        // не реагировала на клик. Теперь ставит mode='paper' и стартует бота напрямую,
+        // используя сохранённые настройки из _state. Если у бота не было mode (свежий бот
+        // после рестарта сервера) — это даёт возможность запустить его без модалки.
+        var paperBtn = widget.querySelector('#botWidgetPaper');
+        if (paperBtn) paperBtn.onclick = function() {
+            _state.mode = 'paper';
+            startBot();
+        };
         widget.querySelector('#botSelectorBtn').onclick = toggleBotDropdown;
         widget.querySelector('#botSelectorAdd').onclick = function() { closeBotDropdown(); createNewBot(); };
         widget.querySelector('#botSelectorAdd').onmouseover = function() { this.style.background = 'rgba(38,166,154,0.1)'; };
@@ -3620,6 +3636,16 @@
 
         var uid = getUid();
         var startBtn = document.getElementById('botWidgetStart');
+        // Сохраняем оригинальный HTML кнопки, чтобы вернуть его в любой ветке
+        // (успех / ошибка / зависание / сетевой сбой). Раньше в catch и при
+        // !data.ok текст не восстанавливался — кнопка зависала на "..." до перезагрузки страницы.
+        var startBtnOrigHtml = startBtn ? startBtn.innerHTML : null;
+        function restoreStartBtn() {
+            if (startBtn && startBtnOrigHtml !== null) {
+                startBtn.disabled = false;
+                startBtn.innerHTML = startBtnOrigHtml;
+            }
+        }
         if (startBtn) { startBtn.disabled = true; startBtn.textContent = '...'; }
 
         fetch('/api/bot/start', {
@@ -3677,8 +3703,7 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
             _state._starting = false;
-            var startBtn = document.getElementById('botWidgetStart');
-            if (startBtn) { startBtn.disabled = false; }
+            restoreStartBtn();
             if (data.ok) {
                 if (data.botId) _state.botId = data.botId;
                 _state.running = true;
@@ -3701,8 +3726,7 @@
         })
         .catch(function(e) {
             _state._starting = false;
-            var startBtn = document.getElementById('botWidgetStart');
-            if (startBtn) { startBtn.disabled = false; }
+            restoreStartBtn();
             updateButtons();
             console.warn('[BOT] start error', e);
         });
@@ -3742,6 +3766,67 @@
        - doStopAll: последовательный стоп с индикатором прогресса
        После всех стопов шлёт ОДИН сводный push
     ══════════════════════════════════════════ */
+    // Запуск всех Paper-ботов которые сейчас не работают.
+    // Использует новый серверный endpoint /api/bot/start-by-id, который запускает
+    // бота по уже сохранённым в сессии настройкам — НЕ перезаписывает их.
+    // Live-боты не трогаем — для них нужна авторизация ключей и явное подтверждение.
+    // Прогресс показывается прямо в кнопке: "0/5" → "1/5" → ... → возврат "▶ START".
+    function startAllPaperBots() {
+        var btn = document.getElementById('botStartAllBtn');
+        if (!btn) return;
+        if (btn._busy) return; // защита от двойного клика
+
+        // Только остановленные не-Live боты.
+        // Если у бота не задан mode — считаем что Paper (новые/после-рестарта).
+        var stopped = (_state.bots || []).filter(function(b) {
+            return !b.running && (b.mode || 'paper') !== 'live';
+        });
+
+        if (stopped.length === 0) {
+            // Нечего запускать — мигаем кнопкой
+            btn.style.opacity = '1';
+            setTimeout(function() { btn.style.opacity = '0.75'; }, 800);
+            return;
+        }
+
+        btn._busy = true;
+        var total = stopped.length;
+        var done = 0;
+        var origHtml = btn.innerHTML;
+        var uid = getUid();
+
+        function updateBtnProgress() {
+            btn.innerHTML = done + '/' + total + ' ...';
+        }
+        updateBtnProgress();
+
+        // Последовательный запуск с задержкой 250мс — чтобы сервер не утонул в одновременных
+        // WebSocket-подписках Binance и не словил rate-limit.
+        var i = 0;
+        function startNext() {
+            if (i >= total) {
+                btn.innerHTML = origHtml;
+                btn._busy = false;
+                loadBotList();
+                return;
+            }
+            var bot = stopped[i];
+            fetch('/api/bot/start-by-id', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid, botId: bot.botId })
+            })
+            .catch(function(e) { console.warn('[BOT] start-all error for', bot.botId, e); })
+            .finally(function() {
+                i++;
+                done = i;
+                updateBtnProgress();
+                setTimeout(startNext, 250);
+            });
+        }
+        startNext();
+    }
+
     function confirmStopAll() {
         // Удаляем старую модалку если вдруг осталась
         var old = document.getElementById('botStopAllModal');
@@ -4559,7 +4644,7 @@
                     ? '<div style="font-size:9px;color:#94A3B8;margin-top:3px;line-height:1.5;">' + detailBlocks.join(' <span style="color:#475569;">│</span> ') + '</div>'
                     : '';
 
-                rowsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">' +
+                rowsHtml += '<tr data-trade-idx="' + i + '" style="border-bottom:1px solid rgba(255,255,255,0.04);">' +
                     '<td style="padding:6px 4px;color:#636B76;font-size:10px;vertical-align:top;">' + (i + 1) + '</td>' +
                     botCol +
                     '<td style="padding:6px 4px;font-size:10px;color:#94A3B8;vertical-align:top;">' + (t.pair || '—') + '</td>' +
@@ -4673,7 +4758,7 @@
                         '<span>' + regimeInner + '</span></div>';
                 }
 
-                cardsHtml += '<div class="bjm-card" style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;">' +
+                cardsHtml += '<div class="bjm-card" data-trade-idx="' + i + '" style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:background 0.15s;">' +
                     '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px;">' +
                         '<span style="font-size:12px;font-weight:600;color:' + sideColor + ';letter-spacing:0.3px;">' + (t.side || '—') + ' · ' + pnlStr + ' <span style="font-weight:400;font-size:10px;opacity:0.8;">' + pnlPct + '</span></span>' +
                         '<span style="font-size:10px;color:#94A3B8;white-space:nowrap;">' + reason + '</span>' +
@@ -4753,7 +4838,8 @@
                     <div id="botJournalToggle" style="cursor:pointer;font-size:' + (isMobile ? '11px' : '10px') + ';padding:' + (isMobile ? '6px 10px' : '3px 8px') + ';border-radius:5px;border:1px solid rgba(255,255,255,0.1);color:' + toggleBtnColor + ';transition:all 0.2s;white-space:nowrap;">' + toggleBtnLabel + '</div>\
                     <div id="botJournalClose" style="cursor:pointer;color:#94A3B8;' + closeSize + 'display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;"><svg width="' + closeIconSize + '" height="' + closeIconSize + '" viewBox="0 0 12 12" fill="none"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>\
                 </div>\
-                <div style="' + statsPadding + 'display:flex;gap:' + (isMobile ? '10px' : '16px') + ';flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.04);">\
+                <div id="botJournalFilters" style="' + statsPadding + 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,0.04);"></div>\
+                <div id="botJournalStats" style="' + statsPadding + 'display:flex;gap:' + (isMobile ? '10px' : '16px') + ';flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.04);">\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + totalTrades + '</span></div>\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Win rate <span style="color:' + (winRate >= 50 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + winRate + '%</span></div>\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">P&L <span style="color:' + (totalPnl >= 0 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2) + '</span></div>\
@@ -4781,6 +4867,266 @@
             // isAllBots определяет скоуп: true → анализ всех ботов, false → конкретного бота
             openAnalytics(isAllBots ? null : (_state.botId || null));
         };
+
+        // ════════════════════════════════════════════════════════════════
+        //  ФИЛЬТРЫ ЖУРНАЛА — Вариант A (чипы в строку)
+        //  7 фильтров + кнопка сброса. Активные подсвечены зелёным.
+        //  При изменении: пересчитываем массив filtered и перерисовываем
+        //  блок #botJournalContent (статистика + строки таблицы / карточки).
+        // ════════════════════════════════════════════════════════════════
+        var _journalFilters = {
+            firstMove: 'all',  // 'all' | 'favor' | 'adverse'
+            exitReason: 'all', // 'all' | 'step_tp' | 'stop_loss' | 'trailing_stop' | 'cluster_exit' | 'manual_close' | 'timeout' | 'take_profit'
+            side:      'all',  // 'all' | 'LONG' | 'SHORT'
+            result:    'all',  // 'all' | 'win' | 'loss'
+            pair:      'all',  // 'all' | 'BTC/USDT' | ...
+            strategy:  'all',  // 'all' | 'mean_reversion' | 'scalper' | 'manual'
+            regime:    'all',  // 'all' | 'LONG' | 'SHORT' | 'BLOCK'
+        };
+
+        // Все уникальные пары из текущего набора сделок — для дропдауна "Пара"
+        var _journalPairs = [];
+        (function() {
+            var seen = {};
+            trades.forEach(function(t) {
+                if (t.pair && !seen[t.pair]) { seen[t.pair] = 1; _journalPairs.push(t.pair); }
+            });
+            _journalPairs.sort();
+        })();
+
+        // Конфигурация чипов: label, key в _journalFilters, options [{val, label}]
+        var _journalChipConfigs = [
+            {
+                key: 'firstMove', label: 'Движение',
+                options: [{val:'all',label:'все'}, {val:'favor',label:'в нашу сторону'}, {val:'adverse',label:'против нас'}]
+            },
+            {
+                key: 'exitReason', label: 'Выход',
+                options: [
+                    {val:'all',label:'все'},
+                    {val:'step_tp',label:'Шаговый TP'},
+                    {val:'take_profit',label:'Тейк'},
+                    {val:'stop_loss',label:'Стоп'},
+                    {val:'trailing_stop',label:'Трейлинг'},
+                    {val:'cluster_exit',label:'Кластер'},
+                    {val:'manual_close',label:'Ручной'},
+                    {val:'timeout',label:'Таймаут'},
+                ]
+            },
+            {
+                key: 'side', label: 'Сторона',
+                options: [{val:'all',label:'все'}, {val:'LONG',label:'LONG'}, {val:'SHORT',label:'SHORT'}]
+            },
+            {
+                key: 'result', label: 'Результат',
+                options: [{val:'all',label:'все'}, {val:'win',label:'победа'}, {val:'loss',label:'поражение'}]
+            },
+            {
+                key: 'pair', label: 'Пара',
+                options: [{val:'all',label:'все'}].concat(_journalPairs.map(function(p){ return {val:p, label:p}; }))
+            },
+            {
+                key: 'strategy', label: 'Стратегия',
+                options: [
+                    {val:'all',label:'все'},
+                    {val:'mean_reversion',label:'Mean Reversion'},
+                    {val:'scalper',label:'Скальпер'},
+                    {val:'manual',label:'Ручной'},
+                ]
+            },
+            {
+                key: 'regime', label: 'Режим',
+                options: [
+                    {val:'all',label:'все'},
+                    {val:'LONG',label:'→LONG'},
+                    {val:'SHORT',label:'→SHORT'},
+                    {val:'BLOCK',label:'→BLOCK'},
+                ]
+            },
+        ];
+
+        // Применяет _journalFilters к массиву trades, возвращает отфильтрованный набор
+        function _filterTrades(allTrades) {
+            return allTrades.filter(function(t) {
+                if (_journalFilters.firstMove !== 'all' && t.firstMoveSide !== _journalFilters.firstMove) return false;
+                if (_journalFilters.exitReason !== 'all' && t.reason !== _journalFilters.exitReason) return false;
+                if (_journalFilters.side !== 'all' && t.side !== _journalFilters.side) return false;
+                if (_journalFilters.result !== 'all') {
+                    var pnlPositive = (t.pnl || 0) > 0;
+                    if (_journalFilters.result === 'win' && !pnlPositive) return false;
+                    if (_journalFilters.result === 'loss' && pnlPositive) return false;
+                }
+                if (_journalFilters.pair !== 'all' && t.pair !== _journalFilters.pair) return false;
+                if (_journalFilters.strategy !== 'all' && t.strategy !== _journalFilters.strategy) return false;
+                if (_journalFilters.regime !== 'all') {
+                    var rg = t.entryRegime && t.entryRegime.allowed;
+                    if (rg !== _journalFilters.regime) return false;
+                }
+                return true;
+            });
+        }
+
+        // Считаем сколько фильтров активно (не 'all')
+        function _activeFilterCount() {
+            var n = 0;
+            for (var k in _journalFilters) if (_journalFilters[k] !== 'all') n++;
+            return n;
+        }
+
+        // Рендер строки фильтр-чипов в #botJournalFilters
+        function _renderFilterChips() {
+            var container = modal.querySelector('#botJournalFilters');
+            if (!container) return;
+            var html = '';
+            _journalChipConfigs.forEach(function(cfg) {
+                var current = _journalFilters[cfg.key];
+                var active = current !== 'all';
+                var currentLabel = cfg.label;
+                if (active) {
+                    var opt = cfg.options.find(function(o){ return o.val === current; });
+                    if (opt) currentLabel = cfg.label + ': ' + opt.label;
+                }
+                var chipStyle = active
+                    ? 'background:rgba(38,166,154,0.15);border:1px solid #26a69a;color:#26a69a;'
+                    : 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:#C8CACE;';
+                html += '<span class="bjm-chip" data-key="' + cfg.key + '" style="position:relative;cursor:pointer;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;' + chipStyle + '">'
+                     + currentLabel
+                     + '<svg width="8" height="8" viewBox="0 0 12 12" fill="none" style="margin-left:2px;opacity:0.7;"><polyline points="3,4.5 6,8 9,4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>'
+                     + '</span>';
+            });
+            // Кнопка "Сбросить" видна только если есть активные фильтры
+            if (_activeFilterCount() > 0) {
+                html += '<span id="bjmResetFilters" style="cursor:pointer;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:500;white-space:nowrap;background:rgba(226,75,74,0.08);border:1px solid rgba(226,75,74,0.25);color:#E24B4A;">✕ Сбросить</span>';
+            }
+            // Счётчик
+            var filtered = _filterTrades(trades);
+            var fTotal = filtered.length;
+            var fWins = filtered.filter(function(t){ return (t.pnl||0) > 0; }).length;
+            var fWR = fTotal > 0 ? Math.round(fWins / fTotal * 100) : 0;
+            var fNet = filtered.reduce(function(s, t){ return s + (t.pnl || 0); }, 0);
+            var counterColor = fNet >= 0 ? '#10B981' : '#EF4444';
+            html += '<span style="margin-left:auto;font-size:11px;color:#888780;">'
+                 +  'Показано <b style="color:#C8CACE;font-weight:500;">' + fTotal + '</b> из ' + trades.length
+                 +  ' · WR <b style="color:' + (fWR >= 50 ? '#10B981' : '#EF4444') + ';font-weight:500;">' + fWR + '%</b>'
+                 +  ' · <b style="color:' + counterColor + ';font-weight:500;">' + (fNet >= 0 ? '+' : '') + '$' + fNet.toFixed(2) + '</b>'
+                 +  '</span>';
+            container.innerHTML = html;
+
+            // Обработчики чипов
+            container.querySelectorAll('.bjm-chip').forEach(function(chip) {
+                chip.onclick = function(e) {
+                    e.stopPropagation();
+                    _showChipDropdown(chip);
+                };
+            });
+            var resetBtn = container.querySelector('#bjmResetFilters');
+            if (resetBtn) resetBtn.onclick = function() {
+                for (var k in _journalFilters) _journalFilters[k] = 'all';
+                _renderFilterChips();
+                _renderJournalContent();
+            };
+        }
+
+        // Открывает мини-дропдаун рядом с чипом со списком опций
+        function _showChipDropdown(chipEl) {
+            // Закрываем существующий дропдаун если есть
+            var existing = document.getElementById('bjmDropdown');
+            if (existing) existing.remove();
+
+            var key = chipEl.getAttribute('data-key');
+            var cfg = _journalChipConfigs.find(function(c){ return c.key === key; });
+            if (!cfg) return;
+            var current = _journalFilters[key];
+
+            var dd = document.createElement('div');
+            dd.id = 'bjmDropdown';
+            dd.style.cssText = 'position:absolute;top:100%;left:0;margin-top:4px;background:#1A1D23;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px;min-width:140px;max-height:280px;overflow-y:auto;z-index:10000;box-shadow:0 6px 18px rgba(0,0,0,0.4);';
+            cfg.options.forEach(function(opt) {
+                var isCurrent = opt.val === current;
+                var optStyle = isCurrent
+                    ? 'background:rgba(38,166,154,0.15);color:#26a69a;'
+                    : 'color:#C8CACE;';
+                var item = document.createElement('div');
+                item.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:4px;cursor:pointer;white-space:nowrap;' + optStyle;
+                item.textContent = opt.label;
+                item.onmouseover = function() { if (!isCurrent) this.style.background = 'rgba(255,255,255,0.05)'; };
+                item.onmouseout  = function() { if (!isCurrent) this.style.background = ''; };
+                item.onclick = function(e) {
+                    e.stopPropagation();
+                    _journalFilters[key] = opt.val;
+                    dd.remove();
+                    _renderFilterChips();
+                    _renderJournalContent();
+                };
+                dd.appendChild(item);
+            });
+            chipEl.appendChild(dd);
+
+            // Закрытие по клику вне дропдауна
+            setTimeout(function() {
+                document.addEventListener('click', function closeDd(e) {
+                    if (!dd.contains(e.target)) {
+                        dd.remove();
+                        document.removeEventListener('click', closeDd);
+                    }
+                });
+            }, 0);
+        }
+
+        // Перерисовка содержимого журнала под текущие фильтры.
+        // Подход: НЕ пересобираем HTML таблицы (это терялись бы все колонки/комментарии).
+        // Вместо этого:
+        //   1. Помечаем каждую строку (или карточку) индексом сделки через data-trade-idx
+        //   2. Проходим по trades, для каждого индекса решаем show/hide через style.display
+        //   3. Пересчитываем статистику и обновляем только её (#botJournalStats)
+        function _renderJournalContent() {
+            // Готовим Set отфильтрованных индексов
+            var filteredIndices = {};
+            var filteredTrades = [];
+            trades.forEach(function(t, i) {
+                if (_filterTrades([t]).length > 0) {
+                    filteredIndices[i] = true;
+                    filteredTrades.push(t);
+                }
+            });
+
+            // Скрываем/показываем строки таблицы (desktop)
+            modal.querySelectorAll('tr[data-trade-idx]').forEach(function(tr) {
+                var idx = parseInt(tr.getAttribute('data-trade-idx'), 10);
+                tr.style.display = filteredIndices[idx] ? '' : 'none';
+            });
+
+            // Скрываем/показываем карточки (mobile)
+            modal.querySelectorAll('.bjm-card[data-trade-idx]').forEach(function(card) {
+                var idx = parseInt(card.getAttribute('data-trade-idx'), 10);
+                card.style.display = filteredIndices[idx] ? '' : 'none';
+            });
+
+            // Пересчитываем статистику под filteredTrades и обновляем только #botJournalStats
+            var stats = modal.querySelector('#botJournalStats');
+            if (!stats) return;
+
+            var fTotal = filteredTrades.length;
+            var fWins = filteredTrades.filter(function(t){ return (t.pnl||0) > 0; });
+            var fNet = filteredTrades.reduce(function(s,t){ return s + (t.pnl||0); }, 0);
+            var fFees = filteredTrades.reduce(function(s,t){ return s + (t.fee||0); }, 0);
+            var fWR = fTotal > 0 ? Math.round(fWins.length / fTotal * 100) : 0;
+            var fAvg = fTotal > 0 ? (fNet / fTotal) : 0;
+            var fBest = filteredTrades.length ? Math.max.apply(null, filteredTrades.map(function(t){ return t.pnl||0; })) : 0;
+            var fWorst = filteredTrades.length ? Math.min.apply(null, filteredTrades.map(function(t){ return t.pnl||0; })) : 0;
+
+            stats.innerHTML =
+                  '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + fTotal + '</span></div>'
+                + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Win rate <span style="color:' + (fWR>=50?'#10B981':'#EF4444') + ';font-weight:700;">' + fWR + '%</span></div>'
+                + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">P&L <span style="color:' + (fNet>=0?'#10B981':'#EF4444') + ';font-weight:700;">' + (fNet>=0?'+':'') + '$' + fNet.toFixed(2) + '</span></div>'
+                + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Комиссии <span style="color:#FBBF24;font-weight:700;">$' + fFees.toFixed(2) + '</span></div>'
+                + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Сред. <span style="color:#94A3B8;font-weight:700;">' + (fAvg>=0?'+':'') + '$' + fAvg.toFixed(2) + '</span></div>'
+                + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Лучшая <span style="color:#10B981;font-weight:700;">+$' + fBest.toFixed(2) + '</span></div>'
+                + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Худшая <span style="color:#EF4444;font-weight:700;">$' + fWorst.toFixed(2) + '</span></div>';
+        }
+
+        // Первичный рендер фильтров.
+        _renderFilterChips();
         // Закрытие по клику в тёмный фон — только на десктопе (на мобиле фона нет, это fullscreen)
         if (!isMobile) {
             modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
