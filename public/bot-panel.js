@@ -60,6 +60,7 @@
         rsiPeriod: '14',
         rsiOverbought: '65',
         rsiOversold: '35',
+        clusterThreshold: '80',         // верхний порог для скальпера (диапазон 20/80 по дефолту)
         // ── Manual-стратегия ──
         manualStopPct: '0.5',          // стоп в % от цены входа
         manualSizeMode: 'risk',        // 'risk' (riskPct от стопа) | 'fixed' (фикс % баланса)
@@ -483,7 +484,7 @@
                 body: JSON.stringify({ uid: uid, botId: _state.botId, atrFilterEnabled: on })
             }).then(function() { loadBotList(); }).catch(function() {});
         };
-        widget.querySelector('#botWidgetStart').onclick = startBot;
+        widget.querySelector('#botWidgetStart').onclick = restartBot;
 
         // Делегированный обработчик кликов по inline-тумблерам в блоке "Рынок".
         // При клике переключает состояние оригинального скрытого чекбокса —
@@ -563,7 +564,7 @@
         var paperBtn = widget.querySelector('#botWidgetPaper');
         if (paperBtn) paperBtn.onclick = function() {
             _state.mode = 'paper';
-            startBot();
+            restartBot();
         };
         widget.querySelector('#botSelectorBtn').onclick = toggleBotDropdown;
         widget.querySelector('#botSelectorAdd').onclick = function() { closeBotDropdown(); createNewBot(); };
@@ -686,21 +687,55 @@
         var modalOpen = document.querySelector('#botModal.visible');
         if (!modalOpen) {
             _state.strategy = data.strategy || 'scalper';
-            if (data.trailingEnabled !== undefined) _state.trailingEnabled = !!data.trailingEnabled;
+            // Идентификация бота
+            if (data.pair !== undefined)      _state.pair = data.pair;
+            if (data.timeframe !== undefined) _state.timeframe = data.timeframe;
+            if (data.direction !== undefined) _state.direction = data.direction;
+            if (data.entryMode !== undefined) _state.entryMode = data.entryMode;
+            // Риск-менеджмент
+            if (data.riskPct !== undefined)          _state.riskPct = String(data.riskPct);
+            if (data.dayLimitPct !== undefined)      _state.dayLimitPct = String(data.dayLimitPct);
+            if (data.maxLosses !== undefined)        _state.maxLosses = String(data.maxLosses);
+            if (data.maxLeverage !== undefined)      _state.maxLeverage = String(data.maxLeverage);
+            if (data.volumeMultiplier !== undefined) _state.volumeMultiplier = String(data.volumeMultiplier);
+            if (data.positionTimeout !== undefined)  _state.positionTimeout = String(data.positionTimeout);
+            // Трейлинг
+            if (data.trailingEnabled !== undefined)    _state.trailingEnabled = !!data.trailingEnabled;
             if (data.trailingActivation !== undefined) _state.trailingActivation = data.trailingActivation;
-            if (data.trailingOffset !== undefined) _state.trailingOffset = data.trailingOffset;
-            if (data.stepTpEnabled !== undefined) _state.stepTpEnabled = !!data.stepTpEnabled;
-            if (data.stepTpTrigger !== undefined) _state.stepTpTrigger = String(data.stepTpTrigger);
-            if (data.stepTpStep !== undefined) _state.stepTpStep = String(data.stepTpStep);
+            if (data.trailingOffset !== undefined)     _state.trailingOffset = data.trailingOffset;
+            // Step TP
+            if (data.stepTpEnabled !== undefined)   _state.stepTpEnabled = !!data.stepTpEnabled;
+            if (data.stepTpTrigger !== undefined)   _state.stepTpTrigger = String(data.stepTpTrigger);
+            if (data.stepTpStep !== undefined)      _state.stepTpStep = String(data.stepTpStep);
             if (data.stepTpTolerance !== undefined) _state.stepTpTolerance = String(data.stepTpTolerance);
-            if (data.bbExitEnabled !== undefined) _state.bbExitEnabled = !!data.bbExitEnabled;
-            if (data.bbExitTolerance !== undefined) _state.bbExitTolerance = data.bbExitTolerance;
-            if (data.smaReturnEnabled !== undefined) _state.smaReturnEnabled = !!data.smaReturnEnabled;
+            // BB exit + SMA return (Mean Reversion)
+            if (data.bbExitEnabled !== undefined)      _state.bbExitEnabled = !!data.bbExitEnabled;
+            if (data.bbExitTolerance !== undefined)    _state.bbExitTolerance = data.bbExitTolerance;
+            if (data.smaReturnEnabled !== undefined)   _state.smaReturnEnabled = !!data.smaReturnEnabled;
             if (data.smaReturnTolerance !== undefined) _state.smaReturnTolerance = data.smaReturnTolerance;
+            // Цели/стопы
+            if (data.maxProfitPct !== undefined)      _state.maxProfitPct = String(data.maxProfitPct);
+            if (data.cooldownCandles !== undefined)   _state.cooldownCandles = String(data.cooldownCandles);
+            if (data.stopAtrMultiplier !== undefined) _state.stopAtrMultiplier = String(data.stopAtrMultiplier);
+            if (data.stopMode !== undefined)          _state.stopMode = data.stopMode === 'fixed' ? 'fixed' : 'atr';
+            if (data.stopFixedPct !== undefined)      _state.stopFixedPct = String(data.stopFixedPct);
+            if (data.clusterExitConfirm !== undefined) _state.clusterExitConfirm = String(data.clusterExitConfirm);
+            // Кластеры
+            if (data.clusterThreshold !== undefined) _state.clusterThreshold = String(data.clusterThreshold);
+            if (data.clusterLookback !== undefined)  _state.clusterLookback = data.clusterLookback;
+            // BB / RSI параметры
+            if (data.bbPeriod !== undefined)      _state.bbPeriod = String(data.bbPeriod);
+            if (data.bbMultiplier !== undefined)  _state.bbMultiplier = String(data.bbMultiplier);
+            if (data.rsiPeriod !== undefined)     _state.rsiPeriod = String(data.rsiPeriod);
+            if (data.rsiOverbought !== undefined) _state.rsiOverbought = String(data.rsiOverbought);
+            if (data.rsiOversold !== undefined)   _state.rsiOversold = String(data.rsiOversold);
+            // ATR-фильтр
+            if (data.atrFilterEnabled !== undefined)   _state.atrFilterEnabled = !!data.atrFilterEnabled;
+            if (data.atrFilterThreshold !== undefined) _state.atrFilterThreshold = String(data.atrFilterThreshold);
             // Manual-стратегия
-            if (data.manualStopPct !== undefined) _state.manualStopPct = String(data.manualStopPct);
-            if (data.manualSizeMode !== undefined) _state.manualSizeMode = data.manualSizeMode === 'fixed' ? 'fixed' : 'risk';
-            if (data.manualFixedSizePct !== undefined) _state.manualFixedSizePct = String(data.manualFixedSizePct);
+            if (data.manualStopPct !== undefined)        _state.manualStopPct = String(data.manualStopPct);
+            if (data.manualSizeMode !== undefined)       _state.manualSizeMode = data.manualSizeMode === 'fixed' ? 'fixed' : 'risk';
+            if (data.manualFixedSizePct !== undefined)   _state.manualFixedSizePct = String(data.manualFixedSizePct);
             if (data.manualTimeoutEnabled !== undefined) _state.manualTimeoutEnabled = !!data.manualTimeoutEnabled;
         } else {
             // Модалка открыта — обновляем ТОЛЬКО то, что нужно для отрисовки позиции на шкале
@@ -778,11 +813,15 @@
             }
             _state.tradingWindowUS = !!data.tradingWindowUS;
         }
-        // Показываем секцию окна торговли и обновляем лейбл статуса
+        // Показываем секцию окна торговли и обновляем лейбл статуса.
+        // Для 1h/4h секцию полностью скрываем — на старших ТФ окна не имеют смысла
+        // (одна свеча покрывает 1-4 часа, окно длится ~5 часов). Серверная функция
+        // isInsideTradingWindow для этих ТФ всё равно возвращает true.
         var winSec = document.getElementById('botWindowSection');
-        if (winSec) winSec.style.display = '';
+        var hideWindow = (_state.timeframe === '1h' || _state.timeframe === '4h');
+        if (winSec) winSec.style.display = hideWindow ? 'none' : '';
         var winLbl = document.getElementById('botWindowStatusLabel');
-        if (winLbl) {
+        if (winLbl && !hideWindow) {
             var euOn = !!_state.tradingWindowEU;
             var usOn = !!_state.tradingWindowUS;
             if (!euOn && !usOn) { winLbl.textContent = 'все часы'; winLbl.style.color = '#636B76'; }
@@ -1294,9 +1333,16 @@
         var domLabel = ci.concentration === 'buyers' ? '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;"><polygon points="0,7 8,7 4,1"/></svg> Покупатели' : ci.concentration === 'sellers' ? '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="vertical-align:-1px;"><polygon points="0,1 8,1 4,7"/></svg> Продавцы' : '<svg width="8" height="6" viewBox="0 0 8 6" fill="none" style="vertical-align:-1px;"><line x1="0" y1="3" x2="8" y2="3" stroke="currentColor" stroke-width="1.2"/><polygon points="6,1 8,3 6,5" fill="currentColor"/><polygon points="2,1 0,3 2,5" fill="currentColor"/></svg> Баланс';
         var domColor = ci.concentration === 'buyers' ? '#26a69a' : ci.concentration === 'sellers' ? '#EF5350' : '#636B76';
 
-        var buyPct = Math.max(0, Math.min(100, ci.buyPct));
-        var fadeStart = Math.max(0, buyPct - 8);
-        var fadeEnd   = Math.min(100, buyPct + 8);
+        // Риски на плашке = настроенные пороги входа кластерного фильтра.
+        // ci.threshold приходит с сервера (clusterThreshold). По дефолту 80,
+        // нижняя риска = 100 - threshold. При настройках 25/75 -> риски на 25 и 75.
+        // Раньше тут было buyPct ± 8 (рисовалось вокруг текущего значения,
+        // не реагируя на настройки) — поэтому деления "висели" на 20/80.
+        var threshold = (ci && typeof ci.threshold === 'number')
+            ? ci.threshold
+            : (parseInt(_state.clusterThreshold) || 80);
+        var fadeStart = Math.max(0, Math.min(100, 100 - threshold));
+        var fadeEnd   = Math.max(0, Math.min(100, threshold));
 
         var isManual = _state.strategy === 'manual';
         var toggleHtml = isManual ? '' : renderInlineToggle(!!_state.clusterEntryFilter, 'botClusterEntryToggle');
@@ -2201,6 +2247,10 @@
         ];
         var rsiOB = parseInt(_state.rsiOverbought) || 65;
         var rsiOS = parseInt(_state.rsiOversold) || 35;
+        // Cluster threshold для скальпера. Хранится как одно число (порог "верхней" стороны).
+        // Нижний порог = 100 - clusterThreshold. По дефолту 80 (диапазон 20/80).
+        var clTh = parseInt(_state.clusterThreshold) || 80;
+        var clLow = 100 - clTh;
 
         function togBtn(val, current, label, sub) {
             var active = val === current;
@@ -2238,9 +2288,11 @@
                     </div>\
                     <div class="bst-col">\
                         <div class="bst-lbl">Таймфрейм</div>\
-                        <div class="bst-row bst-row-2 bst-inner" id="bstTfSeg">' +
-                            togBtn('1m', _state.timeframe, '1m', '') +
+                        <div class="bst-row bst-row-4 bst-inner" id="bstTfSeg">' +
                             togBtn('5m', _state.timeframe, '5m', '') +
+                            togBtn('15m', _state.timeframe, '15m', '') +
+                            togBtn('1h', _state.timeframe, '1h', '') +
+                            togBtn('4h', _state.timeframe, '4h', '') +
                         '</div>\
                     </div>\
                 </div>\
@@ -2291,6 +2343,18 @@
                         </div>\
                         <input type="range" class="bst-rsi-single" id="bstRsiSlider" min="55" max="90" step="1" value="' + rsiOB + '">\
                         <div class="bst-rsi-scale"><span>строже</span><span></span><span>мягче</span></div>\
+                    </div>\
+                    \
+                    <!-- Кластерный диапазон (один ползунок — влево мягче, вправо строже) -->\
+                    <!-- Виден только в Scalper. clusterThreshold = верхний порог (60-85),\
+                         нижний считается как 100 - threshold автоматически. -->\
+                    <div class="bst-rsi-wrap" id="bstClusterRangeWrap" style="' + (_state.strategy === 'scalper' ? '' : 'display:none;') + '">\
+                        <div class="bst-rsi-header">\
+                            <span class="bst-lbl">Кластерный диапазон</span>\
+                            <span class="bst-rsi-vals"><span class="bst-rsi-os" id="bstClLowVal">' + clLow + '</span><span class="bst-rsi-dash"> — </span><span class="bst-rsi-ob" id="bstClHighVal">' + clTh + '</span></span>\
+                        </div>\
+                        <input type="range" class="bst-rsi-single" id="bstClusterSlider" min="65" max="85" step="1" value="' + clTh + '">\
+                        <div class="bst-rsi-scale"><span>мягче</span><span></span><span>строже</span></div>\
                     </div>\
                 </div>\
                 \
@@ -2653,13 +2717,16 @@
 
             // RSI-поля скрываем только в Scalper — там RSI не используется
             // в торговой логике. В Mean Reversion и Manual RSI остаётся видимым.
+            // Cluster-диапазон наоборот — показываем ТОЛЬКО в Scalper.
             // DOM-элементы всегда в форме, скрытие через display:none —
             // значения сохраняются в state как раньше.
             var isScalper = strategyValue === 'scalper';
             var rsiPeriodCol = body.querySelector('#bstRsiPeriodCol');
             var rsiRangeWrap = body.querySelector('#bstRsiRangeWrap');
+            var clusterRangeWrap = body.querySelector('#bstClusterRangeWrap');
             if (rsiPeriodCol) rsiPeriodCol.style.display = isScalper ? 'none' : '';
             if (rsiRangeWrap) rsiRangeWrap.style.display = isScalper ? 'none' : '';
+            if (clusterRangeWrap) clusterRangeWrap.style.display = isScalper ? '' : 'none';
         }
 
         bindToggleGroup('bstStrategySeg', 'strategy', function(v) {
@@ -2668,7 +2735,15 @@
         // Применяем один раз сразу — на случай, если модалка открыта с уже выбранной 'manual'
         applyManualVisibility(_state.strategy);
 
-        bindToggleGroup('bstTfSeg', 'timeframe');
+        // При выборе 1h/4h — сбрасываем окна торговли в state (UI и при сохранении).
+        // На старших ТФ окна неприменимы; сервер всё равно их игнорирует, но в state
+        // лучше держать актуальные значения чтобы UI не показывал заблуждение.
+        bindToggleGroup('bstTfSeg', 'timeframe', function(v) {
+            if (v === '1h' || v === '4h') {
+                _state.tradingWindowEU = false;
+                _state.tradingWindowUS = false;
+            }
+        });
         bindToggleGroup('bstDirSeg', 'direction');
         bindToggleGroup('bstEntrySeg', 'entryMode');
         bindToggleGroup('bstModeSeg', 'mode', function(v) {
@@ -3105,6 +3180,21 @@
             var osEl = body.querySelector('#bstRsiOSVal');
             if (obEl) obEl.textContent = ob;
             if (osEl) osEl.textContent = os;
+            updateSummary();
+        };
+
+        // Cluster slider (single thumb — value = верхний порог, 100-value = нижний).
+        // В скальпере: для LONG нужен buyPct >= verхний; для SHORT нужен buyPct <= нижний.
+        // Дефолт 80 = диапазон 20/80.
+        var clusterSlider = body.querySelector('#bstClusterSlider');
+        if (clusterSlider) clusterSlider.oninput = function() {
+            var hi = parseInt(clusterSlider.value);
+            var lo = 100 - hi;
+            _state.clusterThreshold = String(hi);
+            var hiEl = body.querySelector('#bstClHighVal');
+            var loEl = body.querySelector('#bstClLowVal');
+            if (hiEl) hiEl.textContent = hi;
+            if (loEl) loEl.textContent = lo;
             updateSummary();
         };
 
@@ -3678,6 +3768,16 @@
                 stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
                 stopFixedPct: _state.stopFixedPct,
                 clusterExitConfirm: _state.clusterExitConfirm,
+                // Кластерные настройки и фильтры — раньше тут отсутствовали,
+                // из-за чего при "Запустить бота" сервер игнорировал значения
+                // ползунка clusterThreshold и сбрасывал на дефолт 80.
+                clusterEnabled: _state.clusterEnabled,
+                clusterEntryFilter: _state.clusterEntryFilter,
+                clusterThreshold: _state.clusterThreshold,
+                clusterLookback: _state.clusterLookback,
+                regimeFilterEnabled: _state.regimeFilterEnabled,
+                tradingWindowEU: !!_state.tradingWindowEU,
+                tradingWindowUS: !!_state.tradingWindowUS,
                 strategy: _state.strategy,
                 direction: _state.direction,
                 entryMode: _state.entryMode,
@@ -3729,6 +3829,63 @@
             restoreStartBtn();
             updateButtons();
             console.warn('[BOT] start error', e);
+        });
+    }
+
+    /* ── restartBot — запуск уже существующего бота с СОХРАНЁННЫМИ настройками.
+       Использует /api/bot/start-by-id, который НЕ переписывает session.* настройками
+       клиента. Это нужно для кнопок "Запустить" и "Paper trading" в виджете —
+       чтобы остановка-перезапуск не меняла настройки бота из-за устаревшего _state.
+       Для создания нового бота используется обычный startBot(). */
+    function restartBot() {
+        if (_state._starting) return;
+        _state._starting = true;
+
+        var uid = getUid();
+        var startBtn = document.getElementById('botWidgetStart');
+        var paperBtn = document.getElementById('botWidgetPaper');
+        // Какая кнопка реально видима — её и анимируем
+        var activeBtn = (startBtn && startBtn.style.display !== 'none') ? startBtn
+                       : (paperBtn && paperBtn.style.display !== 'none' ? paperBtn : null);
+        var origHtml = activeBtn ? activeBtn.innerHTML : null;
+        function restore() {
+            if (activeBtn && origHtml !== null) {
+                activeBtn.disabled = false;
+                activeBtn.innerHTML = origHtml;
+            }
+        }
+        if (activeBtn) { activeBtn.disabled = true; activeBtn.textContent = '...'; }
+
+        fetch('/api/bot/start-by-id', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: uid, botId: _state.botId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _state._starting = false;
+            restore();
+            if (data.ok || data.alreadyRunning) {
+                _state.running = true;
+                _state.paused = false;
+                updateBadge();
+                updateButtons();
+                startStatusPolling(uid);
+                loadBotList();
+                window._botCurrentBotId = _state.botId;
+                syncBotLevelsVisibility();
+                if (typeof window._syncChartToBot === 'function') {
+                    window._syncChartToBot(_state.pair, _state.timeframe);
+                }
+            } else {
+                alert('Ошибка запуска: ' + (data.error || 'unknown'));
+            }
+        })
+        .catch(function(e) {
+            _state._starting = false;
+            restore();
+            updateButtons();
+            console.warn('[BOT] restart error', e);
         });
     }
 
@@ -4998,18 +5155,21 @@
             if (_activeFilterCount() > 0) {
                 html += '<span id="bjmResetFilters" style="cursor:pointer;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:500;white-space:nowrap;background:rgba(226,75,74,0.08);border:1px solid rgba(226,75,74,0.25);color:#E24B4A;">✕ Сбросить</span>';
             }
-            // Счётчик
-            var filtered = _filterTrades(trades);
-            var fTotal = filtered.length;
-            var fWins = filtered.filter(function(t){ return (t.pnl||0) > 0; }).length;
-            var fWR = fTotal > 0 ? Math.round(fWins / fTotal * 100) : 0;
-            var fNet = filtered.reduce(function(s, t){ return s + (t.pnl || 0); }, 0);
-            var counterColor = fNet >= 0 ? '#10B981' : '#EF4444';
-            html += '<span style="margin-left:auto;font-size:11px;color:#888780;">'
-                 +  'Показано <b style="color:#C8CACE;font-weight:500;">' + fTotal + '</b> из ' + trades.length
-                 +  ' · WR <b style="color:' + (fWR >= 50 ? '#10B981' : '#EF4444') + ';font-weight:500;">' + fWR + '%</b>'
-                 +  ' · <b style="color:' + counterColor + ';font-weight:500;">' + (fNet >= 0 ? '+' : '') + '$' + fNet.toFixed(2) + '</b>'
-                 +  '</span>';
+            // Счётчик показывается только когда есть активные фильтры — иначе дублирует
+            // блок статистики выше.
+            if (_activeFilterCount() > 0) {
+                var filtered = _filterTrades(trades);
+                var fTotal = filtered.length;
+                var fWins = filtered.filter(function(t){ return (t.pnl||0) > 0; }).length;
+                var fWR = fTotal > 0 ? Math.round(fWins / fTotal * 100) : 0;
+                var fNet = filtered.reduce(function(s, t){ return s + (t.pnl || 0); }, 0);
+                var counterColor = fNet >= 0 ? '#10B981' : '#EF4444';
+                html += '<span style="margin-left:auto;font-size:11px;color:#888780;">'
+                     +  'Показано <b style="color:#C8CACE;font-weight:500;">' + fTotal + '</b> из ' + trades.length
+                     +  ' · WR <b style="color:' + (fWR >= 50 ? '#10B981' : '#EF4444') + ';font-weight:500;">' + fWR + '%</b>'
+                     +  ' · <b style="color:' + counterColor + ';font-weight:500;">' + (fNet >= 0 ? '+' : '') + '$' + fNet.toFixed(2) + '</b>'
+                     +  '</span>';
+            }
             container.innerHTML = html;
 
             // Обработчики чипов
@@ -5418,7 +5578,11 @@
             '</div>';
         }
 
-        // ── Общая картина: 4 крупные карточки ──
+        // ── Общая картина: 6 крупных карточек (4 на мобиле, 2 ряда) ──
+        // Раньше было 4: Сделок · WR · P&L · Комиссии. Добавлены:
+        //   Средняя — d.overall.avgPnl (был только в журнале)
+        //   Лучшая  — d.best (новое поле сервера)
+        //   Худшая  — d.worst (новое поле сервера)
         var beBelow = (d.breakEvenWR != null) && (d.overall.winRate < d.breakEvenWR);
         var beSubtext = '';
         if (d.breakEvenWR != null) {
@@ -5433,16 +5597,23 @@
         function metricCard(label, value, valueColor, subtext) {
             return '<div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:12px 14px;">' +
                 '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">' + label + '</div>' +
-                '<div style="font-size:' + (isMobile ? '18px' : '20px') + ';color:' + valueColor + ';font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;">' + value + '</div>' +
+                '<div style="font-size:' + (isMobile ? '16px' : '18px') + ';color:' + valueColor + ';font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1;">' + value + '</div>' +
                 (subtext || '') +
             '</div>';
         }
 
+        var bestVal  = (d.best != null)  ? fmtMoney(d.best)  : '—';
+        var worstVal = (d.worst != null) ? fmtMoney(d.worst) : '—';
+        var avgVal   = (d.overall.avgPnl != null) ? fmtMoney(d.overall.avgPnl) : '—';
+
         var overallBlock =
-            '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 4) + ',1fr);gap:8px;margin-bottom:14px;">' +
+            '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 7) + ',1fr);gap:8px;margin-bottom:14px;">' +
                 metricCard('Сделок', d.overall.n, '#E2E8F0', '') +
                 metricCard('Win rate', d.overall.winRate + '%', wrColor(d.overall.winRate), beSubtext) +
                 metricCard('P&L net', fmtMoney(d.overall.pnl), colorFor(d.overall.pnl), '') +
+                metricCard('Средняя', avgVal, d.overall.avgPnl >= 0 ? '#10B981' : '#EF4444', '') +
+                metricCard('Лучшая', bestVal, '#10B981', '') +
+                metricCard('Худшая', worstVal, '#EF4444', '') +
                 metricCard('Комиссии', '$' + d.overall.fees.toFixed(2), '#FBBF24', feesSubtext) +
             '</div>';
 
@@ -5502,7 +5673,7 @@
         var rightCol =
             renderBreakdown('По направлению', d.bySide, { keyMap: sideMap }) +
             renderBreakdown('По окну торговли', d.byWindow, { keyMap: windowMap }) +
-            renderBreakdown('По выходу', d.byExit, { keyMap: exitMap });
+            renderExitBreakdown('По выходу', d.byExit, exitMap, isMobile, fmtMoney, colorFor);
 
         var breakdownsGrid = isMobile
             ? '<div>' + leftCol + rightCol + '</div>'
@@ -5511,20 +5682,303 @@
         // ── По часам — отдельный блок с тремя сессиями ──
         var hoursBlock = renderHoursBySession(d.byHour, isMobile, fmtMoney, colorFor, wrColor);
 
+        // ── Время удержания (новый блок: win vs loss + бакеты) ──
+        var durationBlock = renderDurationBlock(d, isMobile, fmtMoney, colorFor, wrColor);
+
+        // ── Match-up по парам — для сравнения настроек ботов внутри пары ──
+        // Показывается только когда смотрим "Все боты" (scope=null), потому что
+        // в скоупе одного бота сравнивать не с чем.
+        var matchupBlock = '';
+        if (!_analyticsState.scope && d.byBot) {
+            matchupBlock = renderMatchupByPair(d.byBot, isMobile, fmtMoney, colorFor, wrColor);
+        }
+
         // По ботам — только если "Все боты"
         var byBotBlock = '';
         if (!_analyticsState.scope && d.byBot) {
             byBotBlock = renderBreakdown('По ботам', d.byBot, { sortBy: 'pnl' });
         }
 
-        return '<div style="' + pad + '">' + overallBlock + beAlert + insightsBlock + breakdownsGrid + hoursBlock + byBotBlock + '</div>';
+        return '<div style="' + pad + '">' + overallBlock + beAlert + insightsBlock + breakdownsGrid + matchupBlock + durationBlock + hoursBlock + byBotBlock + '</div>';
+    }
+
+    // ── Время удержания: средняя длительность win vs loss + разрез по бакетам ──
+    // Диагностический блок. Если средняя у win > средней у loss — стратегия здоровая
+    // (стоп срабатывает быстро, тейк/трейлинг даёт прибыли вырасти). Если наоборот —
+    // STP закрывает рано, стоп слишком далеко: сигнал к настройке параметров.
+    function renderDurationBlock(d, isMobile, fmtMoney, colorFor, wrColor) {
+        if (d.avgWinDuration == null && d.avgLossDuration == null) return '';
+        if (!d.byDuration || Object.keys(d.byDuration).length === 0) return '';
+
+        function fmtDur(min) {
+            if (min == null) return '—';
+            if (min < 1) return Math.round(min * 60) + 'с';
+            var m = Math.floor(min);
+            var s = Math.round((min - m) * 60);
+            return m + 'м' + (s > 0 ? ' ' + s + 'с' : '');
+        }
+
+        function bigCard(label, value, color, sublabel) {
+            return '<div style="background:rgba(' + (color === '#10B981' ? '16,185,129' : '239,68,68') + ',0.04);border:1px solid rgba(' + (color === '#10B981' ? '16,185,129' : '239,68,68') + ',0.2);border-radius:8px;padding:14px 16px;flex:1;min-width:0;">' +
+                '<div style="font-size:10px;color:' + color + ';letter-spacing:0.5px;font-weight:600;margin-bottom:6px;">' + label + '</div>' +
+                '<div style="font-size:' + (isMobile ? '20px' : '22px') + ';font-weight:600;color:' + color + ';font-variant-numeric:tabular-nums;line-height:1.1;">' + value + '</div>' +
+                '<div style="font-size:10px;color:#94A3B8;margin-top:4px;">' + sublabel + '</div>' +
+            '</div>';
+        }
+
+        var winNum = d.avgWinDuration != null ? d.overall.wins : 0;
+        var lossNum = d.avgLossDuration != null ? d.overall.losses : 0;
+
+        var topCards = '<div style="display:flex;gap:10px;margin-bottom:10px;">' +
+            (d.avgWinDuration != null
+                ? bigCard('ВЫИГРЫШНЫЕ', fmtDur(d.avgWinDuration), '#10B981', 'средняя длительность · n=' + winNum)
+                : '') +
+            (d.avgLossDuration != null
+                ? bigCard('ПРОИГРЫШНЫЕ', fmtDur(d.avgLossDuration), '#EF4444', 'средняя длительность · n=' + lossNum)
+                : '') +
+        '</div>';
+
+        // Разрез по бакетам
+        var bucketLabels = {
+            'lt2':   '< 2 мин',
+            'lt5':   '2–5 мин',
+            'lt15':  '5–15 мин',
+            'gte15': '> 15 мин',
+        };
+        var bucketOrder = ['lt2', 'lt5', 'lt15', 'gte15'];
+
+        var grid = '1fr 32px 42px 64px 56px';
+        var headerHtml = '<div style="display:grid;grid-template-columns:' + grid + ';gap:8px;padding:0 0 6px 0;font-size:9px;color:#636B76;letter-spacing:0.3px;border-bottom:1px solid rgba(255,255,255,0.05);margin-bottom:4px;">' +
+            '<span>ДЛИТЕЛЬНОСТЬ</span>' +
+            '<span style="text-align:right;">N</span>' +
+            '<span style="text-align:right;">WR</span>' +
+            '<span style="text-align:right;">PNL</span>' +
+            '<span style="text-align:right;">СРЕД.</span>' +
+        '</div>';
+
+        var rows = bucketOrder.filter(function(k) {
+            return d.byDuration[k] && d.byDuration[k].n > 0;
+        }).map(function(k) {
+            var b = d.byDuration[k];
+            var avg = b.n > 0 ? (b.pnl / b.n) : 0;
+            return '<div style="display:grid;grid-template-columns:' + grid + ';gap:8px;padding:5px 0;font-size:' + (isMobile ? '11px' : '12px') + ';border-bottom:1px solid rgba(255,255,255,0.04);align-items:center;">' +
+                '<span style="color:#CBD5E1;font-variant-numeric:tabular-nums;">' + bucketLabels[k] + '</span>' +
+                '<span style="color:#94A3B8;font-variant-numeric:tabular-nums;text-align:right;">' + b.n + '</span>' +
+                '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;font-size:' + (isMobile ? '10px' : '11px') + ';">' + b.winRate + '%</span>' +
+                '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
+                '<span style="color:' + colorFor(avg) + ';font-variant-numeric:tabular-nums;text-align:right;font-size:' + (isMobile ? '10px' : '11px') + ';">' + fmtMoney(avg) + '</span>' +
+            '</div>';
+        }).join('');
+
+        return '<div style="margin-bottom:10px;">' +
+            '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;padding-left:2px;">Время удержания · win vs loss</div>' +
+            topCards +
+            (rows ? '<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px 14px;">' + headerHtml + rows + '</div>' : '') +
+        '</div>';
+    }
+
+    // ── Match-up: группировка ботов по валютной паре ──
+    // d.byBot отдаёт ключи как полные ярлыки ("BTC/USDT · MR · 5m · T · L+S · STP · CLF 25/75 · SL 0.1").
+    // Группируем по первой части (валютная пара). В семье 2+ бота — показываем,
+    // в семье 1 — не показываем (нечего сравнивать).
+    // Внутри семьи: лучший бот по PnL подсвечивается зелёным с ✓, у остальных
+    // в колонке "Δ" показывается на сколько $$$ они хуже лучшего.
+    function renderMatchupByPair(byBot, isMobile, fmtMoney, colorFor, wrColor) {
+        if (!byBot || Object.keys(byBot).length === 0) return '';
+
+        // Группируем боты по валютной паре. Извлекаем пару = всё до первого "·".
+        var families = {};
+        Object.keys(byBot).forEach(function(label) {
+            var bucket = byBot[label];
+            // Парсим пару: "BTC/USDT · MR · ..." -> "BTC/USDT".
+            // Если ярлык не содержит "·", считаем что вся строка — это название (legacy).
+            var pair = label.split('·')[0].trim() || label;
+            if (!families[pair]) families[pair] = [];
+            families[pair].push({ label: label, bucket: bucket });
+        });
+
+        // Только семьи с 2+ ботами
+        var familyKeys = Object.keys(families).filter(function(p) { return families[p].length >= 2; });
+        if (familyKeys.length === 0) return '';
+
+        // Сортируем семьи по сумме PnL (лучшие пары сверху)
+        familyKeys.sort(function(a, b) {
+            var sumA = families[a].reduce(function(s, x) { return s + (x.bucket.pnl || 0); }, 0);
+            var sumB = families[b].reduce(function(s, x) { return s + (x.bucket.pnl || 0); }, 0);
+            return sumB - sumA;
+        });
+
+        // Сокращаем "пара · ..." → убираем ту часть лейбла, которая совпадает с парой.
+        // Чтобы в колонке "Настройки" не повторять "BTC/USDT" в каждой строке семьи.
+        function shortenLabel(label, pair) {
+            if (label.indexOf(pair) === 0) {
+                var rest = label.slice(pair.length).replace(/^\s*·\s*/, '');
+                return rest || label;
+            }
+            return label;
+        }
+
+        var familiesHtml = familyKeys.map(function(pair) {
+            var bots = families[pair].slice();
+            // Сортируем по PnL внутри семьи (лучший — сверху)
+            bots.sort(function(a, b) { return (b.bucket.pnl || 0) - (a.bucket.pnl || 0); });
+            var bestPnl = bots[0].bucket.pnl || 0;
+
+            var grid = '1fr 32px 42px 60px 60px';
+            var headerHtml = '<div style="display:grid;grid-template-columns:' + grid + ';gap:8px;padding:0 0 6px 0;font-size:9px;color:#636B76;letter-spacing:0.3px;border-bottom:1px solid rgba(255,255,255,0.05);margin-bottom:4px;">' +
+                '<span>НАСТРОЙКИ</span>' +
+                '<span style="text-align:right;">N</span>' +
+                '<span style="text-align:right;">WR</span>' +
+                '<span style="text-align:right;">PNL</span>' +
+                '<span style="text-align:right;">Δ</span>' +
+            '</div>';
+
+            var rowsHtml = bots.map(function(item, idx) {
+                var b = item.bucket;
+                var isBest = idx === 0;
+                var settings = shortenLabel(item.label, pair);
+                var diff = (b.pnl || 0) - bestPnl;
+                var diffStr;
+                var diffColor;
+                if (isBest) {
+                    diffStr = '— лучший';
+                    diffColor = '#636B76';
+                } else {
+                    diffStr = (diff >= 0 ? '+' : '') + '$' + diff.toFixed(2);
+                    diffColor = '#EF4444';
+                }
+                var rowBg = isBest ? 'background:rgba(16,185,129,0.06);border-radius:4px;' : '';
+                var settingsColor = isBest ? '#10B981' : '#CBD5E1';
+                var prefix = isBest ? '✓ ' : '';
+                return '<div style="display:grid;grid-template-columns:' + grid + ';gap:8px;padding:5px 6px;font-size:' + (isMobile ? '11px' : '12px') + ';align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);' + rowBg + '">' +
+                    '<span style="color:' + settingsColor + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;" title="' + escapeHtml(item.label) + '">' + prefix + escapeHtml(settings) + '</span>' +
+                    '<span style="color:#94A3B8;font-variant-numeric:tabular-nums;text-align:right;">' + b.n + '</span>' +
+                    '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;font-size:' + (isMobile ? '10px' : '11px') + ';">' + b.winRate + '%</span>' +
+                    '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
+                    '<span style="color:' + diffColor + ';font-variant-numeric:tabular-nums;text-align:right;font-size:' + (isMobile ? '9px' : '10px') + ';">' + diffStr + '</span>' +
+                '</div>';
+            }).join('');
+
+            return '<div style="background:rgba(255,255,255,0.025);border-radius:8px;padding:12px 14px;margin-bottom:8px;">' +
+                '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">' +
+                    '<span style="font-size:12px;font-weight:600;color:#E2E8F0;">' + escapeHtml(pair) + '</span>' +
+                    '<span style="font-size:10px;color:#636B76;">' + bots.length + ' ботов в семье</span>' +
+                '</div>' +
+                headerHtml +
+                rowsHtml +
+            '</div>';
+        }).join('');
+
+        return '<div style="margin-bottom:10px;">' +
+            '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;padding-left:2px;">Match-up · сравнение ботов внутри пары</div>' +
+            familiesHtml +
+        '</div>';
+    }
+
+    // ── Расширенная таблица "По выходу" с подписанными колонками ──
+    // Отличается от обычного renderBreakdown тем, что добавлена колонка "PnL ср."
+    // и причины с n=0 не показываются (их в byExit и не должно быть, но на всякий
+    // случай фильтруем — раньше старый код мог накручивать пустые ключи).
+    function renderExitBreakdown(title, obj, keyMap, isMobile, fmtMoney, colorFor) {
+        if (!obj) return '';
+        var keys = Object.keys(obj).filter(function(k) { return obj[k].n > 0; });
+        if (keys.length === 0) return '';
+        keys.sort(function(a, b) { return (obj[b].n || 0) - (obj[a].n || 0); });
+
+        // Колонки: причина · n · WR · PnL · PnL ср.
+        var grid = '1fr 32px 42px 64px 56px';
+        var headerHtml = '<div style="display:grid;grid-template-columns:' + grid + ';gap:8px;padding:0 0 6px 0;font-size:9px;color:#636B76;letter-spacing:0.3px;border-bottom:1px solid rgba(255,255,255,0.05);margin-bottom:4px;">' +
+            '<span>ПРИЧИНА</span>' +
+            '<span style="text-align:right;">N</span>' +
+            '<span style="text-align:right;">WR</span>' +
+            '<span style="text-align:right;">PNL</span>' +
+            '<span style="text-align:right;">СРЕД.</span>' +
+        '</div>';
+
+        var rows = keys.map(function(k) {
+            var b = obj[k];
+            var name = keyMap[k] || k;
+            var avg = b.n > 0 ? (b.pnl / b.n) : 0;
+            return '<div style="display:grid;grid-template-columns:' + grid + ';gap:8px;padding:5px 0;font-size:' + (isMobile ? '11px' : '12px') + ';border-bottom:1px solid rgba(255,255,255,0.04);align-items:center;">' +
+                '<span style="color:#CBD5E1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
+                '<span style="color:#94A3B8;font-variant-numeric:tabular-nums;text-align:right;">' + b.n + '</span>' +
+                '<span style="color:#94A3B8;font-weight:600;font-variant-numeric:tabular-nums;text-align:right;font-size:' + (isMobile ? '10px' : '11px') + ';">' + b.winRate + '%</span>' +
+                '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
+                '<span style="color:' + colorFor(avg) + ';font-variant-numeric:tabular-nums;text-align:right;font-size:' + (isMobile ? '10px' : '11px') + ';">' + fmtMoney(avg) + '</span>' +
+            '</div>';
+        }).join('');
+
+        return '<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px 14px;margin-bottom:10px;">' +
+            '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">' + title + '</div>' +
+            headerHtml +
+            rows +
+        '</div>';
     }
 
     // ── Рендер блока "По часам" с группировкой по сессиям и временем в МСК ──
     function renderHoursBySession(byHour, isMobile, fmtMoney, colorFor, wrColor) {
         if (!byHour || Object.keys(byHour).length === 0) return '';
 
-        // Группируем часы по сессиям
+        // ── Сначала собираем плоский список всех часов с n>=3 (для топ/худших) ──
+        // Часы с n<3 — это шум (одна-две сделки → 100% или 0% не значит ничего),
+        // в топе/худших их не показываем. В таблице сессий — приглушаем opacity.
+        var allHours = [];
+        Object.keys(byHour).forEach(function(k) {
+            var hourUtc = parseHourKey(k);
+            if (hourUtc == null) return;
+            var b = byHour[k];
+            allHours.push({
+                hourMsk: utcToMsk(hourUtc),
+                hourUtc: hourUtc,
+                bucket: b,
+            });
+        });
+
+        // Топ-3 лучших по PnL, худшие — по PnL. Только n>=3.
+        var significant = allHours.filter(function(h) { return h.bucket.n >= 3; });
+        var topPositive = significant.filter(function(h) { return h.bucket.pnl > 0; })
+                                     .sort(function(a, b) { return b.bucket.pnl - a.bucket.pnl; })
+                                     .slice(0, 3);
+        var topNegative = significant.filter(function(h) { return h.bucket.pnl < 0; })
+                                     .sort(function(a, b) { return a.bucket.pnl - b.bucket.pnl; })
+                                     .slice(0, 3);
+
+        function fmtHour(h) { return String(h).padStart(2, '0') + ':00'; }
+
+        var topBlock = '';
+        if (topPositive.length > 0 || topNegative.length > 0) {
+            function topItem(h, color) {
+                return '<div style="display:flex;flex-direction:column;gap:2px;">' +
+                    '<div style="font-size:13px;font-weight:600;color:' + color + ';font-variant-numeric:tabular-nums;">' + fmtHour(h.hourMsk) + '</div>' +
+                    '<div style="font-size:10px;color:#888780;font-variant-numeric:tabular-nums;">' + fmtMoney(h.bucket.pnl) + '</div>' +
+                    '<div style="font-size:9px;color:#636B76;font-variant-numeric:tabular-nums;">n=' + h.bucket.n + ' · WR ' + h.bucket.winRate + '%</div>' +
+                '</div>';
+            }
+            var posItems = topPositive.map(function(h) { return topItem(h, '#10B981'); }).join('');
+            var negItems = topNegative.map(function(h) { return topItem(h, '#EF4444'); }).join('');
+
+            var posCol = topPositive.length > 0
+                ? '<div style="flex:1;min-width:0;">' +
+                    '<div style="font-size:10px;color:#10B981;letter-spacing:0.4px;font-weight:600;margin-bottom:8px;">ЛУЧШИЕ</div>' +
+                    '<div style="display:flex;gap:14px;flex-wrap:wrap;">' + posItems + '</div>' +
+                  '</div>'
+                : '';
+            var negCol = topNegative.length > 0
+                ? '<div style="flex:1;min-width:0;">' +
+                    '<div style="font-size:10px;color:#EF4444;letter-spacing:0.4px;font-weight:600;margin-bottom:8px;">ХУДШИЕ</div>' +
+                    '<div style="display:flex;gap:14px;flex-wrap:wrap;">' + negItems + '</div>' +
+                  '</div>'
+                : '';
+            var divider = (topPositive.length > 0 && topNegative.length > 0)
+                ? '<div style="width:1px;background:rgba(255,255,255,0.06);"></div>'
+                : '';
+
+            topBlock = '<div style="background:rgba(255,255,255,0.025);border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start;">' +
+                posCol + divider + negCol +
+            '</div>';
+        }
+
+        // ── Группируем часы по сессиям ──
         var sessions = {
             'Азия':   { color: '#FB923C', range: '03–09 МСК', items: [] },
             'Европа': { color: '#60A5FA', range: '10–15 МСК', items: [] },
@@ -5532,17 +5986,9 @@
             'Ночь':   { color: '#64748B', range: '00–02 МСК', items: [] },
         };
 
-        Object.keys(byHour).forEach(function(k) {
-            var hourUtc = parseHourKey(k);
-            if (hourUtc == null) return;
-            var sess = sessionFromUtc(hourUtc);
-            var hourMsk = utcToMsk(hourUtc);
-            var b = byHour[k];
-            sessions[sess.name].items.push({
-                hourMsk: hourMsk,
-                hourUtc: hourUtc,
-                bucket: b,
-            });
+        allHours.forEach(function(h) {
+            var sess = sessionFromUtc(h.hourUtc);
+            sessions[sess.name].items.push(h);
         });
 
         // Сортируем по часу МСК внутри каждой сессии
@@ -5554,18 +6000,27 @@
         var visibleSessions = ['Азия', 'Европа', 'США', 'Ночь'].filter(function(name) {
             return sessions[name].items.length > 0;
         });
-        if (visibleSessions.length === 0) return '';
-
-        function fmtHour(h) { return String(h).padStart(2, '0') + ':00'; }
+        if (visibleSessions.length === 0) return topBlock; // только топ-блок если нет сессий
 
         function renderSessionColumn(name) {
             var sess = sessions[name];
+            // Заголовок колонок (ЧАС / N / WR / PNL)
+            var headerHtml = '<div style="display:grid;grid-template-columns:1fr 28px 38px 56px;gap:8px;padding:0 0 4px 0;font-size:9px;color:#636B76;letter-spacing:0.3px;border-bottom:1px solid rgba(255,255,255,0.05);">' +
+                '<span>ЧАС</span>' +
+                '<span style="text-align:right;">N</span>' +
+                '<span style="text-align:right;">WR</span>' +
+                '<span style="text-align:right;">PNL</span>' +
+            '</div>';
+
             var rowsHtml = sess.items.map(function(item) {
                 var b = item.bucket;
-                return '<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:5px 0;font-size:' + (isMobile ? '11px' : '12px') + ';align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);">' +
-                    '<span style="color:#CBD5E1;font-variant-numeric:tabular-nums;">' + fmtHour(item.hourMsk) + ' МСК <span style="color:#636B76;font-size:10px;">(' + fmtHour(item.hourUtc) + ' UTC)</span></span>' +
-                    '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;font-size:' + (isMobile ? '10px' : '11px') + ';">' + b.winRate + '%</span>' +
-                    '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;min-width:54px;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
+                // Приглушаем строки с n<3 (мало данных, винрейт случайный).
+                var dim = b.n < 3 ? 'opacity:0.45;' : '';
+                return '<div style="display:grid;grid-template-columns:1fr 28px 38px 56px;gap:8px;padding:5px 0;font-size:' + (isMobile ? '11px' : '11px') + ';align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);' + dim + '">' +
+                    '<span style="color:#CBD5E1;font-variant-numeric:tabular-nums;">' + fmtHour(item.hourMsk) + ' <span style="color:#636B76;font-size:10px;">(' + fmtHour(item.hourUtc) + ')</span></span>' +
+                    '<span style="color:#94A3B8;font-variant-numeric:tabular-nums;text-align:right;">' + b.n + '</span>' +
+                    '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + b.winRate + '%</span>' +
+                    '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
                 '</div>';
             }).join('');
             return '<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px 14px;">' +
@@ -5573,6 +6028,7 @@
                     '<div style="width:6px;height:6px;background:' + sess.color + ';border-radius:50%;"></div>' +
                     '<span style="font-size:10px;color:' + sess.color + ';font-weight:600;letter-spacing:0.4px;text-transform:uppercase;">' + name + ' · ' + sess.range + '</span>' +
                 '</div>' +
+                headerHtml +
                 rowsHtml +
             '</div>';
         }
@@ -5581,6 +6037,7 @@
         var cols = isMobile ? 1 : Math.min(visibleSessions.length, 3);
         return '<div style="margin-bottom:10px;">' +
             '<div style="font-size:10px;color:#636B76;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;padding-left:2px;">По часам торговли · время МСК</div>' +
+            topBlock +
             '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:8px;">' + columns + '</div>' +
         '</div>';
     }
@@ -5814,6 +6271,7 @@
             'Тип входа','Сторона',
             'Вход время','Выход время','Длительность (мин)','Свечей удержано',
             'Цена входа','Цена выхода','Стоп','Таргет','Размер ($)',
+            'Стоп тип','Стоп параметр',
             'R:R','P&L Gross','P&L Net','P&L %','Комиссия',
             'Макс.+','Макс.+ через (мин)','Макс.+ цена',
             'Макс.−','Макс.− через (мин)','Макс.− цена',
@@ -5871,6 +6329,8 @@
                 pn(t.stop),
                 pn(t.target),
                 n(t.size),
+                t.stopMode || '',
+                t.stopMode === 'fixed' ? (t.stopFixedPct != null ? t.stopFixedPct + '%' : '') : (t.stopAtrMultiplier != null ? 'ATR×' + t.stopAtrMultiplier : ''),
                 t.riskReward != null ? t.riskReward : '',
                 n(t.grossPnl),
                 n(t.pnl),
@@ -6112,13 +6572,29 @@
             windowTag = ' ' + s + ' ' + wT;
         }
         var rsiStr = '';
-        // RSI используется только в Mean Reversion. В Scalper RSI игнорируется
-        // в торговой логике, поэтому в ярлыке его не показываем (раньше вводил
-        // в заблуждение «STP · 35/65»).
-        if ((bot.rsiOversold || bot.rsiOverbought) && bot.strategy !== 'scalper') {
-            rsiStr = ' ' + s + ' ' + (bot.rsiOversold || 35) + '/' + (bot.rsiOverbought || 65);
+        // Диапазон фильтра входа с явным префиксом, чтобы было понятно что значат числа:
+        //   MR     -> RSI 24/76 (RSI oversold/overbought)
+        //   Scalper -> CLF 29/71 (Cluster Filter, нижний/верхний порог)
+        // Зеркалит серверный getFullBotLabel.
+        if (bot.strategy === 'mean_reversion' && (bot.rsiOversold || bot.rsiOverbought)) {
+            rsiStr = ' ' + s + ' RSI ' + (bot.rsiOversold || 35) + '/' + (bot.rsiOverbought || 65);
+        } else if (bot.strategy === 'scalper') {
+            var clHi = bot.clusterThreshold || 80;
+            rsiStr = ' ' + s + ' CLF ' + (100 - clHi) + '/' + clHi;
         }
-        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + windowTag + rsiStr;
+        // Стоп-лосс: для скальпера/MR показываем способ расчёта.
+        // - fixed: SL 0.5  (процент)
+        // - atr:   SL ATR1.5 (множитель ATR)
+        // Manual без SL — в нём стоп ставит пользователь руками.
+        var slStr = '';
+        if (bot.strategy !== 'manual') {
+            if (bot.stopMode === 'fixed' && bot.stopFixedPct) {
+                slStr = ' ' + s + ' SL ' + bot.stopFixedPct;
+            } else if (bot.stopAtrMultiplier) {
+                slStr = ' ' + s + ' SL ATR' + bot.stopAtrMultiplier;
+            }
+        }
+        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + windowTag + rsiStr + slStr;
     }
 
     function updateBotSelector() {
@@ -6140,7 +6616,14 @@
                 entryMode: _state.entryMode, direction: _state.direction,
                 trailingEnabled: _state.trailingEnabled,
                 stepTpEnabled: _state.stepTpEnabled,
-                rsiOversold: _state.rsiOversold, rsiOverbought: _state.rsiOverbought
+                rsiOversold: _state.rsiOversold, rsiOverbought: _state.rsiOverbought,
+                // Поля для отображения кластерного диапазона и SL в лейбле.
+                // Без них при первом рендере (когда _state.bots ещё не пришёл)
+                // лейбл был бы неполный — без диапазона и SL.
+                clusterThreshold: _state.clusterThreshold,
+                stopMode: _state.stopMode,
+                stopFixedPct: _state.stopFixedPct,
+                stopAtrMultiplier: _state.stopAtrMultiplier
             };
             label.textContent = getBotLabel(fallback);
             var fbState = !_state.running ? 'stopped' : (_state.position ? 'in-position' : 'idle');
@@ -6278,12 +6761,59 @@
     function createNewBot() {
         var uid = getUid();
         // Наследуем настройки от текущего бота — пользователь обычно создаёт боты одной серии.
-        // В запрос на сервер передаём только пару (BTC как дефолт); остальные настройки он подхватит
-        // при старте из _state через endpoint /api/bot/start.
+        // Передаём весь снапшот _state, чтобы сервер сразу применил настройки и не ждал
+        // отдельного нажатия "Сохранить" в модалке. Без этого новый бот стартовал с дефолтами
+        // (clusterThreshold=80, stopMode=atr и т.д.), даже если пользователь подвигал ползунки.
         fetch('/api/bot/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: uid, pair: 'BTC/USDT' })
+            body: JSON.stringify({
+                uid: uid,
+                pair: 'BTC/USDT',  // дефолт нового бота — пользователь сменит в модалке
+                strategy: _state.strategy,
+                timeframe: _state.timeframe,
+                direction: _state.direction,
+                entryMode: _state.entryMode,
+                mode: _state.mode,
+                virtualBalance: _state.virtualBalance,
+                riskPct: _state.riskPct,
+                dayLimitPct: _state.dayLimitPct,
+                maxLosses: _state.maxLosses,
+                maxLeverage: _state.maxLeverage,
+                volumeMultiplier: _state.volumeMultiplier,
+                positionTimeout: _state.positionTimeout,
+                maxProfitPct: _state.maxProfitPct,
+                cooldownCandles: _state.cooldownCandles,
+                stopAtrMultiplier: _state.stopAtrMultiplier,
+                stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
+                stopFixedPct: _state.stopFixedPct,
+                trailingEnabled: _state.trailingEnabled,
+                trailingOffset: _state.trailingOffset,
+                trailingActivation: _state.trailingActivation,
+                stepTpEnabled: _state.stepTpEnabled,
+                stepTpTrigger: _state.stepTpTrigger,
+                stepTpStep: _state.stepTpStep,
+                stepTpTolerance: _state.stepTpTolerance,
+                bbExitEnabled: _state.bbExitEnabled,
+                bbExitTolerance: _state.bbExitTolerance,
+                smaReturnEnabled: !!_state.smaReturnEnabled,
+                smaReturnTolerance: _state.smaReturnTolerance,
+                atrFilterEnabled: !!_state.atrFilterEnabled,
+                atrFilterThreshold: _state.atrFilterThreshold,
+                clusterEnabled: _state.clusterEnabled,
+                clusterEntryFilter: _state.clusterEntryFilter,
+                clusterThreshold: _state.clusterThreshold,
+                clusterExitConfirm: _state.clusterExitConfirm,
+                clusterLookback: _state.clusterLookback,
+                regimeFilterEnabled: _state.regimeFilterEnabled,
+                tradingWindowEU: !!_state.tradingWindowEU,
+                tradingWindowUS: !!_state.tradingWindowUS,
+                bbPeriod: _state.bbPeriod,
+                bbMultiplier: _state.bbMultiplier,
+                rsiPeriod: _state.rsiPeriod,
+                rsiOverbought: _state.rsiOverbought,
+                rsiOversold: _state.rsiOversold,
+            })
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {

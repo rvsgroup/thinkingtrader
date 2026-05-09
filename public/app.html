@@ -6483,13 +6483,10 @@
                                 Индикаторы графика (работают независимо от запущенного бота).
                                 Стиль текстовых чипов согласован с виджетом ручного бота
                                 (см. renderManualVizToggles в bot-panel.js).
-                                BB     — Bollinger Bands (период 20, множитель 2.0).
-                                Уровни — горизонтальные micro-levels по последним 200 свечам.
-                                Состояние сохраняется в localStorage:
-                                chartShowBB / chartShowLevels.
+                                BB — Bollinger Bands (период 20, множитель 2.0).
+                                Состояние сохраняется в localStorage: chartShowBB.
                             -->
                             <button id="indicatorBbBtn" class="chart-indicator-chip" title="Полосы Боллинджера (20, 2.0)">BB</button>
-                            <button id="indicatorLevelsBtn" class="chart-indicator-chip" title="Микроуровни поддержки/сопротивления">Уровни</button>
                             <div style="width:1px;height:14px;background:rgba(255,255,255,0.08);flex-shrink:0;margin:0 3px;"></div>
                             <!-- Инструменты аннотаций (admin only) -->
                             <!-- АКТУАЛЬНЫЙ тулбар аннотаций (тот, что реально видит пользователь
@@ -8566,7 +8563,11 @@
         let lwLevelLines = [];     // массив priceLine объектов
         let lwBotLevelLines = [];  // массив priceLine объектов уровней бота
         let lwBotPositionLines = []; // массив priceLine: entry/stop/exit-limit/pending-limit текущей позиции бота
-        let lwBBSeries = [];       // LineSeries для Bollinger Bands (верх, средняя, низ)
+        let lwBBSeries = [];       // LineSeries для Bollinger Bands БОТА (верх, средняя, низ)
+        // ── Клиентские BB (независимы от ботов) ──
+        // Раньше клиент и бот делили один массив lwBBSeries — из-за этого ботовский
+        // поллинг каждые 10 сек чистил клиентские BB, и они "тухли". Теперь — свой массив.
+        let lwClientBBSeries = [];     // BB линии включённые кнопкой "BB" на тулбаре
         let _botLevelsActive = false; // бот рисует уровни на графике
         let _botLevelsPollTimer = null;
         let currentPeriod = 1;
@@ -8824,9 +8825,13 @@
                 window._smallExtraSeries = [];
             }
             try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
-            // Очищаем BB линии и уровни бота при перезагрузке графика
+            // Очищаем все индикаторы при перезагрузке графика (новая пара/ТФ).
+            // applyChartIndicators ниже пересчитает клиентские BB/уровни заново
+            // под свежие свечи. Без этой очистки старые priceLine остаются висеть
+            // на удалённой lwSeries как мёртвые ссылки.
             clearBBSeries();
             clearBotLevelLines();
+            _clearClientBB();
 
             chartLoading.style.display = 'flex';
             const ohlc = await fetchOhlcData(selectedCoin.id, currentPeriod);
@@ -9470,10 +9475,8 @@
         }
 
         function drawBBLines(bbHistory) {
-            // Если кнопка-индикатор BB включена — клиентский расчёт имеет
-            // приоритет, ботовский рендер отказывается работать. Сам клиентский
-            // рендер использует _drawBBLinesRaw (см. ниже).
-            if (window.chartShowBB) return;
+            // Ботовский рендер BB. Пишет в lwBBSeries (свой массив).
+            // Клиентские BB живут в lwClientBBSeries и не задеваются.
             if (!lwChart || !bbHistory || !bbHistory.length) return;
             clearBBSeries();
 
@@ -9520,17 +9523,15 @@
            Работают независимо от ботов — кнопки на тулбаре. Расчёт идёт
            по rawOhlcCache (массив [t, o, h, l, c, v]). Параметры:
              • BB: период 20, множитель 2.0 (стандарт Боллинджера).
-             • Уровни: окно 200 последних свечей, минимум 3 касания.
-           Состояние сохраняется в localStorage: chartShowBB, chartShowLevels.
-           
-           Конфликт с ботом: если соответствующая кнопка ВКЛЮЧЕНА, клиентский
-           расчёт имеет приоритет — ботовские drawBBLines/drawBotLevels блокируются
-           (см. wrap-обёртки внизу). Если кнопка ВЫКЛЮЧЕНА — работает как раньше.
+           Состояние сохраняется в localStorage: chartShowBB.
+
+           Изоляция от бота: рендер пишет в lwClientBBSeries (свой массив),
+           ботовский поллинг чистит lwBBSeries — друг друга не задевают.
+           Раньше делили один массив и BB тухли через 5 секунд при включённом боте.
         ═══════════════════════════════════════════════════════════════ */
 
-        // Глобальные флаги (читаются также из ботовских обёрток ниже)
-        window.chartShowBB     = localStorage.getItem('chartShowBB')     === '1';
-        window.chartShowLevels = localStorage.getItem('chartShowLevels') === '1';
+        // Глобальный флаг кнопки BB
+        window.chartShowBB = localStorage.getItem('chartShowBB') === '1';
 
         function _calcClientBB(ohlcArr, period, mult) {
             // ohlcArr: [[t_ms, o, h, l, c, v?], ...] из rawOhlcCache.
@@ -9560,110 +9561,56 @@
             return result;
         }
 
-        function _calcClientLevels(ohlcArr, minTouches, lookback) {
-            // Упрощённая клиентская версия findMicroLevels (см. bot-server.js строка 570).
-            // Алгоритм:
-            //   1. Берём последние lookback свечей.
-            //   2. Каждую свечу как кандидат: high → resistance, low → support.
-            //   3. Считаем сколько других свечей касаются этой цены в пределах ±0.05%
-            //      (тот же tolerance что у бота по умолчанию).
-            //   4. Уровни с >= minTouches касаниями оставляем.
-            //   5. Слипшиеся уровни (разница < 0.1%) объединяем в один — берём с максимумом касаний.
-            if (!ohlcArr || ohlcArr.length < minTouches + 1) return [];
-            const tolerance = 0.0005;
-            const candles = ohlcArr.slice(-lookback);
-            const candidates = [];
+        // ── Клиентский BB render (пишет в свой массив) ──
+        function _clearClientBB() {
+            lwClientBBSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
+            lwClientBBSeries = [];
+        }
 
-            for (let i = 0; i < candles.length; i++) {
-                const c = candles[i];
-                const high = c[2];
-                const low  = c[3];
-
-                // Проверим high как resistance
-                let touchesH = 0;
-                for (let j = 0; j < candles.length; j++) {
-                    if (j === i) continue;
-                    const cj = candles[j];
-                    if (Math.abs(cj[2] - high) / high <= tolerance ||
-                        Math.abs(cj[3] - high) / high <= tolerance) touchesH++;
-                }
-                if (touchesH + 1 >= minTouches) {
-                    candidates.push({ price: high, type: 'resistance', touches: touchesH + 1 });
-                }
-
-                // Проверим low как support
-                let touchesL = 0;
-                for (let j = 0; j < candles.length; j++) {
-                    if (j === i) continue;
-                    const cj = candles[j];
-                    if (Math.abs(cj[2] - low) / low <= tolerance ||
-                        Math.abs(cj[3] - low) / low <= tolerance) touchesL++;
-                }
-                if (touchesL + 1 >= minTouches) {
-                    candidates.push({ price: low, type: 'support', touches: touchesL + 1 });
-                }
-            }
-
-            // Дедупликация близких уровней (разница < 0.1%)
-            candidates.sort((a, b) => b.touches - a.touches);
-            const merged = [];
-            for (const cand of candidates) {
-                const dup = merged.find(m =>
-                    m.type === cand.type &&
-                    Math.abs(m.price - cand.price) / m.price < 0.001
-                );
-                if (!dup) merged.push(cand);
-            }
-            return merged.slice(0, 8); // максимум 8 уровней чтобы не захламлять график
+        function _drawClientBB(bbHistory) {
+            if (!lwChart || !bbHistory || !bbHistory.length) return;
+            _clearClientBB();
+            // Верх — красный
+            const upper = lwChart.addLineSeries({
+                color: 'rgba(239, 68, 68, 0.6)', lineWidth: 1, lineStyle: 0,
+                crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+            });
+            upper.setData(bbHistory.map(b => ({ time: b.time, value: b.upper })));
+            lwClientBBSeries.push(upper);
+            // Средняя — жёлтая пунктир
+            const middle = lwChart.addLineSeries({
+                color: 'rgba(251, 191, 36, 0.7)', lineWidth: 1, lineStyle: 2,
+                crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+            });
+            middle.setData(bbHistory.map(b => ({ time: b.time, value: b.middle })));
+            lwClientBBSeries.push(middle);
+            // Низ — зелёная
+            const lower = lwChart.addLineSeries({
+                color: 'rgba(16, 185, 129, 0.6)', lineWidth: 1, lineStyle: 0,
+                crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+            });
+            lower.setData(bbHistory.map(b => ({ time: b.time, value: b.lower })));
+            lwClientBBSeries.push(lower);
         }
 
         function applyChartIndicators() {
-            // Оркестратор: смотрит флаги, считает по rawOhlcCache, рисует через
-            // существующие drawBBLines / drawBotLevels или очищает соответствующие серии.
-            if (!lwChart || !rawOhlcCache || !rawOhlcCache.length) return;
+            // Оркестратор: пересчитывает клиентские BB по rawOhlcCache.
+            // Работает независимо от ботовских серий — у каждого свой массив.
+            if (!lwChart || !rawOhlcCache || !rawOhlcCache.length) {
+                _clearClientBB();
+                return;
+            }
 
-            // ── BB ──
             if (window.chartShowBB) {
                 const bb = _calcClientBB(rawOhlcCache, 20, 2.0);
-                if (bb.length) {
-                    // _drawBBLinesRaw — оригинальная функция без проверки флага.
-                    // drawBBLines (внешняя, для бота) теперь обёрнута и проверяет флаг.
-                    _drawBBLinesRaw(bb);
-                }
+                if (bb.length) _drawClientBB(bb);
             } else {
-                clearBBSeries();
-            }
-
-            // ── Уровни ──
-            if (window.chartShowLevels) {
-                const levels = _calcClientLevels(rawOhlcCache, 3, 200);
-                if (levels.length) {
-                    _drawBotLevelsRaw(levels);
-                } else {
-                    clearBotLevelLines();
-                }
-            } else {
-                clearBotLevelLines();
+                _clearClientBB();
             }
         }
 
-        // Сохраняем оригинальные функции рендера (без проверки флага клиента) —
-        // их вызывают наши клиентские индикаторы напрямую. Боты вызывают «обёртки»
-        // drawBBLines / drawBotLevels (см. ниже определения), которые делегируют
-        // оригиналам только при выключенной клиентской кнопке.
-        // Реализация: временно сбрасываем флаг, вызываем оригинал, восстанавливаем.
-        function _drawBBLinesRaw(bbHistory) {
-            const wasOn = window.chartShowBB;
-            window.chartShowBB = false;
-            try { drawBBLines(bbHistory); }
-            finally { window.chartShowBB = wasOn; }
-        }
-        function _drawBotLevelsRaw(levels) {
-            const wasOn = window.chartShowLevels;
-            window.chartShowLevels = false;
-            try { drawBotLevels(levels); }
-            finally { window.chartShowLevels = wasOn; }
-        }
+        // Экспортируем для внешнего вызова (например, из обработчика смены пары)
+        window._applyChartIndicators = applyChartIndicators;
 
         // ── Обработчики кнопок ──
         function _setIndicatorBtnState(btnId, on) {
@@ -9671,23 +9618,14 @@
             if (btn) btn.classList.toggle('active', !!on);
         }
 
-        // Применяем сохранённое состояние кнопок при загрузке
-        _setIndicatorBtnState('indicatorBbBtn',     window.chartShowBB);
-        _setIndicatorBtnState('indicatorLevelsBtn', window.chartShowLevels);
+        // Применяем сохранённое состояние кнопки при загрузке
+        _setIndicatorBtnState('indicatorBbBtn', window.chartShowBB);
 
         const _bbBtn = document.getElementById('indicatorBbBtn');
         if (_bbBtn) _bbBtn.addEventListener('click', () => {
             window.chartShowBB = !window.chartShowBB;
             localStorage.setItem('chartShowBB', window.chartShowBB ? '1' : '0');
             _setIndicatorBtnState('indicatorBbBtn', window.chartShowBB);
-            applyChartIndicators();
-        });
-
-        const _levelsBtn = document.getElementById('indicatorLevelsBtn');
-        if (_levelsBtn) _levelsBtn.addEventListener('click', () => {
-            window.chartShowLevels = !window.chartShowLevels;
-            localStorage.setItem('chartShowLevels', window.chartShowLevels ? '1' : '0');
-            _setIndicatorBtnState('indicatorLevelsBtn', window.chartShowLevels);
             applyChartIndicators();
         });
 
@@ -9741,9 +9679,7 @@
         });
 
         function drawBotLevels(levels) {
-            // Если кнопка-индикатор уровней включена — клиентский расчёт имеет
-            // приоритет, ботовский рендер не вмешивается. См. _drawBotLevelsRaw ниже.
-            if (window.chartShowLevels) return;
+            // Ботовский рендер уровней. Пишет в lwBotLevelLines.
             if (!lwSeries || !lwChart) return;
 
             // Удаляем старые линии бота
@@ -12328,9 +12264,11 @@
             // Сброс кеша winrate при смене монеты
             window._fsWinRateCache = null;
             window._fsWinRateCacheKey = null;
-            // Очищаем BB линии и уровни бота при смене монеты
+            // Очищаем все индикаторы при смене монеты (бот + клиент).
+            // applyChartIndicators в loadChartData потом пересчитает клиентские.
             clearBBSeries();
             clearBotLevelLines();
+            _clearClientBB();
             hidePriceLabel();
             startPriceWs(sym);
         };

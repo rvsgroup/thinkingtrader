@@ -41,7 +41,51 @@ module.exports = function(app) {
     ══════════════════════════════════════════ */
     const sessions = new Map();  // key: "uid:botId"
 
-    const PERSIST_FILE = path.join(__dirname, 'bot-sessions.json');
+    /* ══════════════════════════════════════════
+       Путь к файлу персистентности bot-sessions.json
+       
+       На Railway: контейнер пересоздаётся при каждом деплое и обычная
+       файловая система ТЕРЯЕТСЯ. Чтобы боты выживали между деплоями,
+       нужен Volume — отдельный примонтированный диск.
+       
+       Поведение:
+       - Если задана env-переменная PERSIST_DIR (например /data — точка
+         монтирования Railway Volume) → пишем туда.
+       - Иначе fallback на старое место рядом со скриптом (для локальной
+         разработки и обратной совместимости).
+       
+       Миграция: если PERSIST_DIR задан, но в нём ещё нет файла
+       bot-sessions.json, а в старом месте (рядом со скриптом) ОН ЕСТЬ —
+       копируем его на volume при первом запуске. Это сохраняет
+       существующих ботов при первом переходе на volume.
+    ══════════════════════════════════════════ */
+    const PERSIST_FILENAME = 'bot-sessions.json';
+    const PERSIST_LEGACY_PATH = path.join(__dirname, PERSIST_FILENAME);
+    const PERSIST_FILE = process.env.PERSIST_DIR
+        ? path.join(process.env.PERSIST_DIR, PERSIST_FILENAME)
+        : PERSIST_LEGACY_PATH;
+
+    // Миграция (выполняется один раз при старте процесса).
+    // Если PERSIST_DIR задан, активный путь != legacy, и в активном пути
+    // нет файла, но в legacy — есть, копируем legacy → активный.
+    (function migrateSessionsFileIfNeeded() {
+        try {
+            if (!process.env.PERSIST_DIR) return;
+            if (PERSIST_FILE === PERSIST_LEGACY_PATH) return;
+            // Убедимся что директория volume существует
+            if (!fs.existsSync(process.env.PERSIST_DIR)) {
+                fs.mkdirSync(process.env.PERSIST_DIR, { recursive: true });
+            }
+            if (fs.existsSync(PERSIST_FILE)) return; // уже есть на volume — миграция не нужна
+            if (!fs.existsSync(PERSIST_LEGACY_PATH)) return; // и в legacy нет — нечего мигрировать
+            const data = fs.readFileSync(PERSIST_LEGACY_PATH, 'utf8');
+            fs.writeFileSync(PERSIST_FILE, data, 'utf8');
+            console.log('[BOT PERSIST] Migrated ' + PERSIST_LEGACY_PATH + ' → ' + PERSIST_FILE);
+        } catch(e) {
+            console.error('[BOT PERSIST] Migration failed:', e.message);
+        }
+    })();
+
     const PERSIST_INTERVAL_MS = 30_000;
 
     // Какие поля сохраняем на диск. Специально НЕ сохраняем:
@@ -58,7 +102,7 @@ module.exports = function(app) {
         'virtualBalance', 'startBalance', '_startBalanceInit',
         'dayPnl', 'dayStartDate',
         'trades',
-        'maxProfitPct', 'stopAtrMultiplier', 'positionTimeout', 'cooldownCandles',
+        'maxProfitPct', 'stopAtrMultiplier', 'stopMode', 'stopFixedPct', 'positionTimeout', 'cooldownCandles',
         'maxLeverage', 'volumeMultiplier', 'riskPct', 'dayLimitPct', 'maxLosses',
         'trailingEnabled', 'trailingOffset', 'trailingActivation',
         'stepTpEnabled', 'stepTpTrigger', 'stepTpStep', 'stepTpTolerance',
@@ -180,8 +224,26 @@ module.exports = function(app) {
             else if (session.tradingWindowUS) wTag = 'W17';
             extra += ` ${s} ${wTag}`;
         }
-        if (session.rsiOversold || session.rsiOverbought) {
-            extra += ` ${s} ${session.rsiOversold || 35}/${session.rsiOverbought || 65}`;
+        // Диапазон фильтра входа с явным префиксом:
+        //   MR      -> RSI 24/76 (RSI oversold/overbought)
+        //   Scalper -> CLF 29/71 (Cluster Filter — нижний/верхний порог)
+        // Без префикса было визуально непонятно — одни и те же числа значили
+        // разное в зависимости от стратегии бота.
+        if (session.strategy === 'mean_reversion') {
+            extra += ` ${s} RSI ${session.rsiOversold || 35}/${session.rsiOverbought || 65}`;
+        } else if (session.strategy === 'scalper') {
+            const clHi = session.clusterThreshold || 80;
+            extra += ` ${s} CLF ${100 - clHi}/${clHi}`;
+        }
+        // Стоп-лосс: для скальпера/MR показываем способ расчёта
+        // - fixed: SL 0.5 (процент)
+        // - atr:   SL ATR1.5 (множитель ATR)
+        if (session.strategy !== 'manual') {
+            if (session.stopMode === 'fixed' && session.stopFixedPct) {
+                extra += ` ${s} SL ${session.stopFixedPct}`;
+            } else if (session.stopAtrMultiplier) {
+                extra += ` ${s} SL ATR${session.stopAtrMultiplier}`;
+            }
         }
         return `${pair} ${s} ${strat} ${s} ${tf} ${s} ${mode} ${s} ${dir}${extra}`;
     }
@@ -222,6 +284,11 @@ module.exports = function(app) {
                     atrFilterEnabled: session.atrFilterEnabled || false,
                     bbExitEnabled: session.bbExitEnabled || false,
                     notifyEnabled: session.notifyEnabled !== false,
+                    // Поля для диагностики и отображения настроек ботa в списке
+                    clusterThreshold: session.clusterThreshold || 80,
+                    stopMode: session.stopMode || 'atr',
+                    stopFixedPct: session.stopFixedPct,
+                    stopAtrMultiplier: session.stopAtrMultiplier,
                 });
             }
         }
@@ -561,6 +628,109 @@ module.exports = function(app) {
         }
     }
 
+    /**
+     * Конфигурация подсвечей для кластерного анализа.
+     * На каждом ТФ кластер считается по N подсвечам младшего ТФ.
+     * Это даёт более точную картину «кто доминировал внутри свечи»
+     * чем единое buyVolume / volume по всей основной свече.
+     *
+     * Согласовано: 5m оставляем как есть (1m × 5 — много шума, не нужны),
+     * на старших ТФ берём 3-4 крупных подсвечи (баланс точности и стабильности).
+     *
+     * @param {string} mainTF — '5m' | '15m' | '1h' | '4h'
+     * @returns {{tf: string, count: number} | null} конфиг или null если подсвечи не нужны
+     */
+    function getSubcandleConfig(mainTF) {
+        switch (mainTF) {
+            case '5m':  return null;                       // 5m — без подсвечей, как сейчас
+            case '15m': return { tf: '5m',  count: 3 };    // 3 × 5m = 15m
+            case '1h':  return { tf: '15m', count: 4 };    // 4 × 15m = 1h
+            case '4h':  return { tf: '1h',  count: 4 };    // 4 × 1h = 4h
+            default:    return null;
+        }
+    }
+
+    /**
+     * Загружает N подсвечей предыдущей закрытой основной свечи через REST API
+     * и считает агрегированный buyPct по ним.
+     *
+     * Логика:
+     *   1. Берём (count + 1) последних подсвечей. Последняя — текущая открытая,
+     *      её отбрасываем. Остальные count — последние закрытые.
+     *   2. По каждой подсвече считаем локальный buyPct = buyVolume / volume * 100
+     *      (если buyVolume отсутствует — fallback на эвристику тела+теней).
+     *   3. Усредняем подсвечи взвешенно по объёму: подсвеча с большим объёмом
+     *      влияет на агрегат сильнее, чем тихая.
+     *
+     * @returns {{ avgBuyPct: number, subcandles: Array<{buyPct, volume}> } | null}
+     */
+    async function fetchSubcandleBuyPct(symbol, mainTF) {
+        const cfg = getSubcandleConfig(mainTF);
+        if (!cfg) return null;
+
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 2500);
+
+            // (count + 1): последняя свеча — текущая открытая, её игнорируем
+            const limit = cfg.count + 1;
+            const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${cfg.tf}&limit=${limit}`;
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeout);
+
+            const data = await res.json();
+            if (!Array.isArray(data) || data.length < cfg.count + 1) return null;
+
+            // Берём первые count свечей — это последние закрытые подсвечи основной
+            const closedSubs = data.slice(0, cfg.count);
+
+            const subcandles = closedSubs.map(k => {
+                const open  = parseFloat(k[1]);
+                const high  = parseFloat(k[2]);
+                const low   = parseFloat(k[3]);
+                const close = parseFloat(k[4]);
+                const vol   = parseFloat(k[5]);
+                const buyVol = parseFloat(k[9] || 0);
+
+                // PRIMARY: точный buyPct из биржи
+                let buyPct;
+                if (vol > 0 && buyVol > 0 && buyVol <= vol) {
+                    buyPct = (buyVol / vol) * 100;
+                } else {
+                    // FALLBACK: тело + тени (та же логика что в analyzeCandleCluster)
+                    const range = high - low;
+                    if (range <= 0) {
+                        buyPct = 50;
+                    } else {
+                        const bodyTop    = Math.max(open, close);
+                        const bodyBottom = Math.min(open, close);
+                        const lowerWick  = bodyBottom - low;
+                        const upperWick  = high - bodyTop;
+                        const isBullish  = close >= open;
+                        const totalWick  = lowerWick + upperWick || 1;
+                        buyPct = (lowerWick / totalWick) * 50 + (isBullish ? 55 : 45);
+                    }
+                }
+                buyPct = Math.max(0, Math.min(100, buyPct));
+                return { buyPct, volume: vol };
+            });
+
+            // Взвешенное среднее по объёму. Если все объёмы 0 — простое среднее.
+            const totalVol = subcandles.reduce((s, x) => s + x.volume, 0);
+            let avgBuyPct;
+            if (totalVol > 0) {
+                avgBuyPct = subcandles.reduce((s, x) => s + x.buyPct * x.volume, 0) / totalVol;
+            } else {
+                avgBuyPct = subcandles.reduce((s, x) => s + x.buyPct, 0) / subcandles.length;
+            }
+            avgBuyPct = Math.max(0, Math.min(100, avgBuyPct));
+
+            return { avgBuyPct, subcandles };
+        } catch (e) {
+            return null;
+        }
+    }
+
 
     /* ══════════════════════════════════════════
        2. ПОИСК МИКРОУРОВНЕЙ
@@ -754,7 +924,15 @@ module.exports = function(app) {
     function analyzeCandleCluster(candle) {
         if (!candle || candle.volume <= 0) return 50;
 
-        // PRIMARY: реальная дельта из Binance
+        // PRIMARY: подсвечи (если бот на 15m/1h/4h и подсвечи загружены).
+        // Это точнее чем buyVolume / volume основной свечи — учитывает кто
+        // доминировал в каждой подсвече с весом по объёму.
+        if (typeof candle.subcandleBuyPct === 'number'
+            && candle.subcandleBuyPct >= 0 && candle.subcandleBuyPct <= 100) {
+            return candle.subcandleBuyPct;
+        }
+
+        // SECONDARY: реальная дельта из Binance (taker buy / total volume)
         if (candle.buyVolume > 0 && candle.buyVolume <= candle.volume) {
             return (candle.buyVolume / candle.volume) * 100;
         }
@@ -1293,82 +1471,109 @@ module.exports = function(app) {
     };
 
     /**
+     * Маппинг торгового ТФ на тройку ТФ контекста для regime detection.
+     * Каждый бот смотрит на свой ТФ + два старших — это и есть «согласие 3 ТФ».
+     *
+     * Роли (захардкожены в analyzeRegime функциях):
+     *   higher  — старший контекст (EMA50/200 + slope)  — analyzeRegime4h
+     *   main    — средний тренд (EMA21/55 + ADX)        — analyzeRegime15m
+     *   pulse   — текущий пульс (EMA9/21 + price move)  — analyzeRegime5m
+     *
+     * При смене ТФ бота — роли остаются, меняются только сами свечные ТФ.
+     */
+    function getRegimeContextTfs(tradingTF) {
+        switch (tradingTF) {
+            case '5m':  return { higher: '4h', main: '15m', pulse: '5m' };
+            case '15m': return { higher: '4h', main: '1h',  pulse: '15m' };
+            case '1h':  return { higher: '1d', main: '4h',  pulse: '1h' };
+            case '4h':  return { higher: '1w', main: '1d',  pulse: '4h' };
+            default:    return { higher: '4h', main: '15m', pulse: '5m' }; // fallback
+        }
+    }
+
+    /**
      * Главный оркестратор V2: возвращает разрешённое направление по правилу
      * «все три согласны или блок».
      *
+     * @param {string} symbol — 'BTCUSDT'
+     * @param {string} tradingTF — '5m' | '15m' | '1h' | '4h' (default '5m')
      * @returns объект:
      * {
-     *   tf4h: { state, reason, ... },
-     *   tf15m: { state, reason, ..., adx },
-     *   tf5m: { state, reason, ..., move },
+     *   tf4h: { state, reason, ... },     // старший контекст бота (legacy-имя для совместимости с UI)
+     *   tf15m: { state, reason, ..., adx },// средний тренд бота
+     *   tf5m: { state, reason, ..., move },// пульс бота
+     *   tfsUsed: { higher, main, pulse }, // фактические ТФ — '4h'/'15m'/'5m' или '1w'/'1d'/'4h' и т.п.
      *   allowed: 'LONG' | 'SHORT' | 'BLOCK',
      *   updatedAt: number,
      * }
+     *
+     * Поля tf4h/tf15m/tf5m называются legacy-именами для совместимости с journal/UI,
+     * но фактически содержат данные ТФ из getRegimeContextTfs(tradingTF). Реальные имена ТФ
+     * лежат в tfsUsed — UI должен показывать их.
      */
-    async function detectMarketRegimeV2(symbol) {
+    async function detectMarketRegimeV2(symbol, tradingTF = '5m') {
         const now = Date.now();
+        const tfs = getRegimeContextTfs(tradingTF);
 
-        // 4h — берём из кэша или загружаем
-        let tf4h;
-        const c4 = _regimeCacheV2.h4.get(symbol);
-        if (c4 && now - c4.updatedAt < REGIME_V2_TTL.h4) {
-            tf4h = c4.data;
-        } else {
+        // Кэш-ключи по ТФ — общий пул для всех ботов на одной монете и ТФ.
+        // Кэш-TTL берём по ТФ "пульса": чем больше ТФ — тем дольше можно кэшировать.
+        const cacheTTL = {
+            '5m': 5 * 60 * 1000, '15m': 10 * 60 * 1000, '1h': 30 * 60 * 1000,
+            '4h': 60 * 60 * 1000, '1d': 4 * 60 * 60 * 1000, '1w': 24 * 60 * 60 * 1000,
+        };
+
+        async function loadAndAnalyze(tf, role) {
+            const key = symbol + ':' + tf;
+            const cached = _regimeCacheV2Generic.get(key);
+            const ttl = cacheTTL[tf] || 5 * 60 * 1000;
+            if (cached && now - cached.updatedAt < ttl) return cached.data;
+
             try {
-                const candles4h = await loadHistoricalCandles(symbol, '4h', 250);
-                tf4h = analyzeRegime4h(candles4h);
-                tf4h.updatedAt = now;
-                _regimeCacheV2.h4.set(symbol, { data: tf4h, updatedAt: now });
+                // Размер истории зависит от роли: для EMA200 нужно 250+, для EMA21 — 60+, для EMA9 — 25+.
+                const limit = role === 'higher' ? 250 : (role === 'main' ? 100 : 50);
+                const candles = await loadHistoricalCandles(symbol, tf, limit);
+                let result;
+                if (role === 'higher')      result = analyzeRegime4h(candles);
+                else if (role === 'main')   result = analyzeRegime15m(candles);
+                else /* pulse */            result = analyzeRegime5m(candles);
+                result.updatedAt = now;
+                _regimeCacheV2Generic.set(key, { data: result, updatedAt: now });
+                return result;
             } catch (e) {
-                tf4h = { state: 'flat', reason: 'fetch_error', error: e.message, updatedAt: now };
+                return { state: 'flat', reason: 'fetch_error', error: e.message, updatedAt: now };
             }
         }
 
-        // 15m
-        let tf15m;
-        const c15 = _regimeCacheV2.m15.get(symbol);
-        if (c15 && now - c15.updatedAt < REGIME_V2_TTL.m15) {
-            tf15m = c15.data;
-        } else {
-            try {
-                const candles15m = await loadHistoricalCandles(symbol, '15m', 100);
-                tf15m = analyzeRegime15m(candles15m);
-                tf15m.updatedAt = now;
-                _regimeCacheV2.m15.set(symbol, { data: tf15m, updatedAt: now });
-            } catch (e) {
-                tf15m = { state: 'flat', reason: 'fetch_error', error: e.message, updatedAt: now };
-            }
-        }
-
-        // 5m
-        let tf5m;
-        const c5 = _regimeCacheV2.m5.get(symbol);
-        if (c5 && now - c5.updatedAt < REGIME_V2_TTL.m5) {
-            tf5m = c5.data;
-        } else {
-            try {
-                const candles5m = await loadHistoricalCandles(symbol, '5m', 50);
-                tf5m = analyzeRegime5m(candles5m);
-                tf5m.updatedAt = now;
-                _regimeCacheV2.m5.set(symbol, { data: tf5m, updatedAt: now });
-            } catch (e) {
-                tf5m = { state: 'flat', reason: 'fetch_error', error: e.message, updatedAt: now };
-            }
-        }
+        const [tfHigher, tfMain, tfPulse] = await Promise.all([
+            loadAndAnalyze(tfs.higher, 'higher'),
+            loadAndAnalyze(tfs.main, 'main'),
+            loadAndAnalyze(tfs.pulse, 'pulse'),
+        ]);
 
         // Решающее правило: все три согласны → разрешаем направление; иначе блок
         let allowed = 'BLOCK';
-        if (tf4h.state === 'up'   && tf15m.state === 'up'   && tf5m.state === 'up')   allowed = 'LONG';
-        if (tf4h.state === 'down' && tf15m.state === 'down' && tf5m.state === 'down') allowed = 'SHORT';
+        if (tfHigher.state === 'up'   && tfMain.state === 'up'   && tfPulse.state === 'up')   allowed = 'LONG';
+        if (tfHigher.state === 'down' && tfMain.state === 'down' && tfPulse.state === 'down') allowed = 'SHORT';
 
         return {
-            tf4h:    tf4h,
-            tf15m:   tf15m,
-            tf5m:    tf5m,
+            // Legacy-имена для совместимости с UI/journal — фактически содержат данные
+            // из тройки ТФ для конкретного бота (см. tfsUsed).
+            tf4h:    tfHigher,
+            tf15m:   tfMain,
+            tf5m:    tfPulse,
+            tfsUsed: tfs,    // { higher: '1w', main: '1d', pulse: '4h' } — реальные ТФ
             allowed: allowed,
             updatedAt: now,
         };
     }
+
+    /**
+     * Унифицированный кэш для regime detection всех ТФ.
+     * Ключ: symbol + ':' + tf  (например 'BTCUSDT:4h', 'ETHUSDT:1d').
+     * Заменяет старый _regimeCacheV2 с h4/m15/m5 разделением — теперь boт на любом
+     * ТФ может попросить любой ТФ контекста.
+     */
+    const _regimeCacheV2Generic = new Map();
 
     /**
      * Определяет режим по EMA50 и EMA200 на одном таймфрейме.
@@ -1447,6 +1652,11 @@ module.exports = function(app) {
      * @returns {boolean} true если разрешено, false если бот должен ждать.
      */
     function isInsideTradingWindow(session) {
+        // Для старших ТФ (1h, 4h) окна торговли не применяются — одна свеча покрывает
+        // несколько часов, а само окно длится ~5 часов. Окно теряет смысл и юзер
+        // согласовал что для них фильтр выключен. На 5m/15m работает как раньше.
+        if (session.timeframe === '1h' || session.timeframe === '4h') return true;
+
         const eu = !!session.tradingWindowEU;
         const us = !!session.tradingWindowUS;
         // Оба выключены → ограничений нет
@@ -2422,13 +2632,17 @@ module.exports = function(app) {
             tradingWindowAtEntry: getActiveWindowLabel(session),
             entryHourUTC:        new Date().getUTCHours(),
             entryMinuteUTC:      new Date().getUTCMinutes(),
-            // ── Снэпшот режима рынка при входе (V2: 4h + 15m + 5m) ──
+            // ── Снэпшот режима рынка при входе (V2: тройка ТФ зависит от ТФ бота) ──
+            // tf4h/15m/5m — legacy-имена полей, фактически содержат данные ТФ из tfsUsed.
+            // tfsUsed добавлено чтобы journal/UI мог показать какие именно ТФ контекста
+            // использовались (для 5m бота — 4h/15m/5m, для 4h — 1w/1d/4h и т.д.).
             entryRegime:     session.regime ? {
                 tf4hState:    session.regime.tf4h  ? session.regime.tf4h.state  : null,
                 tf15mState:   session.regime.tf15m ? session.regime.tf15m.state : null,
                 tf5mState:    session.regime.tf5m  ? session.regime.tf5m.state  : null,
                 tf15mAdx:     session.regime.tf15m ? session.regime.tf15m.adx   : null,
                 tf5mMove:     session.regime.tf5m  ? session.regime.tf5m.move   : null,
+                tfsUsed:      session.regime.tfsUsed || null,
                 allowed:      session.regime.allowed,
             } : null,
             // ── Снэпшот микроуровней при входе (только для скальпера) ──
@@ -4217,25 +4431,47 @@ module.exports = function(app) {
                         session.candles.pop();
                     }
 
-                    // Дополняем свечу точным buyVolume через REST API
-                    fetchLastCandleBuyVolume(session.symbol, session.binanceInterval)
-                        .then(buyVolume => {
+                    // Дополняем свечу точным buyVolume через REST API.
+                    // Для 15m/1h/4h — также подсвечи через fetchSubcandleBuyPct,
+                    // которая загружает 3-4 подсвечи младшего ТФ и считает
+                    // взвешенный buyPct. Это точнее чем единое buyVolume по всей
+                    // основной свече (видим картину "кто доминировал внутри").
+                    const fetchTasks = [
+                        fetchLastCandleBuyVolume(session.symbol, session.binanceInterval)
+                    ];
+                    const subCfg = getSubcandleConfig(session.timeframe);
+                    if (subCfg) {
+                        fetchTasks.push(fetchSubcandleBuyPct(session.symbol, session.timeframe));
+                    } else {
+                        fetchTasks.push(Promise.resolve(null));
+                    }
+
+                    Promise.all(fetchTasks)
+                        .then(([buyVolume, subResult]) => {
                             candle.buyVolume = buyVolume;
+                            // Если есть подсвечи — записываем агрегированный buyPct
+                            // и массив подсвечей. analyzeCandleCluster использует
+                            // candle.subcandleBuyPct если есть, иначе старую логику.
+                            if (subResult) {
+                                candle.subcandleBuyPct = subResult.avgBuyPct;
+                                candle.subcandles = subResult.subcandles;
+                            }
                             session.candles.push(candle);
 
-                            // Ограничиваем размер массива
-                            if (session.candles.length > 500) {
-                                session.candles = session.candles.slice(-300);
+                            // Ring buffer: держим ровно candlesForLevels свечей.
+                            const maxCandles = session.candlesForLevels;
+                            while (session.candles.length > maxCandles) {
+                                session.candles.shift();
                             }
 
-                            // Запускаем анализ с точными данными
                             onCandleClose(session);
                         })
                         .catch(() => {
                             // Если REST не ответил — используем свечу без buyVolume (fallback)
                             session.candles.push(candle);
-                            if (session.candles.length > 500) {
-                                session.candles = session.candles.slice(-300);
+                            const maxCandles = session.candlesForLevels;
+                            while (session.candles.length > maxCandles) {
+                                session.candles.shift();
                             }
                             onCandleClose(session);
                         });
@@ -4483,21 +4719,40 @@ module.exports = function(app) {
         session.rsiOversold   = parseInt(settings.rsiOversold)   || 35;
 
         // ── Таймфрейм ──
+        // Поддерживаемые: '5m', '15m', '1h', '4h'. Минутка ('1m') удалена —
+        // слишком шумный, серьёзная торговля не имеет смысла.
         const tf = settings.timeframe || '5m';
+        if (!['5m', '15m', '1h', '4h'].includes(tf)) {
+            return { ok: false, error: 'Unsupported timeframe: ' + tf + '. Supported: 5m, 15m, 1h, 4h' };
+        }
         session.timeframe = tf;
-        session.binanceInterval = tf; // '1m' или '5m'
+        session.binanceInterval = tf;
 
-        // Адаптация параметров под таймфрейм
-        if (tf === '1m') {
-            session.candlesForLevels = 500;     // 500 минут = ~8 часов
-            session.levelTolerance   = 0.0006;  // ±0.06% (расширенная зона для минутки)
-            session.stopOffsetPct    = 0.0007;  // стоп 0.07% (уже)
-            session.clusterLookback  = parseInt(settings.clusterLookback) || 5;
-        } else {
+        // Адаптация параметров под таймфрейм.
+        // candlesForLevels — окно поиска микроуровней (примерно 1-2 рабочих дня).
+        // levelTolerance / stopOffsetPct — ширина зоны уровня и стопа за уровнем.
+        // На старших ТФ свечи покрывают больше движения — допуски шире.
+        // clusterLookback — сколько последних свечей анализируем фоном кластера.
+        if (tf === '5m') {
             session.candlesForLevels = 200;     // 200 × 5м = ~17 часов
             session.levelTolerance   = 0.0005;  // ±0.05%
             session.stopOffsetPct    = 0.001;   // стоп 0.1%
             session.clusterLookback  = parseInt(settings.clusterLookback) || 10;
+        } else if (tf === '15m') {
+            session.candlesForLevels = 200;     // 200 × 15м = ~50 часов (~2 дня)
+            session.levelTolerance   = 0.001;   // ±0.1%
+            session.stopOffsetPct    = 0.0015;  // стоп 0.15%
+            session.clusterLookback  = parseInt(settings.clusterLookback) || 10;
+        } else if (tf === '1h') {
+            session.candlesForLevels = 200;     // 200 × 1ч = ~8 дней
+            session.levelTolerance   = 0.002;   // ±0.2%
+            session.stopOffsetPct    = 0.003;   // стоп 0.3%
+            session.clusterLookback  = parseInt(settings.clusterLookback) || 10;
+        } else if (tf === '4h') {
+            session.candlesForLevels = 150;     // 150 × 4ч = 25 дней
+            session.levelTolerance   = 0.004;   // ±0.4%
+            session.stopOffsetPct    = 0.006;   // стоп 0.6%
+            session.clusterLookback  = parseInt(settings.clusterLookback) || 8;
         }
 
         // Сброс состояния (trades НЕ сбрасываем — копим историю)
@@ -4545,19 +4800,21 @@ module.exports = function(app) {
         );
         console.log(`[BOT] Found ${session.levels.length} micro-levels`);
 
-        // ── Режим рынка V2 (4h + 15m + 5m, согласованность всех трёх) ──
+        // ── Режим рынка V2 (тройка ТФ зависит от session.timeframe) ──
+        // Для 5m бота это 4h/15m/5m. Для 4h бота — 1w/1d/4h. См. getRegimeContextTfs.
         // Первичный расчёт — до WebSocket, чтобы первая же свеча проверялась с режимом.
-        // Дальше обновляем раз в 5 минут (внутри сами кэши с разной частотой: 4h=1ч, 15m=10м, 5m=5м).
         try {
-            session.regime = await detectMarketRegimeV2(session.symbol);
+            session.regime = await detectMarketRegimeV2(session.symbol, session.timeframe);
             const r = session.regime;
-            console.log(`[BOT] 🧭 Regime V2 for ${session.pair}: 4h=${r.tf4h.state}, 15m=${r.tf15m.state}, 5m=${r.tf5m.state} → allowed ${r.allowed}`);
+            const u = r.tfsUsed;
+            console.log(`[BOT] 🧭 Regime V2 for ${session.pair} (TF ${session.timeframe}): ${u.higher}=${r.tf4h.state}, ${u.main}=${r.tf15m.state}, ${u.pulse}=${r.tf5m.state} → allowed ${r.allowed}`);
         } catch (e) {
             console.error(`[BOT] Failed initial regime detection V2:`, e.message);
             session.regime = {
                 tf4h:  { state: 'flat', reason: 'init_error' },
                 tf15m: { state: 'flat', reason: 'init_error' },
                 tf5m:  { state: 'flat', reason: 'init_error' },
+                tfsUsed: getRegimeContextTfs(session.timeframe),
                 allowed: 'BLOCK',
                 updatedAt: Date.now(),
             };
@@ -4579,9 +4836,10 @@ module.exports = function(app) {
         session._regimeInterval = setInterval(async () => {
             if (!session.running) return;
             try {
-                session.regime = await detectMarketRegimeV2(session.symbol);
+                session.regime = await detectMarketRegimeV2(session.symbol, session.timeframe);
                 const r = session.regime;
-                console.log(`[BOT] 🧭 Regime V2 refreshed for ${session.pair}: 4h=${r.tf4h.state}, 15m=${r.tf15m.state}, 5m=${r.tf5m.state} → allowed ${r.allowed}`);
+                const u = r.tfsUsed;
+                console.log(`[BOT] 🧭 Regime V2 refreshed for ${session.pair} (TF ${session.timeframe}): ${u.higher}=${r.tf4h.state}, ${u.main}=${r.tf15m.state}, ${u.pulse}=${r.tf5m.state} → allowed ${r.allowed}`);
             } catch (e) {
                 console.error(`[BOT] Regime V2 refresh failed:`, e.message);
             }
@@ -5245,14 +5503,25 @@ module.exports = function(app) {
                 changed.push(`regimeFilter:${session.regimeFilterEnabled ? 'ON' : 'OFF'}`);
             }
 
-            // Окно торговли (W) — два независимых подтумблера
+            // Окно торговли (W) — два независимых подтумблера.
+            // На 1h/4h окна неприменимы (одна свеча = 1-4 часа, окно длится 5ч),
+            // поэтому принудительно держим в OFF независимо от запроса клиента.
+            const tfBlocksWindows = (session.timeframe === '1h' || session.timeframe === '4h');
             if (s.tradingWindowEU !== undefined) {
-                session.tradingWindowEU = !!s.tradingWindowEU;
+                session.tradingWindowEU = tfBlocksWindows ? false : !!s.tradingWindowEU;
                 changed.push(`windowEU:${session.tradingWindowEU ? 'ON' : 'OFF'}`);
+            } else if (tfBlocksWindows && session.tradingWindowEU) {
+                // На случай рассинхрона: если клиент не прислал поле, но в state TRUE —
+                // на старшем ТФ всё равно сбрасываем (одноразовая чистка).
+                session.tradingWindowEU = false;
+                changed.push(`windowEU:OFF (forced by TF)`);
             }
             if (s.tradingWindowUS !== undefined) {
-                session.tradingWindowUS = !!s.tradingWindowUS;
+                session.tradingWindowUS = tfBlocksWindows ? false : !!s.tradingWindowUS;
                 changed.push(`windowUS:${session.tradingWindowUS ? 'ON' : 'OFF'}`);
+            } else if (tfBlocksWindows && session.tradingWindowUS) {
+                session.tradingWindowUS = false;
+                changed.push(`windowUS:OFF (forced by TF)`);
             }
 
             // Manual: показ BB / уровней (только визуализация, на торговую логику не влияет)
@@ -5426,6 +5695,64 @@ module.exports = function(app) {
                     session._startBalanceInit = true;
                 }
             }
+
+            // Применяем все остальные настройки если они переданы.
+            // Раньше тут принимались только pair/strategy/botName/virtualBalance,
+            // и все остальные поля брались из дефолтов в getSession. Это приводило
+            // к тому что при создании бота через "Создать бота" (когда клиент шлёт
+            // снапшот _state) настройки игнорировались — пользователь видел кластер 80,
+            // а не свой 76. Теперь сервер принимает весь снапшот.
+            const b = req.body;
+            const numFields = [
+                'timeframe', 'direction', 'entryMode', 'mode',
+                'riskPct', 'dayLimitPct', 'maxLosses', 'maxLeverage',
+                'volumeMultiplier', 'positionTimeout', 'maxProfitPct', 'cooldownCandles',
+                'stopAtrMultiplier', 'stopFixedPct',
+                'trailingOffset', 'trailingActivation',
+                'stepTpTrigger', 'stepTpStep', 'stepTpTolerance',
+                'bbExitTolerance', 'smaReturnTolerance',
+                'atrFilterThreshold',
+                'clusterThreshold', 'clusterExitConfirm', 'clusterLookback',
+                'bbPeriod', 'bbMultiplier',
+                'rsiPeriod', 'rsiOverbought', 'rsiOversold',
+            ];
+            const boolFields = [
+                'trailingEnabled', 'stepTpEnabled', 'bbExitEnabled',
+                'smaReturnEnabled', 'atrFilterEnabled',
+                'clusterEnabled', 'clusterEntryFilter',
+                'regimeFilterEnabled',
+                'tradingWindowEU', 'tradingWindowUS',
+            ];
+            const stringFields = ['stopMode']; // 'fixed' | 'atr'
+
+            for (const f of numFields) {
+                if (b[f] !== undefined && b[f] !== null && b[f] !== '') {
+                    const parsed = parseFloat(b[f]);
+                    if (!Number.isNaN(parsed)) session[f] = parsed;
+                    else session[f] = b[f]; // строковые типа 'long'/'5m' оставляем как есть
+                }
+            }
+            for (const f of boolFields) {
+                if (b[f] !== undefined) session[f] = !!b[f];
+            }
+            for (const f of stringFields) {
+                if (b[f] !== undefined) session[f] = b[f];
+            }
+            // Текстовые поля направления/таймфрейма/режима, которые не числа — переопределяем явно
+            if (typeof b.timeframe === 'string')  session.timeframe = b.timeframe;
+            if (typeof b.direction === 'string')  session.direction = b.direction;
+            if (typeof b.entryMode === 'string')  session.entryMode = b.entryMode;
+            if (typeof b.mode === 'string')        session.mode = b.mode;
+
+            // На старших ТФ окна торговли неприменимы — принудительно сбрасываем.
+            // Это разовая чистка: старые боты в persistence могли иметь tradingWindowEU=true
+            // от дефолтов до правок. Сервер всё равно их игнорирует в isInsideTradingWindow,
+            // но в state лучше держать false для корректного UI/диагностики.
+            if (session.timeframe === '1h' || session.timeframe === '4h') {
+                session.tradingWindowEU = false;
+                session.tradingWindowUS = false;
+            }
+
             // Гарантия чистого листа для нового бота: сброс истории/счётчиков.
             // getSession ставит дефолты только при ПЕРВОМ создании ключа в Map,
             // но если botId совпадёт с уже существующим (или сюда придут стейлы из persist),
@@ -5436,7 +5763,7 @@ module.exports = function(app) {
             session.consecutiveLosses = 0;
             session.position = null;
 
-            console.log(`[BOT ${ts()}] ➕ Created bot ${botId} for uid=${uid} (${session.pair} / ${session.strategy || 'scalper'}) start=$${session.startBalance}`);
+            console.log(`[BOT ${ts()}] ➕ Created bot ${botId} for uid=${uid} (${session.pair} / ${session.strategy || 'scalper'}) start=$${session.startBalance} cluster=${session.clusterThreshold} stopMode=${session.stopMode}`);
             res.json({ ok: true, botId, bots: getUserBots(uid) });
         } catch(e) {
             res.status(500).json({ error: e.message });
@@ -5567,6 +5894,8 @@ module.exports = function(app) {
                 maxProfitPct: session.maxProfitPct,
                 cooldownCandles: session.cooldownCandles,
                 stopAtrMultiplier: session.stopAtrMultiplier,
+                stopMode: session.stopMode || 'atr',
+                stopFixedPct: session.stopFixedPct,
                 clusterEnabled: session.clusterEnabled,
                 clusterEntryFilter: session.clusterEntryFilter || false,
                 regimeFilterEnabled: session.regimeFilterEnabled || false,
@@ -5607,6 +5936,13 @@ module.exports = function(app) {
                 direction: session.direction || 'both',
                 rsiOversold: session.rsiOversold || 35,
                 rsiOverbought: session.rsiOverbought || 65,
+                rsiPeriod: session.rsiPeriod || 14,
+                bbPeriod: session.bbPeriod || 20,
+                bbMultiplier: session.bbMultiplier || 2.0,
+                riskPct: session.riskPct,
+                maxLosses: session.maxLosses,
+                volumeMultiplier: session.volumeMultiplier,
+                positionTimeout: session.positionTimeout,
                 dayLimitPct: session.dayLimitPct,
                 tradeCount:  session.trades.length,
                 winRate:     calcWinRate(session.trades),
@@ -5806,6 +6142,36 @@ module.exports = function(app) {
             // По выходу
             const byExit = groupBy(t => t.reason || 'unknown');
 
+            // ── Лучшая / худшая сделка (отдельные числа для шапки) ──
+            // Возвращаем PnL крайних сделок — клиент показывает в шапке.
+            // Раньше эти числа считались только в журнале (best/worst).
+            let best = 0, worst = 0;
+            if (trades.length > 0) {
+                const pnls = trades.map(t => num(t.pnl));
+                best  = Math.round(Math.max(...pnls) * 100) / 100;
+                worst = Math.round(Math.min(...pnls) * 100) / 100;
+            }
+
+            // ── Время удержания: средние для wins/losses + бакеты ──
+            // durationMin записывается в trade при закрытии (см. строку 3562).
+            // Бакеты: <2, 2-5, 5-15, >15 мин — диагностика STP/трейлинга.
+            const winsTrades = trades.filter(t => num(t.pnl) > 0 && t.durationMin != null);
+            const lossesTrades = trades.filter(t => num(t.pnl) <= 0 && t.durationMin != null);
+            const avgWinDuration = winsTrades.length > 0
+                ? Math.round((winsTrades.reduce((s, t) => s + num(t.durationMin), 0) / winsTrades.length) * 10) / 10
+                : null;
+            const avgLossDuration = lossesTrades.length > 0
+                ? Math.round((lossesTrades.reduce((s, t) => s + num(t.durationMin), 0) / lossesTrades.length) * 10) / 10
+                : null;
+            const byDuration = groupBy(t => {
+                if (t.durationMin == null) return null;
+                const d = num(t.durationMin);
+                if (d < 2)  return 'lt2';
+                if (d < 5)  return 'lt5';
+                if (d < 15) return 'lt15';
+                return 'gte15';
+            });
+
             // Выявление инсайтов — топ-3 наблюдения для пользователя
             // type: 'good' | 'warn' | 'bad' — UI рисует соответствующую SVG-иконку
             const insights = [];
@@ -5879,6 +6245,11 @@ module.exports = function(app) {
                 byHour: byHour,
                 byRegimeAgreement: byRegimeAgreement,
                 byExit: byExit,
+                best: best,
+                worst: worst,
+                avgWinDuration: avgWinDuration,
+                avgLossDuration: avgLossDuration,
+                byDuration: byDuration,
                 insights: insights.slice(0, 5),
             });
         } catch(e) {

@@ -1318,6 +1318,7 @@
 }
 .bst-row-2 { grid-template-columns: 1fr 1fr; }
 .bst-row-3 { grid-template-columns: 1fr 1fr 1fr; }
+.bst-row-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
 .bst-inner { gap: 4px; }
 .bst-col {
     display: flex;
