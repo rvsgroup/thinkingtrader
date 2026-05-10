@@ -469,8 +469,8 @@ module.exports = function(app) {
                 // ── Настройки алгоритма ──
                 levelTouches:  3,           // мин. касаний для уровня
                 levelTolerance: 0.0005,     // ±0.05% зона уровня
-                volumeMultiplier: 1.5,      // объём текущей свечи / средний
-                positionTimeout: 6,         // таймаут в свечах
+                volumeMultiplier: 1.2,      // объём текущей свечи / средний (единое значение для всех ТФ)
+                positionTimeout: 30,        // таймаут позиции в свечах (дефолт для 5m, см. TIMEFRAME_DEFAULTS на клиенте)
                 stopOffsetPct: 0.001,       // стоп за уровнем (0.1%)
                 candlesForLevels: 200,      // свечей для расчёта уровней
                 candlesForVolume: 20,       // свечей для среднего объёма
@@ -482,10 +482,18 @@ module.exports = function(app) {
                 maxLeverage:   5,           // макс. плечо (1-10)
 
                 // ── Таргет-профит ──
+                // TP, cooldown — дефолты для 5m. При смене ТФ клиент подставляет
+                // значения для нового ТФ (см. TIMEFRAME_DEFAULTS в bot-panel.js).
                 minProfitPct:    0.15,      // мин. профит для входа (вшит, 0.15%)
-                maxProfitPct:    1.0,       // макс. тейк-профит (% от цены, настраивается)
-                cooldownCandles: 5,         // cooldown после закрытия (в свечах)
+                maxProfitPct:    0.8,       // макс. тейк-профит (% от цены, настраивается)
+                cooldownCandles: 3,         // cooldown после закрытия (в свечах)
                 stopAtrMultiplier: 1.5,    // множитель ATR для стопа (1.5 = 1.5x ATR)
+                // По умолчанию используем фиксированный % стоп — он предсказуем и не плавает
+                // от ATR. Дефолт 0.4% соответствует 5m таймфрейму (~1.7×ATR).
+                // При смене ТФ клиент подставляет SL для нового ТФ автоматически
+                // (см. TIMEFRAME_DEFAULTS в bot-panel.js).
+                stopMode:        'fixed',
+                stopFixedPct:    0.4,
 
                 // ── Кластерный анализ ──
                 clusterEnabled:  true,      // вкл/выкл кластерный анализ
@@ -502,10 +510,12 @@ module.exports = function(app) {
                 // Логика: когда прибыль (Gross, в $) пересекает каждую ступеньку (trigger + N*step),
                 // стоп переставляется на уровень прибыли (trigger + N*step − tolerance).
                 // Взаимоисключает trailing (оба не могут быть включены одновременно).
+                // Дефолты подобраны для 5m. При смене ТФ на клиенте они автоматически
+                // подставляются под выбранный ТФ (см. TIMEFRAME_DEFAULTS в bot-panel.js).
                 stepTpEnabled:   false,     // вкл/выкл
-                stepTpTrigger:   5.00,      // порог активации в $ (первый уровень)
-                stepTpStep:      0.50,      // шаг подтяжки в $
-                stepTpTolerance: 0.50,      // зазор стопа от уровня в $
+                stepTpTrigger:   6.00,      // порог активации в $ (первый уровень)
+                stepTpStep:      0.75,      // шаг подтяжки в $
+                stepTpTolerance: 1.50,      // зазор стопа от уровня в $
 
                 // ── Выход по противоположной полосе Боллинджера (только для MR) ──
                 bbExitEnabled:       false,  // если true — игнорируется minProfit и trailing
@@ -5557,6 +5567,20 @@ module.exports = function(app) {
             if (s.maxProfitPct) { session.maxProfitPct = parseFloat(s.maxProfitPct); changed.push('maxProfitPct'); }
             if (s.cooldownCandles) { session.cooldownCandles = parseInt(s.cooldownCandles); changed.push('cooldownCandles'); }
             if (s.stopAtrMultiplier) { session.stopAtrMultiplier = parseFloat(s.stopAtrMultiplier); changed.push('stopAtrMultiplier'); }
+            // Режим стопа: 'atr' (по умолчанию) или 'fixed'.
+            // Раньше тут НЕ было обработки — клиент посылал, сервер игнорировал,
+            // и Fixed% после смены значения в форме не применялся (в слепке оставалось старое).
+            if (s.stopMode !== undefined) {
+                session.stopMode = (s.stopMode === 'fixed') ? 'fixed' : 'atr';
+                changed.push(`stopMode:${session.stopMode}`);
+            }
+            if (s.stopFixedPct !== undefined) {
+                const v = parseFloat(s.stopFixedPct);
+                if (!isNaN(v) && v > 0) {
+                    session.stopFixedPct = v;
+                    changed.push(`stopFixedPct:${v}`);
+                }
+            }
             if (s.positionTimeout !== undefined) { session.positionTimeout = parseInt(s.positionTimeout); changed.push('positionTimeout'); }
 
             // Трейлинг
@@ -5588,6 +5612,27 @@ module.exports = function(app) {
             if (s.smaReturnEnabled !== undefined) {
                 session.smaReturnEnabled = !!s.smaReturnEnabled;
                 changed.push(`smaReturn:${session.smaReturnEnabled ? 'ON' : 'OFF'}`);
+            }
+
+            // Выход по противоположной BB (MR) — раньше hot-save не парсил эти поля,
+            // тумблер и значение в форме игнорировались до перезапуска бота.
+            if (s.bbExitEnabled !== undefined) {
+                session.bbExitEnabled = !!s.bbExitEnabled;
+                changed.push(`bbExit:${session.bbExitEnabled ? 'ON' : 'OFF'}`);
+            }
+            if (s.bbExitTolerance !== undefined) {
+                const v = parseFloat(s.bbExitTolerance);
+                if (Number.isFinite(v) && v >= 0) {
+                    session.bbExitTolerance = v;
+                    changed.push(`bbExitTolerance:${v}`);
+                }
+            }
+            if (s.smaReturnTolerance !== undefined) {
+                const v = parseFloat(s.smaReturnTolerance);
+                if (Number.isFinite(v) && v >= 0) {
+                    session.smaReturnTolerance = v;
+                    changed.push(`smaReturnTolerance:${v}`);
+                }
             }
 
             // ATR-фильтр волатильности

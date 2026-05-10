@@ -27,16 +27,22 @@
         riskPct: '2',
         dayLimitPct: '5',
         maxLosses: '3',
-        volumeMultiplier: '1.5',
+        // Volume filter — единое значение для всех ТФ. 1.2 = вход только если
+        // объём текущей свечи >= 1.2 × средний объём. Эмпирический оптимум.
+        volumeMultiplier: '1.2',
+        // Таймаут позиции (в свечах). Дефолт для 5m — см. TIMEFRAME_DEFAULTS.
+        // При смене ТФ подставляется значение для нового ТФ.
         positionTimeout: '30',
         maxLeverage: '5',
         trailingEnabled: false,
         trailingOffset: '0.25',
         trailingActivation: '70',
         stepTpEnabled: false,
-        stepTpTrigger: '5.00',
-        stepTpStep: '0.50',
-        stepTpTolerance: '0.50',
+        // Дефолтные значения STP — для 5m (см. TIMEFRAME_DEFAULTS ниже).
+        // При смене таймфрейма в модалке настроек подставляются значения для нового ТФ.
+        stepTpTrigger: '6.00',
+        stepTpStep: '0.75',
+        stepTpTolerance: '1.50',
         bbExitEnabled: false,
         bbExitTolerance: '5',
         smaReturnEnabled: false,
@@ -46,11 +52,12 @@
         // Manual: визуализация (по умолчанию обе выкл — пользователь сам включает что нужно)
         manualShowBB:     false,
         manualShowLevels: false,
-        maxProfitPct: '1.0',
-        cooldownCandles: '5',
+        // TP и cooldown — дефолты для 5m. При смене ТФ подставляются значения для нового ТФ.
+        maxProfitPct: '0.8',
+        cooldownCandles: '3',
         stopAtrMultiplier: '1.5',
-        stopMode: 'atr',          // 'atr' | 'fixed' — режим стоп-лосса
-        stopFixedPct: '0.5',      // % от цены входа при stopMode='fixed'
+        stopMode: 'fixed',        // 'atr' | 'fixed' — режим стоп-лосса. По умолчанию fixed%.
+        stopFixedPct: '0.4',      // % от цены входа при stopMode='fixed'. Дефолт для 5m.
         clusterExitConfirm: '1',
         strategy: 'scalper',        // 'scalper' | 'mean_reversion' | 'manual'
         direction: 'both',          // 'both' | 'long' | 'short'
@@ -86,6 +93,37 @@
         botName: null,
         bots: [],               // список ботов [{botId, pair, strategy, running, ...}]
     };
+
+    // Дефолты STP (Step TP), SL, TP, cooldown и таймаута позиции по таймфрейму.
+    // Подбирались исходя из ATR % SOL на разных ТФ так чтобы:
+    //   STP зазор ~1×ATR (не выбивает шумом одной свечи)
+    //   STP активация ~2×ATR (включается только когда движение реально пошло)
+    //   TP ~4×ATR (реалистичная цель за один импульс)
+    //   SL ~2×ATR (R:R 2:1 от TP)
+    //   cooldown ~30 минут отдыха между сделками (~2 часа на 1h+)
+    //   positionTimeout ~30-40 часов реального времени (на 5m короче, на 4h дольше)
+    // Применимо ко всем стратегиям (scalper, MR, manual).
+    var TIMEFRAME_DEFAULTS = {
+        '5m':  { stepTpTrigger: '6.00',  stepTpStep: '0.75', stepTpTolerance: '1.50',  stopFixedPct: '0.4', maxProfitPct: '0.8', cooldownCandles: '3', positionTimeout: '30' },
+        '15m': { stepTpTrigger: '12.00', stepTpStep: '1.50', stepTpTolerance: '3.00',  stopFixedPct: '0.6', maxProfitPct: '1.2', cooldownCandles: '2', positionTimeout: '20' },
+        '1h':  { stepTpTrigger: '22.00', stepTpStep: '2.75', stepTpTolerance: '5.50',  stopFixedPct: '1.0', maxProfitPct: '2.0', cooldownCandles: '1', positionTimeout: '12' },
+        '4h':  { stepTpTrigger: '48.00', stepTpStep: '6.00', stepTpTolerance: '12.00', stopFixedPct: '2.0', maxProfitPct: '4.0', cooldownCandles: '1', positionTimeout: '10' },
+    };
+
+    // Применяет дефолты для выбранного ТФ к текущему _state.
+    // Используется при смене таймфрейма в форме нового бота. Не перезаписывает
+    // stopMode (он остаётся тем что выбрал пользователь — fixed по умолчанию).
+    function applyTimeframeDefaults(tf) {
+        var d = TIMEFRAME_DEFAULTS[tf];
+        if (!d) return;
+        _state.stepTpTrigger   = d.stepTpTrigger;
+        _state.stepTpStep      = d.stepTpStep;
+        _state.stepTpTolerance = d.stepTpTolerance;
+        _state.stopFixedPct    = d.stopFixedPct;
+        _state.maxProfitPct    = d.maxProfitPct;
+        _state.cooldownCandles = d.cooldownCandles;
+        _state.positionTimeout = d.positionTimeout;
+    }
 
     function injectCSS() {
         var link = document.createElement('link');
@@ -2775,11 +2813,17 @@
         // При выборе 1h/4h — сбрасываем окна торговли в state (UI и при сохранении).
         // На старших ТФ окна неприменимы; сервер всё равно их игнорирует, но в state
         // лучше держать актуальные значения чтобы UI не показывал заблуждение.
+        // Также при смене ТФ подставляем дефолты STP и SL для нового ТФ —
+        // см. TIMEFRAME_DEFAULTS наверху файла.
         bindToggleGroup('bstTfSeg', 'timeframe', function(v) {
             if (v === '1h' || v === '4h') {
                 _state.tradingWindowEU = false;
                 _state.tradingWindowUS = false;
             }
+            applyTimeframeDefaults(v);
+            // Перерисовываем форму чтобы новые значения отобразились в инпутах
+            // (input.value не обновится сам, форма генерируется как HTML-строка).
+            renderSettings();
         });
         bindToggleGroup('bstDirSeg', 'direction');
         bindToggleGroup('bstEntrySeg', 'entryMode');
