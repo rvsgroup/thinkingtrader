@@ -4674,6 +4674,14 @@
         var best = trades.length ? Math.max.apply(null, trades.map(function(t) { return t.pnl || 0; })) : 0;
         var worst = trades.length ? Math.min.apply(null, trades.map(function(t) { return t.pnl || 0; })) : 0;
 
+        // Profit Factor: Σ wins / |Σ losses|. null если нет убытков (PF неопределён) или нет сделок.
+        var grossWin = wins.reduce(function(s, t) { return s + (t.pnl || 0); }, 0);
+        var grossLoss = trades.filter(function(t) { return t.pnl < 0; })
+                              .reduce(function(s, t) { return s + Math.abs(t.pnl || 0); }, 0);
+        var pf = (totalTrades > 0 && grossLoss > 0) ? (grossWin / grossLoss) : null;
+        var pfColor = (pf == null) ? '#94A3B8' : (pf >= 1.5 ? '#10B981' : (pf >= 1.0 ? '#FBBF24' : '#EF4444'));
+        var pfText = (pf == null) ? '—' : pf.toFixed(2);
+
         var reasonMap = {
             'stop_loss': 'Стоп', 'take_profit': 'Тейк', 'timeout': 'Таймаут',
             'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'step_tp': 'Шаговый TP', 'cluster_exit': 'Кластер',
@@ -5030,6 +5038,7 @@
                 <div id="botJournalStats" style="' + statsPadding + 'display:flex;gap:' + (isMobile ? '10px' : '16px') + ';flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,0.04);">\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + totalTrades + '</span></div>\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Win rate <span style="color:' + (winRate >= 50 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + winRate + '%</span></div>\
+                    <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">PF <span style="color:' + pfColor + ';font-weight:700;">' + pfText + '</span></div>\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">P&L <span style="color:' + (totalPnl >= 0 ? '#10B981' : '#EF4444') + ';font-weight:700;">' + (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2) + '</span></div>\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Комиссии <span style="color:#FBBF24;font-weight:700;">$' + totalFees.toFixed(2) + '</span></div>\
                     <div style="font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;">Сред. <span style="color:#94A3B8;font-weight:700;">' + (avgPnl >= 0 ? '+' : '') + '$' + avgPnl.toFixed(2) + '</span></div>\
@@ -5329,9 +5338,18 @@
             var fBest = filteredTrades.length ? Math.max.apply(null, filteredTrades.map(function(t){ return t.pnl||0; })) : 0;
             var fWorst = filteredTrades.length ? Math.min.apply(null, filteredTrades.map(function(t){ return t.pnl||0; })) : 0;
 
+            // Profit Factor для отфильтрованных сделок (зеркалит расчёт в шапке без фильтров).
+            var fGrossWin = fWins.reduce(function(s, t) { return s + (t.pnl || 0); }, 0);
+            var fGrossLoss = filteredTrades.filter(function(t){ return (t.pnl||0) < 0; })
+                                           .reduce(function(s, t) { return s + Math.abs(t.pnl || 0); }, 0);
+            var fPf = (fTotal > 0 && fGrossLoss > 0) ? (fGrossWin / fGrossLoss) : null;
+            var fPfColor = (fPf == null) ? '#94A3B8' : (fPf >= 1.5 ? '#10B981' : (fPf >= 1.0 ? '#FBBF24' : '#EF4444'));
+            var fPfText = (fPf == null) ? '—' : fPf.toFixed(2);
+
             stats.innerHTML =
                   '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + fTotal + '</span></div>'
                 + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Win rate <span style="color:' + (fWR>=50?'#10B981':'#EF4444') + ';font-weight:700;">' + fWR + '%</span></div>'
+                + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">PF <span style="color:' + fPfColor + ';font-weight:700;">' + fPfText + '</span></div>'
                 + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">P&L <span style="color:' + (fNet>=0?'#10B981':'#EF4444') + ';font-weight:700;">' + (fNet>=0?'+':'') + '$' + fNet.toFixed(2) + '</span></div>'
                 + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Комиссии <span style="color:#FBBF24;font-weight:700;">$' + fFees.toFixed(2) + '</span></div>'
                 + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Сред. <span style="color:#94A3B8;font-weight:700;">' + (fAvg>=0?'+':'') + '$' + fAvg.toFixed(2) + '</span></div>'
