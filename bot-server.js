@@ -102,7 +102,7 @@ module.exports = function(app) {
         'virtualBalance', 'startBalance', '_startBalanceInit',
         'dayPnl', 'dayStartDate',
         'trades',
-        'maxProfitPct', 'stopAtrMultiplier', 'stopMode', 'stopFixedPct', 'positionTimeout', 'cooldownCandles',
+        'maxProfitPct', 'stopFixedPct', 'positionTimeout', 'cooldownCandles',
         'maxLeverage', 'volumeMultiplier', 'riskPct', 'dayLimitPct', 'maxLosses',
         'trailingEnabled', 'trailingOffset', 'trailingActivation',
         'stepTpEnabled', 'stepTpTrigger', 'stepTpStep', 'stepTpTolerance',
@@ -211,14 +211,7 @@ module.exports = function(app) {
         const dir = session.direction === 'long' ? 'L' : session.direction === 'short' ? 'S' : 'L+S';
         let extra = '';
         if (session.trailingEnabled) extra += ` ${s} TR`;
-        if (session.stepTpEnabled) {
-            // Формат: STP <активация>/<шаг>/<зазор> — все в долларах.
-            // Зеркалит клиентский getBotLabel в bot-panel.js.
-            const stpTrig = (session.stepTpTrigger != null) ? session.stepTpTrigger : 5;
-            const stpStep = (session.stepTpStep != null) ? session.stepTpStep : 0.5;
-            const stpTol  = (session.stepTpTolerance != null) ? session.stepTpTolerance : 0.5;
-            extra += ` ${s} STP ${stpTrig}/${stpStep}/${stpTol}`;
-        }
+        if (session.stepTpEnabled)   extra += ` ${s} STP`;
         if (session.bbExitEnabled) extra += ` ${s} BB`;
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
@@ -242,15 +235,9 @@ module.exports = function(app) {
             const clHi = session.clusterThreshold || 80;
             extra += ` ${s} CLF ${100 - clHi}/${clHi}`;
         }
-        // Стоп-лосс: для скальпера/MR показываем способ расчёта
-        // - fixed: SL 0.5 (процент)
-        // - atr:   SL ATR1.5 (множитель ATR)
-        if (session.strategy !== 'manual') {
-            if (session.stopMode === 'fixed' && session.stopFixedPct) {
-                extra += ` ${s} SL ${session.stopFixedPct}`;
-            } else if (session.stopAtrMultiplier) {
-                extra += ` ${s} SL ATR${session.stopAtrMultiplier}`;
-            }
+        // Стоп-лосс: фиксированный % от цены входа (единственный режим).
+        if (session.strategy !== 'manual' && session.stopFixedPct) {
+            extra += ` ${s} SL ${session.stopFixedPct}`;
         }
         return `${pair} ${s} ${strat} ${s} ${tf} ${s} ${mode} ${s} ${dir}${extra}`;
     }
@@ -293,9 +280,7 @@ module.exports = function(app) {
                     notifyEnabled: session.notifyEnabled !== false,
                     // Поля для диагностики и отображения настроек ботa в списке
                     clusterThreshold: session.clusterThreshold || 80,
-                    stopMode: session.stopMode || 'atr',
                     stopFixedPct: session.stopFixedPct,
-                    stopAtrMultiplier: session.stopAtrMultiplier,
                 });
             }
         }
@@ -469,8 +454,8 @@ module.exports = function(app) {
                 // ── Настройки алгоритма ──
                 levelTouches:  3,           // мин. касаний для уровня
                 levelTolerance: 0.0005,     // ±0.05% зона уровня
-                volumeMultiplier: 1.2,      // объём текущей свечи / средний (единое значение для всех ТФ)
-                positionTimeout: 30,        // таймаут позиции в свечах (дефолт для 5m, см. TIMEFRAME_DEFAULTS на клиенте)
+                volumeMultiplier: 1.2,      // объём текущей свечи / средний
+                positionTimeout: 30,        // таймаут позиции в свечах (дефолт 5m)
                 stopOffsetPct: 0.001,       // стоп за уровнем (0.1%)
                 candlesForLevels: 200,      // свечей для расчёта уровней
                 candlesForVolume: 20,       // свечей для среднего объёма
@@ -482,17 +467,15 @@ module.exports = function(app) {
                 maxLeverage:   5,           // макс. плечо (1-10)
 
                 // ── Таргет-профит ──
-                // TP, cooldown — дефолты для 5m. При смене ТФ клиент подставляет
-                // значения для нового ТФ (см. TIMEFRAME_DEFAULTS в bot-panel.js).
                 minProfitPct:    0.15,      // мин. профит для входа (вшит, 0.15%)
                 maxProfitPct:    0.8,       // макс. тейк-профит (% от цены, настраивается)
                 cooldownCandles: 3,         // cooldown после закрытия (в свечах)
-                stopAtrMultiplier: 1.5,    // множитель ATR для стопа (1.5 = 1.5x ATR)
-                // По умолчанию используем фиксированный % стоп — он предсказуем и не плавает
-                // от ATR. Дефолт 0.4% соответствует 5m таймфрейму (~1.7×ATR).
-                // При смене ТФ клиент подставляет SL для нового ТФ автоматически
-                // (см. TIMEFRAME_DEFAULTS в bot-panel.js).
-                stopMode:        'fixed',
+                // Стоп — только фиксированный % от цены входа.
+                // ATR-режим был удалён вместе со stopAtrMultiplier и stopMode —
+                // на низкой волатильности множитель ATR давал слишком узкий стоп
+                // (0.15-0.25%) при заявленных 0.6% и был источником багов.
+                // Дефолт 0.4% соответствует 5m таймфрейму (~1.7×ATR).
+                // При смене ТФ клиент подставляет SL для нового ТФ автоматически.
                 stopFixedPct:    0.4,
 
                 // ── Кластерный анализ ──
@@ -510,9 +493,8 @@ module.exports = function(app) {
                 // Логика: когда прибыль (Gross, в $) пересекает каждую ступеньку (trigger + N*step),
                 // стоп переставляется на уровень прибыли (trigger + N*step − tolerance).
                 // Взаимоисключает trailing (оба не могут быть включены одновременно).
-                // Дефолты подобраны для 5m. При смене ТФ на клиенте они автоматически
-                // подставляются под выбранный ТФ (см. TIMEFRAME_DEFAULTS в bot-panel.js).
                 stepTpEnabled:   false,     // вкл/выкл
+                // Дефолты для 5m. На клиенте при смене ТФ подставляются другие значения.
                 stepTpTrigger:   6.00,      // порог активации в $ (первый уровень)
                 stepTpStep:      0.75,      // шаг подтяжки в $
                 stepTpTolerance: 1.50,      // зазор стопа от уровня в $
@@ -1922,14 +1904,16 @@ module.exports = function(app) {
             ? Math.max(smaTarget, minTarget)
             : Math.min(smaTarget, minTarget);
 
-        // ── Стоп = за полосой + ATR × множитель ──
+        // ── Стоп = за полосой BB + фиксированный 0.1% буфер ──
+        // ATR-буфер был удалён вместе с ATR-режимом стопа в скальпере.
+        // 0.1% — небольшой запас чтобы шум одного тика не выбивал сразу за BB.
         const atr = calcATR(candles, 20);
         if (atr <= 0) return null;
 
-        const stopAtrDist = atr * (session.stopAtrMultiplier || 1.5);
+        const stopBuffer = price * 0.001;
         const stop = side === 'LONG'
-            ? (bb.lower - stopAtrDist)
-            : (bb.upper + stopAtrDist);
+            ? (bb.lower - stopBuffer)
+            : (bb.upper + stopBuffer);
 
         const risk = Math.abs(price - stop);
         const reward = Math.abs(target - price);
@@ -2032,13 +2016,13 @@ module.exports = function(app) {
             ? Math.max(smaTarget, minTarget)
             : Math.min(smaTarget, minTarget);
 
-        // ── Стоп ──
+        // ── Стоп = за полосой BB + фиксированный 0.1% буфер ──
         const atr = calcATR(candles, 20);
         if (atr <= 0) return;
-        const stopAtrDist = atr * (session.stopAtrMultiplier || 1.5);
+        const stopBuffer = price * 0.001;
         const stop = side === 'LONG'
-            ? (bb.lower - stopAtrDist)
-            : (bb.upper + stopAtrDist);
+            ? (bb.lower - stopBuffer)
+            : (bb.upper + stopBuffer);
 
         // ── R:R и мин. профит ──
         const risk = Math.abs(price - stop);
@@ -2194,20 +2178,13 @@ module.exports = function(app) {
         const atr = calcATR(candles, 20);
         if (atr <= 0) return null;
 
-        let stop;
-        if (session.stopMode === 'fixed') {
-            // Фиксированный % от цены входа
-            const stopPct = (session.stopFixedPct || 0.5) / 100;
-            stop = side === 'LONG'
-                ? price * (1 - stopPct)
-                : price * (1 + stopPct);
-        } else {
-            // ATR-based (по умолчанию, старое поведение)
-            const stopDist = atr * (session.stopAtrMultiplier || 1.5);
-            stop = side === 'LONG'
-                ? price - stopDist
-                : price + stopDist;
-        }
+        // Стоп — фиксированный % от цены входа.
+        // ATR-режим был раньше — удалён (давал слишком узкие стопы при низкой
+        // волатильности и был источником багов "стоп сработал на 0.2% при SL 0.6").
+        const stopPct = (session.stopFixedPct || 0.5) / 100;
+        const stop = side === 'LONG'
+            ? price * (1 - stopPct)
+            : price * (1 + stopPct);
 
         // ── Таргет = maxProfitPct от цены входа ──
         const tp = side === 'LONG'
@@ -4701,14 +4678,10 @@ module.exports = function(app) {
 
         // Таргет-профит
         session.minProfitPct    = 0.15; // вшит
-        session.maxProfitPct    = parseFloat(settings.maxProfitPct)     || 1.0;
-        session.cooldownCandles = parseInt(settings.cooldownCandles)    || 5;
-        session.stopAtrMultiplier = parseFloat(settings.stopAtrMultiplier) || 1.5;
-        // ── Режим стоп-лосса (для скальпера / MR) ──
-        // 'atr'   — стоп = entry ± ATR × stopAtrMultiplier (старое поведение)
-        // 'fixed' — стоп = entry ± stopFixedPct% (фикс % от цены входа)
-        session.stopMode      = settings.stopMode === 'fixed' ? 'fixed' : 'atr';
-        session.stopFixedPct  = parseFloat(settings.stopFixedPct) || 0.5;
+        session.maxProfitPct    = parseFloat(settings.maxProfitPct)     || 0.8;
+        session.cooldownCandles = parseInt(settings.cooldownCandles)    || 3;
+        // Стоп — только фиксированный % от цены входа. ATR-режим удалён.
+        session.stopFixedPct    = parseFloat(settings.stopFixedPct) || 0.4;
 
         // ── Стратегия ──
         session.strategy = settings.strategy || 'scalper'; // 'scalper' | 'mean_reversion' | 'manual'
@@ -5018,8 +4991,6 @@ module.exports = function(app) {
                 stepTpTolerance:    session.stepTpTolerance,
                 maxProfitPct:       session.maxProfitPct,
                 cooldownCandles:    session.cooldownCandles,
-                stopAtrMultiplier:  session.stopAtrMultiplier,
-                stopMode:           session.stopMode,
                 stopFixedPct:       session.stopFixedPct,
                 clusterEntryFilter: session.clusterEntryFilter,
                 clusterThreshold:   session.clusterThreshold,
@@ -5348,15 +5319,16 @@ module.exports = function(app) {
 
             // ── Market-ордер: считаем стоп и таргет ──
             const price = session.currentPrice;
-            const atr = calcATR(session.candles, 20);
-            const stopDistFallback = atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002;
+            // Фиксированный % стоп — единственный режим (ATR удалён).
+            const stopPct = (session.stopFixedPct || 0.5) / 100;
+            const stopDistFixed = price * stopPct;
 
             let stop, tp;
 
             if (isManualStrategy) {
                 // Manual: стоп по manualStopPct (% от цены входа), таргета нет
-                const stopPct = (session.manualStopPct || 0.5) / 100;
-                stop = side === 'LONG' ? price * (1 - stopPct) : price * (1 + stopPct);
+                const manualStopPct = (session.manualStopPct || 0.5) / 100;
+                stop = side === 'LONG' ? price * (1 - manualStopPct) : price * (1 + manualStopPct);
                 tp = null; // таргета в manual нет — выход только по стопу или по ручному close
             } else if (session.strategy === 'mean_reversion') {
                 // Mean Reversion: таргет = макс(SMA, минимальный профит), стоп за полосой BB
@@ -5371,16 +5343,16 @@ module.exports = function(app) {
                     tp = side === 'LONG'
                         ? Math.max(smaTarget, minTarget)
                         : Math.min(smaTarget, minTarget);
-                    stop = side === 'LONG'
-                        ? bb.lower - (atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002)
-                        : bb.upper + (atr > 0 ? atr * (session.stopAtrMultiplier || 1.5) : price * 0.002);
+                    // Стоп за полосой BB + фиксированный 0.1% буфер.
+                    const bbBuffer = price * 0.001;
+                    stop = side === 'LONG' ? bb.lower - bbBuffer : bb.upper + bbBuffer;
                 } else {
                     tp = side === 'LONG' ? price * 1.005 : price * 0.995;
-                    stop = side === 'LONG' ? price - stopDistFallback : price + stopDistFallback;
+                    stop = side === 'LONG' ? price - stopDistFixed : price + stopDistFixed;
                 }
             } else {
-                // Скальпер: старая логика
-                stop = side === 'LONG' ? price - stopDistFallback : price + stopDistFallback;
+                // Скальпер: фиксированный % от цены входа
+                stop = side === 'LONG' ? price - stopDistFixed : price + stopDistFixed;
                 tp = side === 'LONG'
                     ? price * (1 + session.maxProfitPct / 100)
                     : price * (1 - session.maxProfitPct / 100);
@@ -5501,187 +5473,14 @@ module.exports = function(app) {
             const uid = req.body.uid || 'anonymous';
             const botId = req.body.botId || 'default';
             const session = getSession(uid, botId);
-            const s = req.body;
-            const changed = [];
 
-            // Кластеры
-            if (s.clusterEntryFilter !== undefined) {
-                session.clusterEntryFilter = !!s.clusterEntryFilter;
-                changed.push(`clusterFilter:${session.clusterEntryFilter ? 'ON' : 'OFF'}`);
-            }
-            if (s.clusterEnabled !== undefined) { session.clusterEnabled = !!s.clusterEnabled; changed.push('clusterEnabled'); }
-            if (s.clusterThreshold) { session.clusterThreshold = parseInt(s.clusterThreshold); changed.push('clusterThreshold'); }
-            if (s.clusterExitConfirm) { session.clusterExitConfirm = parseInt(s.clusterExitConfirm); changed.push('clusterExitConfirm'); }
-            if (s.clusterLookback) { session.clusterLookback = parseInt(s.clusterLookback); changed.push('clusterLookback'); }
-
-            // Фильтр режима рынка (EMA50/EMA200)
-            if (s.regimeFilterEnabled !== undefined) {
-                session.regimeFilterEnabled = !!s.regimeFilterEnabled;
-                changed.push(`regimeFilter:${session.regimeFilterEnabled ? 'ON' : 'OFF'}`);
-            }
-
-            // Окно торговли (W) — два независимых подтумблера.
-            // На 1h/4h окна неприменимы (одна свеча = 1-4 часа, окно длится 5ч),
-            // поэтому принудительно держим в OFF независимо от запроса клиента.
-            const tfBlocksWindows = (session.timeframe === '1h' || session.timeframe === '4h');
-            if (s.tradingWindowEU !== undefined) {
-                session.tradingWindowEU = tfBlocksWindows ? false : !!s.tradingWindowEU;
-                changed.push(`windowEU:${session.tradingWindowEU ? 'ON' : 'OFF'}`);
-            } else if (tfBlocksWindows && session.tradingWindowEU) {
-                // На случай рассинхрона: если клиент не прислал поле, но в state TRUE —
-                // на старшем ТФ всё равно сбрасываем (одноразовая чистка).
-                session.tradingWindowEU = false;
-                changed.push(`windowEU:OFF (forced by TF)`);
-            }
-            if (s.tradingWindowUS !== undefined) {
-                session.tradingWindowUS = tfBlocksWindows ? false : !!s.tradingWindowUS;
-                changed.push(`windowUS:${session.tradingWindowUS ? 'ON' : 'OFF'}`);
-            } else if (tfBlocksWindows && session.tradingWindowUS) {
-                session.tradingWindowUS = false;
-                changed.push(`windowUS:OFF (forced by TF)`);
-            }
-
-            // Manual: показ BB / уровней (только визуализация, на торговую логику не влияет)
-            if (s.manualShowBB !== undefined) {
-                session.manualShowBB = !!s.manualShowBB;
-                changed.push(`manualShowBB:${session.manualShowBB ? 'ON' : 'OFF'}`);
-            }
-            if (s.manualShowLevels !== undefined) {
-                session.manualShowLevels = !!s.manualShowLevels;
-                changed.push(`manualShowLevels:${session.manualShowLevels ? 'ON' : 'OFF'}`);
-            }
-
-            // Направление
-            if (s.direction) { session.direction = s.direction; changed.push(`direction:${s.direction}`); }
-
-            // Режим входа
-            if (s.entryMode) { session.entryMode = s.entryMode; changed.push(`entryMode:${s.entryMode}`); }
-
-            // Риск
-            if (s.riskPct) { session.riskPct = parseFloat(s.riskPct); changed.push('riskPct'); }
-            if (s.dayLimitPct) { session.dayLimitPct = parseFloat(s.dayLimitPct); changed.push('dayLimitPct'); }
-            if (s.maxLosses) { session.maxLosses = parseInt(s.maxLosses); changed.push('maxLosses'); }
-            if (s.maxLeverage) { session.maxLeverage = parseInt(s.maxLeverage); changed.push('maxLeverage'); }
-
-            // Таргет / стоп
-            if (s.maxProfitPct) { session.maxProfitPct = parseFloat(s.maxProfitPct); changed.push('maxProfitPct'); }
-            if (s.cooldownCandles) { session.cooldownCandles = parseInt(s.cooldownCandles); changed.push('cooldownCandles'); }
-            if (s.stopAtrMultiplier) { session.stopAtrMultiplier = parseFloat(s.stopAtrMultiplier); changed.push('stopAtrMultiplier'); }
-            // Режим стопа: 'atr' (по умолчанию) или 'fixed'.
-            // Раньше тут НЕ было обработки — клиент посылал, сервер игнорировал,
-            // и Fixed% после смены значения в форме не применялся (в слепке оставалось старое).
-            if (s.stopMode !== undefined) {
-                session.stopMode = (s.stopMode === 'fixed') ? 'fixed' : 'atr';
-                changed.push(`stopMode:${session.stopMode}`);
-            }
-            if (s.stopFixedPct !== undefined) {
-                const v = parseFloat(s.stopFixedPct);
-                if (!isNaN(v) && v > 0) {
-                    session.stopFixedPct = v;
-                    changed.push(`stopFixedPct:${v}`);
-                }
-            }
-            if (s.positionTimeout !== undefined) { session.positionTimeout = parseInt(s.positionTimeout); changed.push('positionTimeout'); }
-
-            // Трейлинг
-            if (s.trailingEnabled !== undefined) { session.trailingEnabled = !!s.trailingEnabled; changed.push(`trailing:${session.trailingEnabled ? 'ON' : 'OFF'}`); }
-            if (s.trailingOffset) { session.trailingOffset = parseFloat(s.trailingOffset); changed.push('trailingOffset'); }
-            if (s.trailingActivation) { session.trailingActivation = parseFloat(s.trailingActivation); changed.push('trailingActivation'); }
-
-            // Шаговый TP (Step TP / STP)
-            if (s.stepTpEnabled !== undefined) { session.stepTpEnabled = !!s.stepTpEnabled; changed.push(`stepTp:${session.stepTpEnabled ? 'ON' : 'OFF'}`); }
-            if (s.stepTpTrigger !== undefined) {
-                const v = parseFloat(s.stepTpTrigger);
-                if (Number.isFinite(v) && v > 0) { session.stepTpTrigger = v; changed.push('stepTpTrigger'); }
-            }
-            if (s.stepTpStep !== undefined) {
-                const v = parseFloat(s.stepTpStep);
-                if (Number.isFinite(v) && v > 0) { session.stepTpStep = v; changed.push('stepTpStep'); }
-            }
-            if (s.stepTpTolerance !== undefined) {
-                const v = parseFloat(s.stepTpTolerance);
-                if (Number.isFinite(v) && v >= 0) { session.stepTpTolerance = v; changed.push('stepTpTolerance'); }
-            }
-            // Взаимоисключение Trailing ↔ StepTP
-            if (session.stepTpEnabled && session.trailingEnabled) {
-                session.trailingEnabled = false;
-                changed.push('trailing:OFF(excl)');
-            }
-
-            // SMA-возврат (MR)
-            if (s.smaReturnEnabled !== undefined) {
-                session.smaReturnEnabled = !!s.smaReturnEnabled;
-                changed.push(`smaReturn:${session.smaReturnEnabled ? 'ON' : 'OFF'}`);
-            }
-
-            // Выход по противоположной BB (MR) — раньше hot-save не парсил эти поля,
-            // тумблер и значение в форме игнорировались до перезапуска бота.
-            if (s.bbExitEnabled !== undefined) {
-                session.bbExitEnabled = !!s.bbExitEnabled;
-                changed.push(`bbExit:${session.bbExitEnabled ? 'ON' : 'OFF'}`);
-            }
-            if (s.bbExitTolerance !== undefined) {
-                const v = parseFloat(s.bbExitTolerance);
-                if (Number.isFinite(v) && v >= 0) {
-                    session.bbExitTolerance = v;
-                    changed.push(`bbExitTolerance:${v}`);
-                }
-            }
-            if (s.smaReturnTolerance !== undefined) {
-                const v = parseFloat(s.smaReturnTolerance);
-                if (Number.isFinite(v) && v >= 0) {
-                    session.smaReturnTolerance = v;
-                    changed.push(`smaReturnTolerance:${v}`);
-                }
-            }
-
-            // ATR-фильтр волатильности
-            if (s.atrFilterEnabled !== undefined) {
-                session.atrFilterEnabled = !!s.atrFilterEnabled;
-                changed.push(`atrFilter:${session.atrFilterEnabled ? 'ON' : 'OFF'}`);
-            }
-            if (s.atrFilterThreshold !== undefined) {
-                const t = parseFloat(s.atrFilterThreshold);
-                if (Number.isFinite(t) && t > 1.0 && t < 10.0) {
-                    session.atrFilterThreshold = t;
-                    changed.push(`atrThreshold:${t}`);
-                }
-            }
-
-            // Bollinger / RSI (Mean Reversion)
-            if (s.bbPeriod) { session.bbPeriod = parseInt(s.bbPeriod); changed.push('bbPeriod'); }
-            if (s.bbMultiplier) { session.bbMultiplier = parseFloat(s.bbMultiplier); changed.push('bbMultiplier'); }
-            if (s.rsiPeriod) { session.rsiPeriod = parseInt(s.rsiPeriod); changed.push('rsiPeriod'); }
-            if (s.rsiOverbought) { session.rsiOverbought = parseFloat(s.rsiOverbought); changed.push('rsiOverbought'); }
-            if (s.rsiOversold) { session.rsiOversold = parseFloat(s.rsiOversold); changed.push('rsiOversold'); }
-
-            // Manual-стратегия
-            if (s.manualStopPct !== undefined) {
-                const v = parseFloat(s.manualStopPct);
-                if (Number.isFinite(v) && v > 0 && v < 20) {
-                    session.manualStopPct = v; changed.push('manualStopPct');
-                }
-            }
-            if (s.manualSizeMode !== undefined) {
-                session.manualSizeMode = s.manualSizeMode === 'fixed' ? 'fixed' : 'risk';
-                changed.push(`manualSizeMode:${session.manualSizeMode}`);
-            }
-            if (s.manualFixedSizePct !== undefined) {
-                const v = parseFloat(s.manualFixedSizePct);
-                if (Number.isFinite(v) && v > 0 && v <= 100) {
-                    session.manualFixedSizePct = v; changed.push('manualFixedSizePct');
-                }
-            }
-            if (s.manualTimeoutEnabled !== undefined) {
-                session.manualTimeoutEnabled = !!s.manualTimeoutEnabled;
-                changed.push(`manualTimeout:${session.manualTimeoutEnabled ? 'ON' : 'OFF'}`);
-            }
-
-            // Объём
-            if (s.volumeMultiplier) { session.volumeMultiplier = parseFloat(s.volumeMultiplier); changed.push('volumeMultiplier'); }
-
-            // Имя бота
-            if (s.botName !== undefined) { session.botName = s.botName || null; changed.push('botName'); }
+            // Все настройки применяются через единую таблицу SETTINGS_FIELDS.
+            // Раньше тут было ~150 строк if'ов с парсерами для каждого поля,
+            // и при добавлении новой настройки надо было править этот блок,
+            // /api/bot/start и /api/bot/create — три места. Поэтому STP/SL/bbExit
+            // регулярно «не сохранялись» при hot-save (поля забывали добавить здесь
+            // несмотря на то что в start они были). Теперь — один источник правды.
+            const changed = applyBotSettings(session, req.body);
 
             if (changed.length > 0) {
                 console.log(`[BOT ${ts()}] ⚙️ Hot settings update (bot=${botId}): ${changed.join(', ')}`);
@@ -5759,7 +5558,7 @@ module.exports = function(app) {
                 'timeframe', 'direction', 'entryMode', 'mode',
                 'riskPct', 'dayLimitPct', 'maxLosses', 'maxLeverage',
                 'volumeMultiplier', 'positionTimeout', 'maxProfitPct', 'cooldownCandles',
-                'stopAtrMultiplier', 'stopFixedPct',
+                'stopFixedPct',
                 'trailingOffset', 'trailingActivation',
                 'stepTpTrigger', 'stepTpStep', 'stepTpTolerance',
                 'bbExitTolerance', 'smaReturnTolerance',
@@ -5775,7 +5574,6 @@ module.exports = function(app) {
                 'regimeFilterEnabled',
                 'tradingWindowEU', 'tradingWindowUS',
             ];
-            const stringFields = ['stopMode']; // 'fixed' | 'atr'
 
             for (const f of numFields) {
                 if (b[f] !== undefined && b[f] !== null && b[f] !== '') {
@@ -5786,9 +5584,6 @@ module.exports = function(app) {
             }
             for (const f of boolFields) {
                 if (b[f] !== undefined) session[f] = !!b[f];
-            }
-            for (const f of stringFields) {
-                if (b[f] !== undefined) session[f] = b[f];
             }
             // Текстовые поля направления/таймфрейма/режима, которые не числа — переопределяем явно
             if (typeof b.timeframe === 'string')  session.timeframe = b.timeframe;
@@ -5815,7 +5610,7 @@ module.exports = function(app) {
             session.consecutiveLosses = 0;
             session.position = null;
 
-            console.log(`[BOT ${ts()}] ➕ Created bot ${botId} for uid=${uid} (${session.pair} / ${session.strategy || 'scalper'}) start=$${session.startBalance} cluster=${session.clusterThreshold} stopMode=${session.stopMode}`);
+            console.log(`[BOT ${ts()}] ➕ Created bot ${botId} for uid=${uid} (${session.pair} / ${session.strategy || 'scalper'}) start=$${session.startBalance} cluster=${session.clusterThreshold} SL=${session.stopFixedPct}%`);
             res.json({ ok: true, botId, bots: getUserBots(uid) });
         } catch(e) {
             res.status(500).json({ error: e.message });
@@ -5945,8 +5740,6 @@ module.exports = function(app) {
                 smaReturnTolerance: session.smaReturnTolerance,
                 maxProfitPct: session.maxProfitPct,
                 cooldownCandles: session.cooldownCandles,
-                stopAtrMultiplier: session.stopAtrMultiplier,
-                stopMode: session.stopMode || 'atr',
                 stopFixedPct: session.stopFixedPct,
                 clusterEnabled: session.clusterEnabled,
                 clusterEntryFilter: session.clusterEntryFilter || false,
@@ -5998,6 +5791,7 @@ module.exports = function(app) {
                 dayLimitPct: session.dayLimitPct,
                 tradeCount:  session.trades.length,
                 winRate:     calcWinRate(session.trades),
+                profitFactor: calcProfitFactor(session.trades),
                 wsConnected: session.ws && session.ws.readyState === WebSocket.OPEN,
                 candlesLoaded: session.candles.length,
                 volumeInfo: getVolumeInfo(session),
@@ -6609,12 +6403,6 @@ module.exports = function(app) {
                 currentPrice: session.currentPrice,
                 strategy: session.strategy || 'scalper',
                 bbHistory: bbHistory,
-                // Параметры BB — клиент пересчитывает их локально на полной длине свечей
-                // (rawOhlcCache ~1000 свечей), чтобы линии рисовались на всю историю,
-                // а не только на ботовский буфер candlesForLevels (200 свечей).
-                bbEnabled: !!needBB,
-                bbPeriod: session.bbPeriod || 20,
-                bbMultiplier: session.bbMultiplier || 2.0,
                 position: session.position ? {
                     side: session.position.side,
                     entry: session.position.entryPrice,
@@ -6632,10 +6420,178 @@ module.exports = function(app) {
        ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
     ══════════════════════════════════════════ */
 
+    // ── Общий парсер настроек ──
+    // Раньше каждое поле парсилось отдельным if'ом. При добавлении новой настройки
+    // надо было править hot-save (тут), /api/bot/start, /api/bot/create — три места.
+    // Багов за день: STP/SL/bbExit «не сохранялись» именно из-за рассинхрона.
+    // Теперь таблица — один источник правды. Дальше на /api/bot/start и /api/bot/create
+    // тоже можно будет переключить эту таблицу (отдельной итерацией).
+    //
+    // Каждое поле:
+    //   key       — имя поля в body и в session
+    //   parse(v)  — преобразование значения. Возвращает финальное значение или undefined если невалидно.
+    //               Если возвращён undefined — поле не применяется.
+    //   label?    — что писать в changed-лог. По умолчанию используется key.
+    //               Можно функцию (newValue) → строка для тумблеров (вида "stepTp:ON").
+    //   tfBlocked? — true для tradingWindowEU/US: на 1h/4h принудительно false.
+    //
+    // Парсеры:
+    const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : undefined; };
+    const numPos = (v) => { const n = parseFloat(v); return (Number.isFinite(n) && n > 0) ? n : undefined; };
+    const numNonNeg = (v) => { const n = parseFloat(v); return (Number.isFinite(n) && n >= 0) ? n : undefined; };
+    const int = (v) => { const n = parseInt(v); return Number.isFinite(n) ? n : undefined; };
+    const intPos = (v) => { const n = parseInt(v); return (Number.isFinite(n) && n > 0) ? n : undefined; };
+    const bool = (v) => !!v;
+    const str = (v) => (typeof v === 'string' ? v : undefined);
+    const strOrNull = (v) => (typeof v === 'string' ? (v || null) : null);
+    const numRange = (lo, hi) => (v) => {
+        const n = parseFloat(v);
+        return (Number.isFinite(n) && n > lo && n < hi) ? n : undefined;
+    };
+
+    // Лейблы-форматтеры для changed-лога
+    const onOff = (key) => (v) => `${key}:${v ? 'ON' : 'OFF'}`;
+    const valOf = (key) => (v) => `${key}:${v}`;
+
+    const SETTINGS_FIELDS = [
+        // ── Кластеры ──
+        { key: 'clusterEntryFilter', parse: bool, label: onOff('clusterFilter') },
+        { key: 'clusterEnabled',     parse: bool, label: 'clusterEnabled' },
+        { key: 'clusterThreshold',   parse: int,  label: 'clusterThreshold' },
+        { key: 'clusterExitConfirm', parse: int,  label: 'clusterExitConfirm' },
+        { key: 'clusterLookback',    parse: int,  label: 'clusterLookback' },
+
+        // ── Фильтры ──
+        { key: 'regimeFilterEnabled', parse: bool, label: onOff('regimeFilter') },
+
+        // ── Окна торговли — особый случай: на 1h/4h принудительно OFF ──
+        { key: 'tradingWindowEU', parse: bool, label: onOff('windowEU'), tfBlocked: true },
+        { key: 'tradingWindowUS', parse: bool, label: onOff('windowUS'), tfBlocked: true },
+
+        // ── Manual: визуализация ──
+        { key: 'manualShowBB',     parse: bool, label: onOff('manualShowBB') },
+        { key: 'manualShowLevels', parse: bool, label: onOff('manualShowLevels') },
+
+        // ── Направление и режим входа ──
+        { key: 'direction', parse: str, label: valOf('direction') },
+        { key: 'entryMode', parse: str, label: valOf('entryMode') },
+
+        // ── Риск ──
+        { key: 'riskPct',     parse: numPos, label: 'riskPct' },
+        { key: 'dayLimitPct', parse: numPos, label: 'dayLimitPct' },
+        { key: 'maxLosses',   parse: intPos, label: 'maxLosses' },
+        { key: 'maxLeverage', parse: intPos, label: 'maxLeverage' },
+
+        // ── Таргет / стоп ──
+        { key: 'maxProfitPct',      parse: numPos, label: 'maxProfitPct' },
+        { key: 'cooldownCandles',   parse: int,    label: 'cooldownCandles' },
+        { key: 'stopFixedPct',      parse: numPos, label: valOf('stopFixedPct') },
+        { key: 'positionTimeout',   parse: int,    label: 'positionTimeout' },
+
+        // ── Трейлинг ──
+        { key: 'trailingEnabled',    parse: bool,   label: onOff('trailing') },
+        { key: 'trailingOffset',     parse: numPos, label: 'trailingOffset' },
+        { key: 'trailingActivation', parse: numPos, label: 'trailingActivation' },
+
+        // ── Шаговый TP ──
+        { key: 'stepTpEnabled',   parse: bool,      label: onOff('stepTp') },
+        { key: 'stepTpTrigger',   parse: numPos,    label: 'stepTpTrigger' },
+        { key: 'stepTpStep',      parse: numPos,    label: 'stepTpStep' },
+        { key: 'stepTpTolerance', parse: numNonNeg, label: 'stepTpTolerance' },
+
+        // ── BB Exit / SMA Return (MR) ──
+        { key: 'bbExitEnabled',      parse: bool,      label: onOff('bbExit') },
+        { key: 'bbExitTolerance',    parse: numNonNeg, label: valOf('bbExitTolerance') },
+        { key: 'smaReturnEnabled',   parse: bool,      label: onOff('smaReturn') },
+        { key: 'smaReturnTolerance', parse: numNonNeg, label: valOf('smaReturnTolerance') },
+
+        // ── ATR-фильтр ──
+        { key: 'atrFilterEnabled',   parse: bool,             label: onOff('atrFilter') },
+        { key: 'atrFilterThreshold', parse: numRange(1.0, 10.0), label: valOf('atrThreshold') },
+
+        // ── BB / RSI ──
+        { key: 'bbPeriod',      parse: intPos, label: 'bbPeriod' },
+        { key: 'bbMultiplier',  parse: numPos, label: 'bbMultiplier' },
+        { key: 'rsiPeriod',     parse: intPos, label: 'rsiPeriod' },
+        { key: 'rsiOverbought', parse: numPos, label: 'rsiOverbought' },
+        { key: 'rsiOversold',   parse: numPos, label: 'rsiOversold' },
+
+        // ── Manual-стратегия ──
+        { key: 'manualStopPct',        parse: numRange(0, 20),  label: 'manualStopPct' },
+        { key: 'manualSizeMode',       parse: (v) => v === 'fixed' ? 'fixed' : 'risk', label: valOf('manualSizeMode') },
+        { key: 'manualFixedSizePct',   parse: numRange(0, 100.0001), label: 'manualFixedSizePct' },
+        { key: 'manualTimeoutEnabled', parse: bool,             label: onOff('manualTimeout') },
+
+        // ── Объём ──
+        { key: 'volumeMultiplier', parse: numPos, label: 'volumeMultiplier' },
+
+        // ── Имя ──
+        { key: 'botName', parse: strOrNull, label: 'botName', alwaysApply: true },
+    ];
+
+    // Применяет настройки из body к session по таблице SETTINGS_FIELDS.
+    // Возвращает массив строк-описаний изменений для лога.
+    // tfBlocked-поля (windowEU/US) на 1h/4h принудительно сбрасываются в false.
+    function applyBotSettings(session, body) {
+        const changed = [];
+        const tfBlocksWindows = (session.timeframe === '1h' || session.timeframe === '4h');
+
+        for (const field of SETTINGS_FIELDS) {
+            const raw = body[field.key];
+            const inBody = raw !== undefined;
+
+            // tfBlocked: даже если клиент не прислал поле, на старшем ТФ принудительно сбрасываем
+            if (field.tfBlocked && tfBlocksWindows && session[field.key]) {
+                if (!inBody) {
+                    session[field.key] = false;
+                    changed.push(`${field.key}:OFF (forced by TF)`);
+                    continue;
+                }
+            }
+
+            if (!inBody) continue;
+
+            let val = field.parse(raw);
+            if (val === undefined) continue;
+
+            // tfBlocked: на старшем ТФ всегда false независимо от прилетевшего значения
+            if (field.tfBlocked && tfBlocksWindows) val = false;
+
+            session[field.key] = val;
+            const label = field.label;
+            changed.push(typeof label === 'function' ? label(val) : label);
+        }
+
+        // Взаимоисключение: stepTp ↔ trailing
+        if (session.stepTpEnabled && session.trailingEnabled) {
+            session.trailingEnabled = false;
+            changed.push('trailing:OFF(excl)');
+        }
+
+        return changed;
+    }
+
+
     function calcWinRate(trades) {
         if (!trades.length) return null;
         const wins = trades.filter(t => t.pnl > 0).length;
         return Math.round((wins / trades.length) * 1000) / 10;
+    }
+
+    // Profit Factor = сумма всех выигрышей / |сумма всех убытков|.
+    // Использует pnl (gross) — комиссии не учитываются, чтобы метрика отражала
+    // качество стратегии независимо от комиссионной структуры.
+    // > 1 = прибыльная, > 1.5 = хорошая, > 2 = отличная.
+    // null если нет сделок или нет ни одного убытка (PF = бесконечность не информативен).
+    function calcProfitFactor(trades) {
+        if (!trades.length) return null;
+        let grossWin = 0, grossLoss = 0;
+        for (const t of trades) {
+            if (t.pnl > 0) grossWin += t.pnl;
+            else if (t.pnl < 0) grossLoss += Math.abs(t.pnl);
+        }
+        if (grossLoss === 0) return null; // нет убытков — PF неопределён
+        return Math.round((grossWin / grossLoss) * 100) / 100; // 2 знака
     }
 
     function getVolumeInfo(session) {

@@ -27,19 +27,15 @@
         riskPct: '2',
         dayLimitPct: '5',
         maxLosses: '3',
-        // Volume filter — единое значение для всех ТФ. 1.2 = вход только если
-        // объём текущей свечи >= 1.2 × средний объём. Эмпирический оптимум.
+        // Volume filter единое значение для всех ТФ.
         volumeMultiplier: '1.2',
-        // Таймаут позиции (в свечах). Дефолт для 5m — см. TIMEFRAME_DEFAULTS.
-        // При смене ТФ подставляется значение для нового ТФ.
+        // Все эти дефолты — для 5m. При смене ТФ применяется TIMEFRAME_DEFAULTS.
         positionTimeout: '30',
         maxLeverage: '5',
         trailingEnabled: false,
         trailingOffset: '0.25',
         trailingActivation: '70',
         stepTpEnabled: false,
-        // Дефолтные значения STP — для 5m (см. TIMEFRAME_DEFAULTS ниже).
-        // При смене таймфрейма в модалке настроек подставляются значения для нового ТФ.
         stepTpTrigger: '6.00',
         stepTpStep: '0.75',
         stepTpTolerance: '1.50',
@@ -52,12 +48,9 @@
         // Manual: визуализация (по умолчанию обе выкл — пользователь сам включает что нужно)
         manualShowBB:     false,
         manualShowLevels: false,
-        // TP и cooldown — дефолты для 5m. При смене ТФ подставляются значения для нового ТФ.
         maxProfitPct: '0.8',
         cooldownCandles: '3',
-        stopAtrMultiplier: '1.5',
-        stopMode: 'fixed',        // 'atr' | 'fixed' — режим стоп-лосса. По умолчанию fixed%.
-        stopFixedPct: '0.4',      // % от цены входа при stopMode='fixed'. Дефолт для 5m.
+        stopFixedPct: '0.4',      // % от цены входа. Дефолт для 5m. ATR-режим удалён.
         clusterExitConfirm: '1',
         strategy: 'scalper',        // 'scalper' | 'mean_reversion' | 'manual'
         direction: 'both',          // 'both' | 'long' | 'short'
@@ -94,15 +87,8 @@
         bots: [],               // список ботов [{botId, pair, strategy, running, ...}]
     };
 
-    // Дефолты STP (Step TP), SL, TP, cooldown и таймаута позиции по таймфрейму.
-    // Подбирались исходя из ATR % SOL на разных ТФ так чтобы:
-    //   STP зазор ~1×ATR (не выбивает шумом одной свечи)
-    //   STP активация ~2×ATR (включается только когда движение реально пошло)
-    //   TP ~4×ATR (реалистичная цель за один импульс)
-    //   SL ~2×ATR (R:R 2:1 от TP)
-    //   cooldown ~30 минут отдыха между сделками (~2 часа на 1h+)
-    //   positionTimeout ~30-40 часов реального времени (на 5m короче, на 4h дольше)
-    // Применимо ко всем стратегиям (scalper, MR, manual).
+    // Дефолты STP, SL, TP, cooldown и таймаута позиции по таймфрейму.
+    // Применимо ко всем стратегиям. ATR-режим стопа удалён — только fixed%.
     var TIMEFRAME_DEFAULTS = {
         '5m':  { stepTpTrigger: '6.00',  stepTpStep: '0.75', stepTpTolerance: '1.50',  stopFixedPct: '0.4', maxProfitPct: '0.8', cooldownCandles: '3', positionTimeout: '30' },
         '15m': { stepTpTrigger: '12.00', stepTpStep: '1.50', stepTpTolerance: '3.00',  stopFixedPct: '0.6', maxProfitPct: '1.2', cooldownCandles: '2', positionTimeout: '20' },
@@ -110,9 +96,6 @@
         '4h':  { stepTpTrigger: '48.00', stepTpStep: '6.00', stepTpTolerance: '12.00', stopFixedPct: '2.0', maxProfitPct: '4.0', cooldownCandles: '1', positionTimeout: '10' },
     };
 
-    // Применяет дефолты для выбранного ТФ к текущему _state.
-    // Используется при смене таймфрейма в форме нового бота. Не перезаписывает
-    // stopMode (он остаётся тем что выбрал пользователь — fixed по умолчанию).
     function applyTimeframeDefaults(tf) {
         var d = TIMEFRAME_DEFAULTS[tf];
         if (!d) return;
@@ -243,6 +226,7 @@
                         <path d="M2 4 L0.5 4 L0.5 13.5 C0.5 14.3 1.2 15 2 15" stroke="#94A3B8" stroke-width="1.2" fill="none" stroke-linecap="round"/>\
                     </svg>\
                 </span>\
+                <span id="botCountBadge" title="Всего ботов" style="margin-left:auto;font-size:10px;color:#94A3B8;letter-spacing:0.3px;padding:2px 6px;border-radius:3px;background:rgba(255,255,255,0.04);">— ботов</span>\
             </div>\
             \
             <div id="botSelectorWrap" style="padding:4px 10px 2px;position:relative;">\
@@ -791,8 +775,6 @@
             // Цели/стопы
             if (data.maxProfitPct !== undefined)      _state.maxProfitPct = String(data.maxProfitPct);
             if (data.cooldownCandles !== undefined)   _state.cooldownCandles = String(data.cooldownCandles);
-            if (data.stopAtrMultiplier !== undefined) _state.stopAtrMultiplier = String(data.stopAtrMultiplier);
-            if (data.stopMode !== undefined)          _state.stopMode = data.stopMode === 'fixed' ? 'fixed' : 'atr';
             if (data.stopFixedPct !== undefined)      _state.stopFixedPct = String(data.stopFixedPct);
             if (data.clusterExitConfirm !== undefined) _state.clusterExitConfirm = String(data.clusterExitConfirm);
             // Кластеры
@@ -2514,11 +2496,8 @@
                             <input class="bst-input" id="bstCooldown" type="number" min="1" max="20" step="1" value="' + _state.cooldownCandles + '">\
                         </div>\
                         <div class="bst-col">\
-                            <div class="bst-lbl">Стоп · ' + (_state.stopMode === 'fixed' ? '%' : '×ATR') + '\
-                                <span class="bst-stop-mode-toggle" id="bstStopModeToggle" style="margin-left:8px;cursor:pointer;font-size:10px;color:#26a69a;text-decoration:underline;">' + (_state.stopMode === 'fixed' ? 'ATR' : 'Fixed%') + '</span>\
-                            </div>\
-                            <input class="bst-input" id="bstStopAtr" type="number" min="0.5" max="5" step="0.1" value="' + _state.stopAtrMultiplier + '" style="' + (_state.stopMode === 'fixed' ? 'display:none;' : '') + '">\
-                            <input class="bst-input" id="bstStopFixed" type="number" min="0.1" max="3" step="0.05" value="' + _state.stopFixedPct + '" style="' + (_state.stopMode === 'fixed' ? '' : 'display:none;') + '">\
+                            <div class="bst-lbl">Стоп · %</div>\
+                            <input class="bst-input" id="bstStopFixed" type="number" min="0.1" max="3" step="0.05" value="' + _state.stopFixedPct + '">\
                         </div>\
                     </div>\
                 </div>\
@@ -2813,16 +2792,14 @@
         // При выборе 1h/4h — сбрасываем окна торговли в state (UI и при сохранении).
         // На старших ТФ окна неприменимы; сервер всё равно их игнорирует, но в state
         // лучше держать актуальные значения чтобы UI не показывал заблуждение.
-        // Также при смене ТФ подставляем дефолты STP и SL для нового ТФ —
-        // см. TIMEFRAME_DEFAULTS наверху файла.
+        // Также при смене ТФ применяем дефолты STP/SL/TP/cooldown/таймаута для нового ТФ
+        // и перерисовываем форму чтобы новые значения отобразились в инпутах.
         bindToggleGroup('bstTfSeg', 'timeframe', function(v) {
             if (v === '1h' || v === '4h') {
                 _state.tradingWindowEU = false;
                 _state.tradingWindowUS = false;
             }
             applyTimeframeDefaults(v);
-            // Перерисовываем форму чтобы новые значения отобразились в инпутах
-            // (input.value не обновится сам, форма генерируется как HTML-строка).
             renderSettings();
         });
         bindToggleGroup('bstDirSeg', 'direction');
@@ -3473,7 +3450,7 @@
         // All input fields sync to state on change
         var inputMap = {
             bstBbPeriod: 'bbPeriod', bstBbMult: 'bbMultiplier', bstRsiPeriod: 'rsiPeriod',
-            bstTakeProfit: 'maxProfitPct', bstCooldown: 'cooldownCandles', bstStopAtr: 'stopAtrMultiplier',
+            bstTakeProfit: 'maxProfitPct', bstCooldown: 'cooldownCandles',
             bstStopFixed: 'stopFixedPct',
             bstRiskPct: 'riskPct', bstDayLimit: 'dayLimitPct', bstMaxLosses: 'maxLosses',
             bstBalance: 'virtualBalance', bstTrailOffset: 'trailingOffset', bstTrailAct: 'trailingActivation',
@@ -3488,29 +3465,6 @@
                 inp.oninput = function() { _state[inputMap[id]] = inp.value; updateSummary(); };
             }
         });
-
-        // ── Переключатель режима стопа: ATR ↔ Fixed% ──
-        var stopModeToggle = body.querySelector('#bstStopModeToggle');
-        if (stopModeToggle) {
-            stopModeToggle.onclick = function() {
-                _state.stopMode = (_state.stopMode === 'fixed') ? 'atr' : 'fixed';
-                var atrInp   = body.querySelector('#bstStopAtr');
-                var fixedInp = body.querySelector('#bstStopFixed');
-                var lblParent = stopModeToggle.parentElement;
-                if (_state.stopMode === 'fixed') {
-                    if (atrInp)   atrInp.style.display   = 'none';
-                    if (fixedInp) fixedInp.style.display = '';
-                    if (lblParent) lblParent.firstChild.textContent = 'Стоп · % ';
-                    stopModeToggle.textContent = 'ATR';
-                } else {
-                    if (atrInp)   atrInp.style.display   = '';
-                    if (fixedInp) fixedInp.style.display = 'none';
-                    if (lblParent) lblParent.firstChild.textContent = 'Стоп · ×ATR ';
-                    stopModeToggle.textContent = 'Fixed%';
-                }
-                updateSummary();
-            };
-        }
 
         // ── Push-уведомления: тумблер ──
         var notifyEl = body.querySelector('#bstNotify');
@@ -3671,8 +3625,6 @@
                     positionTimeout: parseInt(_state.positionTimeout) || 30,
                     maxProfitPct: parseFloat(_state.maxProfitPct) || 1.0,
                     cooldownCandles: parseInt(_state.cooldownCandles) || 5,
-                    stopAtrMultiplier: parseFloat(_state.stopAtrMultiplier) || 1.5,
-                    stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
                     stopFixedPct: parseFloat(_state.stopFixedPct) || 0.5,
                     trailingEnabled: !!_state.trailingEnabled,
                     trailingOffset: _state.trailingOffset,
@@ -3753,7 +3705,7 @@
             <div class="bst-sum-row"><span class="bst-sum-key">Пара / ТФ</span><span class="bst-sum-val">' + pairsLabel + ' · ' + _state.timeframe + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Направление / Вход</span><span class="bst-sum-val">' + dirLabel + ' · ' + entryLabel + '</span></div>\
             ' + rsiSummaryRow + '\
-            <div class="bst-sum-row"><span class="bst-sum-key">Стоп / Тейк</span><span class="bst-sum-val">' + (_state.stopMode === 'fixed' ? (_state.stopFixedPct + '% fixed') : (_state.stopAtrMultiplier + '× ATR')) + ' / ' + _state.maxProfitPct + '%</span></div>\
+            <div class="bst-sum-row"><span class="bst-sum-key">Стоп / Тейк</span><span class="bst-sum-val">' + _state.stopFixedPct + '% / ' + _state.maxProfitPct + '%</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Трейлинг</span><span class="bst-sum-val ' + (_state.trailingEnabled ? 'bst-sum-accent' : '') + '">' + trailLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Шаговый TP</span><span class="bst-sum-val ' + (_state.stepTpEnabled ? 'bst-sum-accent' : '') + '">' + stepTpLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Риск / Плечо</span><span class="bst-sum-val">' + _state.riskPct + '% / ' + _state.maxLeverage + 'x</span></div>\
@@ -3845,8 +3797,6 @@
                 stepTpTolerance: _state.stepTpTolerance,
                 maxProfitPct: _state.maxProfitPct,
                 cooldownCandles: _state.cooldownCandles,
-                stopAtrMultiplier: _state.stopAtrMultiplier,
-                stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
                 stopFixedPct: _state.stopFixedPct,
                 clusterExitConfirm: _state.clusterExitConfirm,
                 // Кластерные настройки и фильтры — раньше тут отсутствовали,
@@ -5120,7 +5070,16 @@
             pair:      'all',  // 'all' | 'BTC/USDT' | ...
             strategy:  'all',  // 'all' | 'mean_reversion' | 'scalper' | 'manual'
             regime:    'all',  // 'all' | 'LONG' | 'SHORT' | 'BLOCK'
+            timeframe: 'all',  // 'all' | '5m' | '15m' | '1h' | '4h'
         };
+
+        // Извлекает ТФ из лейбла бота (например "BNB/USDT · MR · 15m · T · L+S" → "15m").
+        // Используется фильтром по таймфрейму. Возвращает '' если ТФ не найден.
+        function _tfFromLabel(label) {
+            if (!label) return '';
+            var m = label.match(/[·\s](5m|15m|1h|4h)[·\s]/);
+            return m ? m[1] : '';
+        }
 
         // Все уникальные пары из текущего набора сделок — для дропдауна "Пара"
         var _journalPairs = [];
@@ -5173,6 +5132,16 @@
                 ]
             },
             {
+                key: 'timeframe', label: 'ТФ',
+                options: [
+                    {val:'all',label:'все'},
+                    {val:'5m',label:'5m'},
+                    {val:'15m',label:'15m'},
+                    {val:'1h',label:'1h'},
+                    {val:'4h',label:'4h'},
+                ]
+            },
+            {
                 key: 'regime', label: 'Режим',
                 options: [
                     {val:'all',label:'все'},
@@ -5199,6 +5168,10 @@
                 if (_journalFilters.regime !== 'all') {
                     var rg = t.entryRegime && t.entryRegime.allowed;
                     if (rg !== _journalFilters.regime) return false;
+                }
+                if (_journalFilters.timeframe !== 'all') {
+                    var tf = _tfFromLabel(t.botLabel);
+                    if (tf !== _journalFilters.timeframe) return false;
                 }
                 return true;
             });
@@ -6352,7 +6325,6 @@
             'Тип входа','Сторона',
             'Вход время','Выход время','Длительность (мин)','Свечей удержано',
             'Цена входа','Цена выхода','Стоп','Таргет','Размер ($)',
-            'Стоп тип','Стоп параметр',
             'R:R','P&L Gross','P&L Net','P&L %','Комиссия',
             'Макс.+','Макс.+ через (мин)','Макс.+ цена',
             'Макс.−','Макс.− через (мин)','Макс.− цена',
@@ -6410,8 +6382,6 @@
                 pn(t.stop),
                 pn(t.target),
                 n(t.size),
-                t.stopMode || '',
-                t.stopMode === 'fixed' ? (t.stopFixedPct != null ? t.stopFixedPct + '%' : '') : (t.stopAtrMultiplier != null ? 'ATR×' + t.stopAtrMultiplier : ''),
                 t.riskReward != null ? t.riskReward : '',
                 n(t.grossPnl),
                 n(t.pnl),
@@ -6662,15 +6632,7 @@
         var mode = (bot.entryMode === 'tick') ? 'T' : 'C';
         var dir = bot.direction === 'long' ? 'L' : bot.direction === 'short' ? 'S' : 'L+S';
         var trail = bot.trailingEnabled ? ' ' + s + ' TR' : '';
-        var stepTp = '';
-        if (bot.stepTpEnabled) {
-            // Формат: STP <активация>/<шаг>/<зазор> — все в долларах.
-            // Зеркалит серверный getFullBotLabel в bot-server.js.
-            var stpTrig = (bot.stepTpTrigger != null) ? bot.stepTpTrigger : 5;
-            var stpStep = (bot.stepTpStep != null) ? bot.stepTpStep : 0.5;
-            var stpTol  = (bot.stepTpTolerance != null) ? bot.stepTpTolerance : 0.5;
-            stepTp = ' ' + s + ' STP ' + stpTrig + '/' + stpStep + '/' + stpTol;
-        }
+        var stepTp = bot.stepTpEnabled ? ' ' + s + ' STP' : '';
         var bbExit = bot.bbExitEnabled ? ' ' + s + ' BB' : '';
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
         var regime = bot.regimeFilterEnabled ? ' ' + s + ' R' : '';
@@ -6699,12 +6661,8 @@
         // - atr:   SL ATR1.5 (множитель ATR)
         // Manual без SL — в нём стоп ставит пользователь руками.
         var slStr = '';
-        if (bot.strategy !== 'manual') {
-            if (bot.stopMode === 'fixed' && bot.stopFixedPct) {
-                slStr = ' ' + s + ' SL ' + bot.stopFixedPct;
-            } else if (bot.stopAtrMultiplier) {
-                slStr = ' ' + s + ' SL ATR' + bot.stopAtrMultiplier;
-            }
+        if (bot.strategy !== 'manual' && bot.stopFixedPct) {
+            slStr = ' ' + s + ' SL ' + bot.stopFixedPct;
         }
         return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + windowTag + rsiStr + slStr;
     }
@@ -6712,6 +6670,18 @@
     function updateBotSelector() {
         var dot = document.getElementById('botSelectorDot');
         var label = document.getElementById('botSelectorLabel');
+        // Счётчик ботов в шапке виджета — показывает сколько всего ботов у пользователя.
+        var countEl = document.getElementById('botCountBadge');
+        if (countEl) {
+            var n = (_state.bots || []).length;
+            // Русское склонение: 1 бот / 2-4 бота / 5+ ботов
+            var word;
+            var n10 = n % 10, n100 = n % 100;
+            if (n10 === 1 && n100 !== 11) word = 'бот';
+            else if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) word = 'бота';
+            else word = 'ботов';
+            countEl.textContent = n + ' ' + word;
+        }
         if (!label) return;
 
         var current = _state.bots.find(function(b) { return b.botId === _state.botId; });
@@ -6733,9 +6703,7 @@
                 // Без них при первом рендере (когда _state.bots ещё не пришёл)
                 // лейбл был бы неполный — без диапазона и SL.
                 clusterThreshold: _state.clusterThreshold,
-                stopMode: _state.stopMode,
                 stopFixedPct: _state.stopFixedPct,
-                stopAtrMultiplier: _state.stopAtrMultiplier
             };
             label.textContent = getBotLabel(fallback);
             var fbState = !_state.running ? 'stopped' : (_state.position ? 'in-position' : 'idle');
@@ -6875,7 +6843,7 @@
         // Наследуем настройки от текущего бота — пользователь обычно создаёт боты одной серии.
         // Передаём весь снапшот _state, чтобы сервер сразу применил настройки и не ждал
         // отдельного нажатия "Сохранить" в модалке. Без этого новый бот стартовал с дефолтами
-        // (clusterThreshold=80, stopMode=atr и т.д.), даже если пользователь подвигал ползунки.
+        // (clusterThreshold=80 и т.д.), даже если пользователь подвигал ползунки.
         fetch('/api/bot/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -6896,8 +6864,6 @@
                 positionTimeout: _state.positionTimeout,
                 maxProfitPct: _state.maxProfitPct,
                 cooldownCandles: _state.cooldownCandles,
-                stopAtrMultiplier: _state.stopAtrMultiplier,
-                stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
                 stopFixedPct: _state.stopFixedPct,
                 trailingEnabled: _state.trailingEnabled,
                 trailingOffset: _state.trailingOffset,
@@ -7087,22 +7053,10 @@
                 positionTimeout: _state.positionTimeout,
                 maxProfitPct: _state.maxProfitPct,
                 cooldownCandles: _state.cooldownCandles,
-                stopAtrMultiplier: _state.stopAtrMultiplier,
-                stopMode: _state.stopMode === 'fixed' ? 'fixed' : 'atr',
                 stopFixedPct: _state.stopFixedPct,
                 trailingEnabled: _state.trailingEnabled,
                 trailingOffset: _state.trailingOffset,
                 trailingActivation: _state.trailingActivation,
-                // Шаговый TP (STP) — раньше тут не было, поэтому изменения этих полей
-                // в модалке не применялись (бот продолжал работать на старых значениях,
-                // и в слепке тоже отображались старые). Сервер их парсит — клиент не отправлял.
-                stepTpEnabled: !!_state.stepTpEnabled,
-                stepTpTrigger: _state.stepTpTrigger,
-                stepTpStep: _state.stepTpStep,
-                stepTpTolerance: _state.stepTpTolerance,
-                // Выход по противоположной BB — та же история, отсутствовал в hot-save.
-                bbExitEnabled: !!_state.bbExitEnabled,
-                bbExitTolerance: _state.bbExitTolerance,
                 smaReturnEnabled: !!_state.smaReturnEnabled,
                 smaReturnTolerance: _state.smaReturnTolerance,
                 atrFilterEnabled: !!_state.atrFilterEnabled,
