@@ -211,7 +211,13 @@ module.exports = function(app) {
         const dir = session.direction === 'long' ? 'L' : session.direction === 'short' ? 'S' : 'L+S';
         let extra = '';
         if (session.trailingEnabled) extra += ` ${s} TR`;
-        if (session.stepTpEnabled)   extra += ` ${s} STP`;
+        // STP с порогами: активация/шаг/зазор в долларах. Зеркалит клиентский getBotLabel.
+        if (session.stepTpEnabled) {
+            const stpT = (session.stepTpTrigger != null) ? session.stepTpTrigger : 5;
+            const stpS = (session.stepTpStep != null) ? session.stepTpStep : 0.5;
+            const stpG = (session.stepTpTolerance != null) ? session.stepTpTolerance : 0.5;
+            extra += ` ${s} STP ${stpT}/${stpS}/${stpG}`;
+        }
         if (session.bbExitEnabled) extra += ` ${s} BB`;
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
@@ -1904,16 +1910,15 @@ module.exports = function(app) {
             ? Math.max(smaTarget, minTarget)
             : Math.min(smaTarget, minTarget);
 
-        // ── Стоп = за полосой BB + фиксированный 0.1% буфер ──
-        // ATR-буфер был удалён вместе с ATR-режимом стопа в скальпере.
-        // 0.1% — небольшой запас чтобы шум одного тика не выбивал сразу за BB.
-        const atr = calcATR(candles, 20);
-        if (atr <= 0) return null;
-
-        const stopBuffer = price * 0.001;
+        // ── Стоп = фиксированный % от цены входа ──
+        // Раньше стоп ставился за полосой BB + 0.1% буфер — это давало стопы
+        // ~0.5-0.7% независимо от настройки SL и не совпадало с лейблом бота.
+        // Теперь единый режим: stopFixedPct (как в скальпере и manual).
+        const atr = calcATR(candles, 20); // только для информационного поля в return
+        const stopPct = (session.stopFixedPct || 0.5) / 100;
         const stop = side === 'LONG'
-            ? (bb.lower - stopBuffer)
-            : (bb.upper + stopBuffer);
+            ? price * (1 - stopPct)
+            : price * (1 + stopPct);
 
         const risk = Math.abs(price - stop);
         const reward = Math.abs(target - price);
@@ -2016,13 +2021,15 @@ module.exports = function(app) {
             ? Math.max(smaTarget, minTarget)
             : Math.min(smaTarget, minTarget);
 
-        // ── Стоп = за полосой BB + фиксированный 0.1% буфер ──
-        const atr = calcATR(candles, 20);
-        if (atr <= 0) return;
-        const stopBuffer = price * 0.001;
+        // ── Стоп = фиксированный % от цены входа ──
+        // Раньше стоп ставился за полосой BB + 0.1% буфер — давало непредсказуемые
+        // стопы ~0.5-0.7% не зависящие от настройки SL. Унифицировано с автовходом
+        // по закрытию свечи: единый режим stopFixedPct.
+        const atr = calcATR(candles, 20); // только для информационного поля в signal
+        const stopPct = (session.stopFixedPct || 0.5) / 100;
         const stop = side === 'LONG'
-            ? (bb.lower - stopBuffer)
-            : (bb.upper + stopBuffer);
+            ? price * (1 - stopPct)
+            : price * (1 + stopPct);
 
         // ── R:R и мин. профит ──
         const risk = Math.abs(price - stop);
@@ -5331,7 +5338,9 @@ module.exports = function(app) {
                 stop = side === 'LONG' ? price * (1 - manualStopPct) : price * (1 + manualStopPct);
                 tp = null; // таргета в manual нет — выход только по стопу или по ручному close
             } else if (session.strategy === 'mean_reversion') {
-                // Mean Reversion: таргет = макс(SMA, минимальный профит), стоп за полосой BB
+                // Mean Reversion:
+                //   таргет = макс(SMA, минимальный профит)
+                //   стоп = фиксированный % (stopFixedPct) — унифицировано с автовходами
                 const closedCandles = session.candles.filter(c => c.closed);
                 const bb = calcBollingerBands(closedCandles, session.bbPeriod || 20, session.bbMultiplier || 2.0);
                 if (bb) {
@@ -5343,13 +5352,10 @@ module.exports = function(app) {
                     tp = side === 'LONG'
                         ? Math.max(smaTarget, minTarget)
                         : Math.min(smaTarget, minTarget);
-                    // Стоп за полосой BB + фиксированный 0.1% буфер.
-                    const bbBuffer = price * 0.001;
-                    stop = side === 'LONG' ? bb.lower - bbBuffer : bb.upper + bbBuffer;
                 } else {
                     tp = side === 'LONG' ? price * 1.005 : price * 0.995;
-                    stop = side === 'LONG' ? price - stopDistFixed : price + stopDistFixed;
                 }
+                stop = side === 'LONG' ? price - stopDistFixed : price + stopDistFixed;
             } else {
                 // Скальпер: фиксированный % от цены входа
                 stop = side === 'LONG' ? price - stopDistFixed : price + stopDistFixed;
@@ -5363,7 +5369,9 @@ module.exports = function(app) {
                 entry: price,
                 stop: stop,
                 target: tp,
-                atr: atr,
+                // ATR — информационное поле для логов и аналитики (не влияет на стоп/таргет).
+                // Если свечей мало — отдадим null, openPosition это спокойно проглотит.
+                atr: (session.candles && session.candles.length >= 21) ? calcATR(session.candles, 20) : null,
                 level: null,
                 riskReward: tp == null ? null : Math.round((Math.abs(tp - price) / Math.abs(price - stop)) * 100) / 100,
                 triggerBuyPct: 50,
@@ -6402,6 +6410,15 @@ module.exports = function(app) {
                 levels: levelsToReturn,
                 currentPrice: session.currentPrice,
                 strategy: session.strategy || 'scalper',
+                // Параметры BB для клиентского расчёта по rawOhlcCache (~1000 свечей).
+                // Серверный bbHistory ограничен буфером свечей бота (200) и поэтому
+                // ботовские BB рисовались короткими. Теперь клиент сам считает BB
+                // по полному кэшу графика теми же параметрами что и бот — линии
+                // длинные на всю историю, как у клиентской кнопки BB на тулбаре.
+                // bbHistory оставляем как fallback на случай пустого rawOhlcCache.
+                bbEnabled: !!needBB,
+                bbPeriod: session.bbPeriod || 20,
+                bbMultiplier: session.bbMultiplier || 2.0,
                 bbHistory: bbHistory,
                 position: session.position ? {
                     side: session.position.side,

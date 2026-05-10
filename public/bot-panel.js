@@ -6650,7 +6650,14 @@
         var mode = (bot.entryMode === 'tick') ? 'T' : 'C';
         var dir = bot.direction === 'long' ? 'L' : bot.direction === 'short' ? 'S' : 'L+S';
         var trail = bot.trailingEnabled ? ' ' + s + ' TR' : '';
-        var stepTp = bot.stepTpEnabled ? ' ' + s + ' STP' : '';
+        // STP с порогами: активация/шаг/зазор в долларах. Зеркалит серверный getFullBotLabel.
+        var stepTp = '';
+        if (bot.stepTpEnabled) {
+            var stpT = (bot.stepTpTrigger != null) ? bot.stepTpTrigger : 5;
+            var stpS = (bot.stepTpStep != null) ? bot.stepTpStep : 0.5;
+            var stpG = (bot.stepTpTolerance != null) ? bot.stepTpTolerance : 0.5;
+            stepTp = ' ' + s + ' STP ' + stpT + '/' + stpS + '/' + stpG;
+        }
         var bbExit = bot.bbExitEnabled ? ' ' + s + ' BB' : '';
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
         var regime = bot.regimeFilterEnabled ? ' ' + s + ' R' : '';
@@ -7075,6 +7082,17 @@
                 trailingEnabled: _state.trailingEnabled,
                 trailingOffset: _state.trailingOffset,
                 trailingActivation: _state.trailingActivation,
+                // Шаговый TP (STP) — активация/шаг/зазор в долларах.
+                // Раньше тут отсутствовали — изменения в модалке не применялись:
+                // бот продолжал работать на старых значениях, в слепке тоже отображались старые.
+                // Сервер парсит эти поля в /api/bot/settings — клиент просто не отправлял.
+                stepTpEnabled: !!_state.stepTpEnabled,
+                stepTpTrigger: _state.stepTpTrigger,
+                stepTpStep: _state.stepTpStep,
+                stepTpTolerance: _state.stepTpTolerance,
+                // Выход по противоположной BB (MR) — та же история, отсутствовал в hot-save.
+                bbExitEnabled: !!_state.bbExitEnabled,
+                bbExitTolerance: _state.bbExitTolerance,
                 smaReturnEnabled: !!_state.smaReturnEnabled,
                 smaReturnTolerance: _state.smaReturnTolerance,
                 atrFilterEnabled: !!_state.atrFilterEnabled,
