@@ -211,7 +211,14 @@ module.exports = function(app) {
         const dir = session.direction === 'long' ? 'L' : session.direction === 'short' ? 'S' : 'L+S';
         let extra = '';
         if (session.trailingEnabled) extra += ` ${s} TR`;
-        if (session.stepTpEnabled)   extra += ` ${s} STP`;
+        if (session.stepTpEnabled) {
+            // Формат: STP <активация>/<шаг>/<зазор> — все в долларах.
+            // Зеркалит клиентский getBotLabel в bot-panel.js.
+            const stpTrig = (session.stepTpTrigger != null) ? session.stepTpTrigger : 5;
+            const stpStep = (session.stepTpStep != null) ? session.stepTpStep : 0.5;
+            const stpTol  = (session.stepTpTolerance != null) ? session.stepTpTolerance : 0.5;
+            extra += ` ${s} STP ${stpTrig}/${stpStep}/${stpTol}`;
+        }
         if (session.bbExitEnabled) extra += ` ${s} BB`;
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
@@ -6557,6 +6564,12 @@ module.exports = function(app) {
                 currentPrice: session.currentPrice,
                 strategy: session.strategy || 'scalper',
                 bbHistory: bbHistory,
+                // Параметры BB — клиент пересчитывает их локально на полной длине свечей
+                // (rawOhlcCache ~1000 свечей), чтобы линии рисовались на всю историю,
+                // а не только на ботовский буфер candlesForLevels (200 свечей).
+                bbEnabled: !!needBB,
+                bbPeriod: session.bbPeriod || 20,
+                bbMultiplier: session.bbMultiplier || 2.0,
                 position: session.position ? {
                     side: session.position.side,
                     entry: session.position.entryPrice,

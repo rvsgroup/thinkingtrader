@@ -376,6 +376,43 @@
 
         widget.querySelector('#botOpenSettings').onclick = function() { openModal(); };
         widget.querySelector('#botJournalBtn').onclick = openJournal;
+
+        // Клик по сделке в логе → подсветка диапазона свечей на графике (янтарный контур).
+        // Повторный клик по той же сделке снимает подсветку. Клик по другой — переключает.
+        var logEl = widget.querySelector('#botWidgetLog');
+        if (logEl) {
+            logEl.addEventListener('click', function(e) {
+                var row = e.target.closest('.bot-w-trade');
+                if (!row) return;
+                var openedAt = parseInt(row.dataset.openedAt, 10);
+                var closedAt = parseInt(row.dataset.closedAt, 10);
+                var pair = row.dataset.pair || null;
+                if (!openedAt || !closedAt) return;
+
+                var same = (_state._activeTradeId === openedAt);
+                // Снимаем active со всех строк
+                logEl.querySelectorAll('.bot-w-trade.active').forEach(function(el) {
+                    el.classList.remove('active');
+                });
+
+                if (same) {
+                    // Повторный клик — снять подсветку
+                    _state._activeTradeId = null;
+                    if (typeof window._clearBotTradeHighlight === 'function') {
+                        window._clearBotTradeHighlight();
+                    }
+                } else {
+                    _state._activeTradeId = openedAt;
+                    row.classList.add('active');
+                    if (typeof window._highlightBotTrade === 'function') {
+                        // Конвертируем пару виджета (BTC/USDT) в формат селекта графика (BTCUSDT)
+                        var sym = pair ? pair.replace('/', '') : null;
+                        var side = row.dataset.side || 'LONG';
+                        window._highlightBotTrade(openedAt, closedAt, sym, side);
+                    }
+                }
+            });
+        }
         var stopAllBtn = widget.querySelector('#botStopAllBtn');
         if (stopAllBtn) stopAllBtn.onclick = confirmStopAll;
         var startAllBtn = widget.querySelector('#botStartAllBtn');
@@ -6469,7 +6506,11 @@
             .catch(function(e) { console.warn('[BOT] poll error', e); });
     }
 
-    function fetchTrades(uid) {
+    function fetchTrades(uid, opts) {
+        // opts.force === true — игнорировать дедупликатор _lastTradeMarkersKey.
+        // Используется при смене ТФ/пары (loadChartData выше очистил setMarkers([]),
+        // и trade-маркеры надо перерисовать даже если новых сделок нет).
+        var force = !!(opts && opts.force);
         // Запоминаем, для какого бота был запрос — пока ответ идёт, пользователь
         // мог переключиться на другого бота, и тогда чужой ответ не должен
         // перезаписать лог нового бота.
@@ -6479,13 +6520,18 @@
             .then(function(data) {
                 if (requestedBotId !== _state.botId) return; // бота уже переключили
 
+                // Кэшируем последний список trades для force-перерисовки
+                _state._lastTrades = data.trades || [];
+
                 // Рисуем маркеры истории сделок на графике только при изменениях,
                 // чтобы не дёргать setMarkers() каждую секунду поллинга.
+                // Исключение: force=true (вызвано из app.html после loadChartData) —
+                // тогда рисуем безусловно.
                 var newCount = (data.trades || []).length;
                 var lastClosedAt = newCount > 0 ? (data.trades[0].closedAt || 0) : 0;
                 var prevKey = _state._lastTradeMarkersKey || '';
                 var nextKey = requestedBotId + '|' + newCount + '|' + lastClosedAt;
-                if (nextKey !== prevKey) {
+                if (force || nextKey !== prevKey) {
                     _state._lastTradeMarkersKey = nextKey;
                     if (typeof window._drawBotTrades === 'function') {
                         window._drawBotTrades(data.trades || []);
@@ -6511,7 +6557,13 @@
                         'manual_close': 'ручной выход', 'bb_touch': 'BB', 'sma_return': 'SMA'
                     };
                     var reason = reasonMap[t.reason] || t.reason;
-                    return '<div class="bot-w-trade"><div class="bot-w-trade-row">' +
+                    var isActive = (_state._activeTradeId === t.openedAt);
+                    return '<div class="bot-w-trade' + (isActive ? ' active' : '') + '"' +
+                        ' data-opened-at="' + t.openedAt + '"' +
+                        ' data-closed-at="' + t.closedAt + '"' +
+                        ' data-side="' + (t.side || 'LONG') + '"' +
+                        ' data-pair="' + (t.pair || '') + '">' +
+                        '<div class="bot-w-trade-row">' +
                         '<span class="bot-w-trade-pair">' + t.pair + '</span>' +
                         '<span class="bot-w-trade-side ' + t.side.toLowerCase() + '">' + t.side + '</span>' +
                         '<span class="bot-w-trade-pnl ' + pnlClass + '">' + pnlStr + ' (' + pnlPctStr + ')</span>' +
@@ -6522,6 +6574,14 @@
             })
             .catch(function(e) { console.warn('[BOT] trades error', e); });
     }
+
+    // Экспорт для app.html: после loadChartData (смена ТФ/пары) график очищает setMarkers([]),
+    // и trade-маркеры надо перерисовать. force=true игнорирует дедупликатор по ключу.
+    window._botRefreshTrades = function(force) {
+        var uid = (typeof getUid === 'function') ? getUid() : null;
+        if (!uid || !_state.botId) return;
+        fetchTrades(uid, { force: !!force });
+    };
 
 
     /* ══════════════════════════════════════════
@@ -6558,7 +6618,15 @@
         var mode = (bot.entryMode === 'tick') ? 'T' : 'C';
         var dir = bot.direction === 'long' ? 'L' : bot.direction === 'short' ? 'S' : 'L+S';
         var trail = bot.trailingEnabled ? ' ' + s + ' TR' : '';
-        var stepTp = bot.stepTpEnabled ? ' ' + s + ' STP' : '';
+        var stepTp = '';
+        if (bot.stepTpEnabled) {
+            // Формат: STP <активация>/<шаг>/<зазор> — все в долларах.
+            // Зеркалит серверный getFullBotLabel в bot-server.js.
+            var stpTrig = (bot.stepTpTrigger != null) ? bot.stepTpTrigger : 5;
+            var stpStep = (bot.stepTpStep != null) ? bot.stepTpStep : 0.5;
+            var stpTol  = (bot.stepTpTolerance != null) ? bot.stepTpTolerance : 0.5;
+            stepTp = ' ' + s + ' STP ' + stpTrig + '/' + stpStep + '/' + stpTol;
+        }
         var bbExit = bot.bbExitEnabled ? ' ' + s + ' BB' : '';
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
         var regime = bot.regimeFilterEnabled ? ' ' + s + ' R' : '';
@@ -6847,10 +6915,15 @@
         _state.volumeInfo = null;
         _state.clusterInfo = null;
         _state._lastTradeMarkersKey = '';  // сброс ключа — маркеры перерисуются
+        _state._activeTradeId = null;       // сброс активной подсветки
 
         // Очищаем маркеры сделок на графике
         if (typeof window._clearBotTrades === 'function') {
             window._clearBotTrades();
+        }
+        // Очищаем янтарный контур подсветки сделки
+        if (typeof window._clearBotTradeHighlight === 'function') {
+            window._clearBotTradeHighlight();
         }
 
         var log = document.getElementById('botWidgetLog');
@@ -6976,6 +7049,16 @@
                 trailingEnabled: _state.trailingEnabled,
                 trailingOffset: _state.trailingOffset,
                 trailingActivation: _state.trailingActivation,
+                // Шаговый TP (STP) — раньше тут не было, поэтому изменения этих полей
+                // в модалке не применялись (бот продолжал работать на старых значениях,
+                // и в слепке тоже отображались старые). Сервер их парсит — клиент не отправлял.
+                stepTpEnabled: !!_state.stepTpEnabled,
+                stepTpTrigger: _state.stepTpTrigger,
+                stepTpStep: _state.stepTpStep,
+                stepTpTolerance: _state.stepTpTolerance,
+                // Выход по противоположной BB — та же история, отсутствовал в hot-save.
+                bbExitEnabled: !!_state.bbExitEnabled,
+                bbExitTolerance: _state.bbExitTolerance,
                 smaReturnEnabled: !!_state.smaReturnEnabled,
                 smaReturnTolerance: _state.smaReturnTolerance,
                 atrFilterEnabled: !!_state.atrFilterEnabled,

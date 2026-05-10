@@ -1558,7 +1558,7 @@
         }
 
         .right-panel:not(.collapsed) {
-            width: 400px;
+            width: 450px;
         }
 
         /* ── Левая колонка: обёртка ── */
@@ -3663,7 +3663,7 @@
         @media (max-width: 1500px) {
             .content { grid-template-columns: 1fr auto; gap: 0; }
             .container { max-width: 100%; padding: 0; }
-            .right-panel:not(.collapsed) { width: 320px; }
+            .right-panel:not(.collapsed) { width: 370px; }
             .result-amount { font-size: 36px; }
         }
 
@@ -3673,7 +3673,7 @@
             .content { grid-template-columns: 1fr auto; gap: 0; }
             .container { max-width: 100%; }
             .header { margin-bottom: 0; }
-            .right-panel:not(.collapsed) { width: 280px; }
+            .right-panel:not(.collapsed) { width: 330px; }
             .title h1 { font-size: 20px; }
             .logo { width: 36px; height: 36px; font-size: 18px; }
 
@@ -8824,7 +8824,14 @@
                 window._smallExtraSeries.forEach(s => { try { lwChart.removeSeries(s); } catch {} });
                 window._smallExtraSeries = [];
             }
+            // Сбрасываем только маркеры сканера паттернов; trade-маркеры бота сохраняем
+            // и переприменяем через _applyCombinedMarkers ниже (после setData).
+            // Раньше тут стоял setMarkers([]) который сносил всё, и trade-маркеры
+            // не возвращались до следующей реальной сделки (см. дедупликатор в bot-panel.js).
+            window._lastScanMarkers = [];
             try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
+            // Сразу же снимем подсветку сделки — после reload свечей координаты невалидны.
+            try { if (typeof window._clearBotTradeHighlight === 'function') window._clearBotTradeHighlight(); } catch {}
             // Очищаем все индикаторы при перезагрузке графика (новая пара/ТФ).
             // applyChartIndicators ниже пересчитает клиентские BB/уровни заново
             // под свежие свечи. Без этой очистки старые priceLine остаются висеть
@@ -8944,6 +8951,18 @@
                 // После загрузки/смены пары/таймфрейма — пересчитать клиентские
                 // индикаторы (BB, уровни) если кнопки включены. См. блок выше.
                 setTimeout(() => { try { applyChartIndicators(); } catch (e) { console.warn('[INDICATOR]', e); } }, 0);
+
+                // Форс-обновление trade-маркеров бота: после loadChartData мы выше очистили
+                // setMarkers([]). Теперь надо вернуть маркеры из источника истины.
+                // Если в bot-panel есть закэшированные сделки — перерисуем сразу;
+                // плюс просим bot-panel перезапросить свежий список (force=true чтобы
+                // обойти дедупликатор _lastTradeMarkersKey).
+                setTimeout(() => {
+                    try {
+                        if (typeof window._applyCombinedMarkers === 'function') window._applyCombinedMarkers();
+                        if (typeof window._botRefreshTrades === 'function') window._botRefreshTrades(true);
+                    } catch (e) { console.warn('[BOT-MARKERS]', e); }
+                }, 50);
 
                 updateChangeBadge(prices);
 
@@ -9832,13 +9851,24 @@
             try {
                 const scan = Array.isArray(window._lastScanMarkers) ? window._lastScanMarkers : [];
                 const trades = window._botTradeMarkers || [];
+                const hl = window._highlightTradeMarkers || [];
                 // lightweight-charts требует сортировку маркеров по time.
-                const combined = scan.concat(trades).slice().sort((a, b) => a.time - b.time);
+                // Highlight-маркеры янтарные, рисуются поверх обычных trade-маркеров —
+                // если на той же свече есть и обычный trade-маркер, и highlight-маркер,
+                // оставляем только highlight (lightweight-charts всё равно покажет один на свечу,
+                // и нам важнее золотой цвет подсветки).
+                const hlTimes = new Set(hl.map(m => m.time));
+                const tradesFiltered = trades.filter(m => !hlTimes.has(m.time));
+                const combined = scan.concat(tradesFiltered).concat(hl).slice().sort((a, b) => a.time - b.time);
                 lwSeries.setMarkers(combined);
             } catch(e) {
                 console.warn('[BOT] combined markers error:', e);
             }
         }
+        // Экспорт — нужен loadChartData чтобы переприменить маркеры после смены ТФ/пары
+        // и сканеру/replay чтобы не сносить trade-маркеры setMarkers([]).
+        window._applyCombinedMarkers = _applyCombinedMarkers;
+        window._highlightTradeMarkers = [];
 
         function clearBotTradeMarkers() {
             window._botTradeMarkers = [];
@@ -9908,6 +9938,52 @@
         window._drawBotTrades = drawBotTradeMarkers;
         window._clearBotTrades = clearBotTradeMarkers;
 
+        // ── Подсветка сделки янтарными маркерами ──
+        // Кладёт ДВА маркера (вход и выход) янтарного цвета через тот же setMarkers.
+        // Принудительно показывает их даже если обычные trade-маркеры в данный момент не видны.
+        // Хранит {openedAt, closedAt} активной сделки. null если ничего не подсвечено.
+        window._activeTradeHighlight = null;
+        // window._highlightTradeMarkers объявлен выше рядом с _applyCombinedMarkers.
+
+        function highlightBotTrade(openedAt, closedAt, symbol, side) {
+            if (!openedAt || !closedAt) return;
+
+            // Сторону угадываем если не передана — для стрелки по умолчанию.
+            // Для LONG: вход — стрелка вверх снизу, выход — стрелка вниз сверху. Для SHORT — наоборот.
+            const isLong = (side || 'LONG').toUpperCase() === 'LONG';
+
+            window._activeTradeHighlight = { openedAt: +openedAt, closedAt: +closedAt, symbol: symbol || null, side: isLong ? 'LONG' : 'SHORT' };
+
+            // Янтарные маркеры на вход и выход. Цвет один и тот же — это и есть подсветка.
+            const AMBER = '#F59E0B';
+            window._highlightTradeMarkers = [
+                {
+                    time: Math.floor(openedAt / 1000),
+                    position: isLong ? 'belowBar' : 'aboveBar',
+                    shape:    isLong ? 'arrowUp'  : 'arrowDown',
+                    color:    AMBER,
+                    text:     '',
+                },
+                {
+                    time: Math.floor(closedAt / 1000),
+                    position: isLong ? 'aboveBar' : 'belowBar',
+                    shape:    isLong ? 'arrowDown' : 'arrowUp',
+                    color:    AMBER,
+                    text:     '',
+                },
+            ];
+            _applyCombinedMarkers();
+        }
+
+        function clearBotTradeHighlight() {
+            window._activeTradeHighlight = null;
+            window._highlightTradeMarkers = [];
+            _applyCombinedMarkers();
+        }
+
+        window._highlightBotTrade = highlightBotTrade;
+        window._clearBotTradeHighlight = clearBotTradeHighlight;
+
         function fetchAndDrawBotLevels() {
             // Не рисуем если пара графика не совпадает с парой бота
             var botSymbol = typeof window._getBotPairSymbol === 'function' ? window._getBotPairSymbol() : null;
@@ -9947,7 +10023,23 @@
                     // BB и уровни рисуются независимо — ориентируемся на наличие данных,
                     // а не на стратегию. Сервер сам решает что отдавать в зависимости от
                     // strategy/manualShowBB/manualShowLevels.
-                    if (data.bbHistory && data.bbHistory.length) {
+                    //
+                    // ВАЖНО: BB пересчитываем ЛОКАЛЬНО по rawOhlcCache с параметрами бота.
+                    // Серверный bbHistory ограничен candlesForLevels (200 свечей) и поэтому
+                    // линии получались короткими. Локальный rawOhlcCache содержит ~1000 свечей,
+                    // линии теперь рисуются на всю длину графика — как у клиентской кнопки BB.
+                    if (data.bbEnabled && rawOhlcCache && rawOhlcCache.length) {
+                        var bbP = data.bbPeriod || 20;
+                        var bbM = data.bbMultiplier || 2.0;
+                        var bb = _calcClientBB(rawOhlcCache, bbP, bbM);
+                        if (bb && bb.length) {
+                            drawBBLines(bb);
+                        } else {
+                            clearBBSeries();
+                        }
+                    } else if (data.bbHistory && data.bbHistory.length) {
+                        // Fallback на серверный bbHistory если параметры не пришли
+                        // (старый сервер) или rawOhlcCache пустой.
                         drawBBLines(data.bbHistory);
                     } else {
                         clearBBSeries();
@@ -14165,13 +14257,15 @@
             }
         }
 
-        // Устанавливаем маркеры на свечную серию
+        // Устанавливаем маркеры на свечную серию.
+        // Всегда идём через _applyCombinedMarkers — он сам объединит scan + trades
+        // и не затрёт trade-маркеры. Раньше было ветвление if/else, и в ветке без
+        // trade-маркеров сканер писал напрямую в lwSeries, что в ряде гонок
+        // могло перезатереть свежий setMarkers от бота.
         window._lastScanMarkers = [...allMarkers];
         try {
-            // Если есть trade-маркеры бота, применяем объединённый набор (scan + trades).
-            // Иначе сохраняем старое поведение напрямую.
-            if (typeof _applyCombinedMarkers === 'function' && window._botTradeMarkers && window._botTradeMarkers.length) {
-                _applyCombinedMarkers();
+            if (typeof window._applyCombinedMarkers === 'function') {
+                window._applyCombinedMarkers();
             } else {
                 lwSeries.setMarkers(allMarkers);
             }
@@ -14321,7 +14415,16 @@
     };
 
     window.clearSmallScan = function clearSmallScan() {
-        try { if (lwSeries) lwSeries.setMarkers([]); } catch {}
+        // Чистим маркеры сканера, но сохраняем trade-маркеры бота:
+        // обнуляем _lastScanMarkers и переприменяем объединённый набор.
+        window._lastScanMarkers = [];
+        try {
+            if (typeof window._applyCombinedMarkers === 'function') {
+                window._applyCombinedMarkers();
+            } else if (lwSeries) {
+                lwSeries.setMarkers([]);
+            }
+        } catch {}
         var smP = document.getElementById('smPatternsPanel'); if (smP) smP.classList.remove('active');
         if (window._smallExtraSeries) {
             window._smallExtraSeries.forEach(series => {
@@ -16757,7 +16860,12 @@
         if (_scanBtn) {
             _scanBtn.classList.remove('scan-active');
             _scanBtn.textContent = 'Scan';
-            try { if (typeof lwSeries !== 'undefined' && lwSeries) lwSeries.setMarkers([]); } catch {}
+            // Сбрасываем только сканерные маркеры; trade-маркеры бота сохраняем.
+            window._lastScanMarkers = [];
+            try {
+                if (typeof window._applyCombinedMarkers === 'function') window._applyCombinedMarkers();
+                else if (typeof lwSeries !== 'undefined' && lwSeries) lwSeries.setMarkers([]);
+            } catch {}
         }
         // Ресайз маленького графика после возврата из fullscreen
         setTimeout(() => {
@@ -16937,7 +17045,13 @@
             window.smallScanActive = fsScannerActive;
             _scanBtn.classList.toggle('scan-active', fsScannerActive);
             // text stays 'Scan'
-            if (!fsScannerActive) { try { if (typeof lwSeries !== 'undefined' && lwSeries) lwSeries.setMarkers([]); } catch {} }
+            if (!fsScannerActive) {
+                window._lastScanMarkers = [];
+                try {
+                    if (typeof window._applyCombinedMarkers === 'function') window._applyCombinedMarkers();
+                    else if (typeof lwSeries !== 'undefined' && lwSeries) lwSeries.setMarkers([]);
+                } catch {}
+            }
         }
     });
 
