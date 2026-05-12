@@ -211,12 +211,12 @@ module.exports = function(app) {
         const dir = session.direction === 'long' ? 'L' : session.direction === 'short' ? 'S' : 'L+S';
         let extra = '';
         if (session.trailingEnabled) extra += ` ${s} TR`;
-        // STP с порогами: активация/шаг/зазор в долларах. Зеркалит клиентский getBotLabel.
+        // STP с порогами: активация/шаг/зазор в %. Зеркалит клиентский getBotLabel.
         if (session.stepTpEnabled) {
-            const stpT = (session.stepTpTrigger != null) ? session.stepTpTrigger : 5;
-            const stpS = (session.stepTpStep != null) ? session.stepTpStep : 0.5;
-            const stpG = (session.stepTpTolerance != null) ? session.stepTpTolerance : 0.5;
-            extra += ` ${s} STP ${stpT}/${stpS}/${stpG}`;
+            const stpT = (session.stepTpTrigger != null) ? session.stepTpTrigger : 0.5;
+            const stpS = (session.stepTpStep != null) ? session.stepTpStep : 0.06;
+            const stpG = (session.stepTpTolerance != null) ? session.stepTpTolerance : 0.12;
+            extra += ` ${s} STP ${stpT}%/${stpS}%/${stpG}%`;
         }
         if (session.bbExitEnabled) extra += ` ${s} BB`;
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
@@ -272,9 +272,9 @@ module.exports = function(app) {
                     direction: session.direction || 'both',
                     trailingEnabled: session.trailingEnabled || false,
                     stepTpEnabled: session.stepTpEnabled || false,
-                    stepTpTrigger: session.stepTpTrigger || 5.00,
-                    stepTpStep: session.stepTpStep || 0.50,
-                    stepTpTolerance: session.stepTpTolerance || 0.50,
+                    stepTpTrigger: session.stepTpTrigger || 0.50,
+                    stepTpStep: session.stepTpStep || 0.06,
+                    stepTpTolerance: session.stepTpTolerance || 0.12,
                     rsiOverbought: session.rsiOverbought || 65,
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
@@ -496,14 +496,16 @@ module.exports = function(app) {
                 trailingActivation: 70,     // активация после N% пути до тейка
 
                 // ── Шаговый TP (Step TP / STP) — конкурент трейлингу ──
-                // Логика: когда прибыль (Gross, в $) пересекает каждую ступеньку (trigger + N*step),
+                // Логика: когда прибыль (Gross, в %) пересекает каждую ступеньку (trigger + N*step),
                 // стоп переставляется на уровень прибыли (trigger + N*step − tolerance).
+                // Все три значения — в % от размера позиции (нотионала). Конвертация в $
+                // происходит на лету в блоке Step TP перед сравнением с PnL.
                 // Взаимоисключает trailing (оба не могут быть включены одновременно).
                 stepTpEnabled:   false,     // вкл/выкл
                 // Дефолты для 5m. На клиенте при смене ТФ подставляются другие значения.
-                stepTpTrigger:   6.00,      // порог активации в $ (первый уровень)
-                stepTpStep:      0.75,      // шаг подтяжки в $
-                stepTpTolerance: 1.50,      // зазор стопа от уровня в $
+                stepTpTrigger:   0.50,      // порог активации в % (первый уровень)
+                stepTpStep:      0.06,      // шаг подтяжки в %
+                stepTpTolerance: 0.12,      // зазор стопа от уровня в %
 
                 // ── Выход по противоположной полосе Боллинджера (только для MR) ──
                 bbExitEnabled:       false,  // если true — игнорируется minProfit и trailing
@@ -4021,15 +4023,25 @@ module.exports = function(app) {
 
         // ── Шаговый TP (Step TP / STP) ──
         // Вариант А: стоп переставляется дискретно при пересечении каждой ступеньки.
+        // Настройки stepTpTrigger/Step/Tolerance хранятся в % от размера позиции.
+        // Здесь конвертируем их в $ (через нотионал позиции), и дальше вся арифметика
+        // PnL-сравнений идёт в $ — как раньше. Это делает STP инвариантным к размеру
+        // депо/плеча: на $500×4 и на $2000×4 поведение одинаковое.
         // Ступени: trigger, trigger+step, trigger+2*step, ...
         // Стоп на уровне N = trigger + N*step − tolerance.
-        // Допуск активации (10% от step) — ступенька считается достигнутой чуть раньше,
-        // чтобы $5.99 засчитывало уровень $6.00, а не ждало ровно $6.00.
+        // Допуск активации (10% от step) — ступенька считается достигнутой чуть раньше.
         // Взаимоисключает трейлинг (в UI нельзя включить оба одновременно).
         if (session.stepTpEnabled && !session.trailingEnabled) {
-            const trigger   = session.stepTpTrigger;
-            const step      = session.stepTpStep;
-            const tolerance = session.stepTpTolerance;
+            // Нотионал позиции в $:
+            //   paper — pos.size это и есть полный нотионал
+            //   live  — нотионал = реальное qty × entryPrice
+            const notional = (session.mode === 'live' && pos.liveFillQty && pos.liveFillQty > 0)
+                ? (pos.liveFillQty * pos.entryPrice)
+                : pos.size;
+
+            const trigger   = (session.stepTpTrigger   * notional) / 100;
+            const step      = (session.stepTpStep      * notional) / 100;
+            const tolerance = (session.stepTpTolerance * notional) / 100;
             const activationTolerance = step * 0.10; // 10% от шага
 
             const peakPnl = pos.maxUnrealized || 0;
@@ -4649,13 +4661,23 @@ module.exports = function(app) {
         session.trailingActivation = parseFloat(settings.trailingActivation) || 70;
 
         // Шаговый TP (Step TP / STP) — конкурент трейлингу
+        // Значения в % от размера позиции. Границы:
+        //   trigger   0.1% .. 10%
+        //   step      0.01% .. 2%
+        //   tolerance 0% .. 5%
         session.stepTpEnabled   = !!settings.stepTpEnabled;
         session.stepTpTrigger   = parseFloat(settings.stepTpTrigger);
-        if (!Number.isFinite(session.stepTpTrigger) || session.stepTpTrigger <= 0) session.stepTpTrigger = 5.00;
+        if (!Number.isFinite(session.stepTpTrigger) || session.stepTpTrigger < 0.1 || session.stepTpTrigger > 10) {
+            session.stepTpTrigger = 0.50;
+        }
         session.stepTpStep      = parseFloat(settings.stepTpStep);
-        if (!Number.isFinite(session.stepTpStep) || session.stepTpStep <= 0) session.stepTpStep = 0.50;
+        if (!Number.isFinite(session.stepTpStep) || session.stepTpStep < 0.01 || session.stepTpStep > 2) {
+            session.stepTpStep = 0.06;
+        }
         session.stepTpTolerance = parseFloat(settings.stepTpTolerance);
-        if (!Number.isFinite(session.stepTpTolerance) || session.stepTpTolerance < 0) session.stepTpTolerance = 0.50;
+        if (!Number.isFinite(session.stepTpTolerance) || session.stepTpTolerance < 0 || session.stepTpTolerance > 5) {
+            session.stepTpTolerance = 0.12;
+        }
         // Взаимоисключение: если включены оба — приоритет у Step TP, трейлинг выключаем
         if (session.stepTpEnabled && session.trailingEnabled) {
             session.trailingEnabled = false;
@@ -5739,9 +5761,9 @@ module.exports = function(app) {
                 trailingActivation: session.trailingActivation,
                 trailingOffset: session.trailingOffset,
                 stepTpEnabled: session.stepTpEnabled || false,
-                stepTpTrigger: session.stepTpTrigger || 5.00,
-                stepTpStep: session.stepTpStep || 0.50,
-                stepTpTolerance: session.stepTpTolerance || 0.50,
+                stepTpTrigger: session.stepTpTrigger || 0.50,
+                stepTpStep: session.stepTpStep || 0.06,
+                stepTpTolerance: session.stepTpTolerance || 0.12,
                 bbExitEnabled: session.bbExitEnabled,
                 bbExitTolerance: session.bbExitTolerance,
                 smaReturnEnabled: session.smaReturnEnabled || false,
@@ -5770,6 +5792,10 @@ module.exports = function(app) {
                     openedAt:    session.position.openedAt,
                     candlesHeld: session.position.candlesHeld,
                     unrealizedPnl: calcUnrealizedPnl(session),
+                    // MFE/MAE — обновляются на каждом тике в updatePositionMetrics().
+                    // Виджет показывает их в строках "Пик прибыли" / "Макс. просадка".
+                    maxUnrealized:  session.position.maxUnrealized || 0,
+                    maxDrawdown:    session.position.maxDrawdown   || 0,
                     trailingActive: session.position.trailingActive || false,
                     stepTpActive:   session.position.stepTpActive || false,
                     stepTpMaxLevel: session.position.stepTpMaxLevel || null,
@@ -5884,8 +5910,29 @@ module.exports = function(app) {
             const useTimeFilter = Number.isFinite(hours) && hours > 0;
             const since = useTimeFilter ? Date.now() - hours * 60 * 60 * 1000 : 0;
 
+            // ── Фильтры из URL (зеркало _journalFilters на клиенте) ──
+            // Когда юзер в журнале выставил фильтры и нажал "Анализ" — клиент пробрасывает их сюда.
+            // Применяются ПОСЛЕ сбора trades, до агрегаций. Значение 'all' = фильтр выключен.
+            const rawFilters = {
+                firstMove:  req.query.f_firstMove  || 'all',
+                exitReason: req.query.f_exitReason || 'all',
+                side:       req.query.f_side       || 'all',
+                result:     req.query.f_result     || 'all',
+                pair:       req.query.f_pair       || 'all',
+                strategy:   req.query.f_strategy   || 'all',
+                timeframe:  req.query.f_timeframe  || 'all',
+                regime:     req.query.f_regime     || 'all',
+            };
+
+            // Извлекает ТФ из лейбла бота (зеркало клиентского _tfFromLabel).
+            const tfFromLabel = (label) => {
+                if (!label) return 'unknown';
+                const m = label.match(/[·\s](5m|15m|1h|4h)[·\s]/);
+                return m ? m[1] : 'unknown';
+            };
+
             // Собираем сделки юзера за период (по всем ботам или по конкретному)
-            const trades = [];
+            let trades = [];
             let scopeBotLabel = null;
             for (const [key, session] of sessions) {
                 if (!key.startsWith(uid + ':')) continue;
@@ -5902,11 +5949,44 @@ module.exports = function(app) {
                 });
             }
 
+            const totalBeforeFilters = trades.length;
+
+            // ── Применяем фильтры из журнала ──
+            // Логика мирроред с клиентским _filterTrades в bot-panel.js.
+            trades = trades.filter(t => {
+                if (rawFilters.firstMove !== 'all' && t.firstMoveSide !== rawFilters.firstMove) return false;
+                if (rawFilters.exitReason !== 'all' && t.reason !== rawFilters.exitReason) return false;
+                if (rawFilters.side !== 'all' && t.side !== rawFilters.side) return false;
+                if (rawFilters.result !== 'all') {
+                    const pnlPositive = (t.pnl || 0) > 0;
+                    if (rawFilters.result === 'win'  && !pnlPositive) return false;
+                    if (rawFilters.result === 'loss' &&  pnlPositive) return false;
+                }
+                if (rawFilters.pair !== 'all' && t.pair !== rawFilters.pair) return false;
+                if (rawFilters.strategy !== 'all' && (t.strategy || 'unknown') !== rawFilters.strategy) return false;
+                if (rawFilters.timeframe !== 'all' && tfFromLabel(t.botLabel) !== rawFilters.timeframe) return false;
+                if (rawFilters.regime !== 'all') {
+                    const rg = t.entryRegime && t.entryRegime.allowed;
+                    if (rg !== rawFilters.regime) return false;
+                }
+                return true;
+            });
+
+            // Собираем только активные фильтры (не 'all') — клиент использует для чипов.
+            const appliedFilters = {};
+            Object.keys(rawFilters).forEach(k => {
+                if (rawFilters[k] !== 'all') appliedFilters[k] = rawFilters[k];
+            });
+            const hasFilters = Object.keys(appliedFilters).length > 0;
+
             if (trades.length === 0) {
                 return res.json({
                     empty: true,
                     hours: useTimeFilter ? hours : 0,
                     totalTrades: 0,
+                    totalBeforeFilters: totalBeforeFilters,
+                    appliedFilters: appliedFilters,
+                    hasFilters: hasFilters,
                     scope: botId ? { type: 'bot', botId: botId, label: scopeBotLabel } : { type: 'all' },
                 });
             }
@@ -5927,6 +6007,14 @@ module.exports = function(app) {
                 });
                 const avgWin = wins > 0 ? sumWin / wins : 0;
                 const avgLoss = losses > 0 ? sumLoss / losses : 0;
+                // Profit Factor: ΣWin / |ΣLoss|. null = нет проигрышных (PF = ∞).
+                // 0 = нет выигрышных. Иначе — конечное число.
+                let pf = null;
+                if (sumLoss < 0) {
+                    pf = Math.round((sumWin / Math.abs(sumLoss)) * 100) / 100;
+                } else if (sumWin === 0) {
+                    pf = 0;
+                }
                 return {
                     n: n,
                     wins: wins,
@@ -5937,6 +6025,7 @@ module.exports = function(app) {
                     avgPnl: Math.round((pnl / n) * 100) / 100,
                     avgWin: Math.round(avgWin * 100) / 100,
                     avgLoss: Math.round(avgLoss * 100) / 100,
+                    pf: pf,
                 };
             }
 
@@ -5968,6 +6057,9 @@ module.exports = function(app) {
             const bySide     = groupBy(t => t.side);
             const byPair     = groupBy(t => t.pair);
             const byBot      = groupBy(t => t.botLabel || 'unknown');
+
+            // Таймфрейм извлекаем из botLabel через tfFromLabel (объявлена выше в начале handler).
+            const byTimeframe = groupBy(t => tfFromLabel(t.botLabel));
 
             // Окна торговли — используем tradingWindowAtEntry
             const byWindow   = groupBy(t => t.tradingWindowAtEntry || 'unknown');
@@ -6085,6 +6177,9 @@ module.exports = function(app) {
             res.json({
                 hours: useTimeFilter ? hours : 0,
                 totalTrades: trades.length,
+                totalBeforeFilters: totalBeforeFilters,
+                appliedFilters: appliedFilters,
+                hasFilters: hasFilters,
                 scope: botId ? { type: 'bot', botId: botId, label: scopeBotLabel } : { type: 'all' },
                 overall: overall,
                 breakEvenWR: beWR,
@@ -6095,6 +6190,7 @@ module.exports = function(app) {
                 bySide: bySide,
                 byPair: byPair,
                 byBot: byBot,
+                byTimeframe: byTimeframe,
                 byWindow: byWindow,
                 byHour: byHour,
                 byRegimeAgreement: byRegimeAgreement,

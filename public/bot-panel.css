@@ -1243,6 +1243,36 @@
     color: #E2E8F0;
 }
 
+/* ── MFE / MAE: «Пик прибыли» и «Макс. просадка» ── */
+.bot-w-pos-extras {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding-top: 10px;
+    margin-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    font-variant-numeric: tabular-nums;
+}
+.bot-w-pos-extra {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.bot-w-pos-elabel {
+    font-size: 9px;
+    color: #94A3B8;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.bot-w-pos-eval {
+    font-size: 12px;
+    font-weight: 500;
+}
+
 /* ── Кнопка Resume ── */
 .bot-w-btn.resume {
     background: rgba(249,200,70,0.08);
@@ -1792,30 +1822,39 @@
 }
 
 /* ══════════════════════════════════════════
-   СОСТОЯНИЕ ТОЧКИ (3 состояния, везде одинаково)
-   - stopped:       серый #636B76
-   - idle:          зелёный #26a69a (бот запущен, ждёт сигнал)
-   - in-position:   янтарный #F59E0B с пульсацией
+   СОСТОЯНИЕ ИНДИКАТОРА БОТА (4 состояния)
+   - stopped:    серая точка, без анимации
+   - idle:       янтарная точка с пульсацией (бот запущен, ждёт сигнал)
+   - long:       зелёная стрелка ↑ с пульсацией-каплей (в позиции LONG)
+   - short:      красная стрелка ↓ с пульсацией-каплей (в позиции SHORT)
+
+   Логика "капли в воду" для точки (idle): расходящийся box-shadow.
+   Для стрелок (long/short): drop-shadow filter — это аналог box-shadow для SVG.
    ══════════════════════════════════════════ */
 
-/* Пульсирующая янтарная точка — индикатор что бот в открытой позиции.
-   Анимируем background вместе с box-shadow, чтобы обойти любые
-   transition: background, которые могут тормозить переход цвета. */
+/* Пульсирующая точка — индикатор активного бота.
+   Цвет (fill/glow) задаётся CSS-переменными на самом dot-элементе,
+   keyframes универсальные. По умолчанию — зелёный (idle-пульсация если когда-то понадобится).
+   Для "в сделке" переменные перебиваются на янтарный через класс .bot-dot-in-position. */
 @keyframes botDotPulse {
     0%, 100% {
         opacity: 1;
-        background-color: #F59E0B;
-        box-shadow: 0 0 0 0 rgba(245,158,11,0.55);
+        background-color: var(--pulse-fill, #26a69a);
+        box-shadow: 0 0 0 0 var(--pulse-glow, rgba(38,166,154,0.55));
     }
     50% {
         opacity: 0.75;
-        background-color: #F59E0B;
-        box-shadow: 0 0 0 5px rgba(245,158,11,0);
+        background-color: var(--pulse-fill, #26a69a);
+        box-shadow: 0 0 0 5px var(--pulse-glow-end, rgba(38,166,154,0));
     }
 }
 
-/* Универсальный класс для любой точки-индикатора. !important на box-shadow
-   нужен, чтобы перебить зелёный шадоу у #botBtnApp.bot-active .bot-btn-dot. */
+/* ── Индикатор-точка ──
+   Три состояния:
+   - stopped       → серый, статичный (бот выключен)
+   - idle          → зелёный, статичный (бот активен, ждёт сигнал)
+   - in-position   → янтарный, пульсирующий (бот в сделке, направление не важно)
+   !important на box-shadow нужен, чтобы перебить зелёный шадоу у #botBtnApp.bot-active .bot-btn-dot. */
 .bot-dot-stopped {
     background-color: #636B76 !important;
     animation: none !important;
@@ -1824,10 +1863,14 @@
 .bot-dot-idle {
     background-color: #26a69a !important;
     animation: none !important;
+    box-shadow: none !important;
 }
 .bot-dot-in-position {
-    background-color: #F59E0B !important;
-    animation: botDotPulse 1.6s ease-in-out infinite !important;
+    --pulse-fill:     #FFB300;
+    --pulse-glow:     rgba(255,179,0,0.55);
+    --pulse-glow-end: rgba(255,179,0,0);
+    background-color: #FFB300 !important;
+    animation: botDotPulse 1.6s ease-in-out infinite;
 }
 
 /* ── Bollinger Bands / RSI block ──────────────────────────────────────

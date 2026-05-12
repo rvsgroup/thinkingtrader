@@ -8632,7 +8632,7 @@
             });
         }
 
-        function selectCoin(coin) {
+        function selectCoin(coin, skipReload) {
             selectedCoin = coin;
             selIcon.src = ICONS[coin.id];
             selName.textContent = `${coin.name} (${coin.symbol})`;
@@ -8641,7 +8641,15 @@
             window._tpslChartPrices = null;
             window._ema90closes = null;
             _indCache = null;
-            updateCurrentPrice();
+            // skipReload=true используется из _syncChartToBot когда меняется И пара И ТФ.
+            // Без этого было два конкурирующих loadChartData (race condition):
+            // первый — здесь на старом ТФ, второй — из обработчика клика по кнопке ТФ.
+            // Async-ответы fetchOhlcData могли прилететь в обратном порядке и оставить
+            // график в рассогласованном состоянии: BB-линии есть, свечей нет; или
+            // priceScale растягивается на смешанные данные.
+            if (!skipReload) {
+                updateCurrentPrice();
+            }
 
             // Загружаем сохранённые аннотации этой пары (и сохраняем старые)
             if (typeof window._annOnSymbolChange === 'function') {
@@ -8984,7 +8992,18 @@
                 if (document.getElementById('aiBtnApp')?.classList.contains('ai-active') && window.runAiScan) {
                     setTimeout(() => window.runAiScan(true), 2500);
                 }            } else {
+                // Пустой ответ (сетевая ошибка / нет данных). Чистим всё что осталось
+                // от предыдущей пары, иначе симптом: график со старыми DOGE-свечами
+                // и шкалой в $0.10 остаётся висеть когда переключились на BTC.
+                if (lwSeries) {
+                    try { lwChart.removeSeries(lwSeries); } catch {}
+                    lwSeries = null;
+                }
+                if (lwVolumeSeries) { try { lwVolumeSeries.setData([]); } catch {} }
+                rawPricesCache = [];
+                window._lastChartPrices = null;
                 chartLoading.textContent = t('chartError');
+                chartLoading.style.display = 'flex';
                 priceChangeBadge.className = 'price-change-badge';
             }
         }
@@ -9043,7 +9062,40 @@
             } catch { return []; }
         }
 
+        // ── OHLC-кэш (30 секунд) ─────────────────────────────────────
+        // У пользователя десятки ботов; многие на одной и той же паре+ТФ. Без кэша
+        // каждое переключение делает сетевой запрос 500-1000мс — отсюда визуальный
+        // глюк "график домается → через секунды чинится". С кэшем кэш-хит ~5мс.
+        // TTL короткий (30с) чтобы при возврате на пару через минуту данные были
+        // свежие (новая свеча 5m уже могла закрыться).
+        const _ohlcCache = new Map(); // key: `${id}|${days}` → { data, ts }
+        const _OHLC_TTL_MS = 30000;
+        function _ohlcCacheKey(id, days) { return id + '|' + days; }
+        function _ohlcCacheGet(id, days) {
+            const e = _ohlcCache.get(_ohlcCacheKey(id, days));
+            if (!e) return null;
+            if (Date.now() - e.ts > _OHLC_TTL_MS) {
+                _ohlcCache.delete(_ohlcCacheKey(id, days));
+                return null;
+            }
+            return e.data;
+        }
+        function _ohlcCachePut(id, days, data) {
+            if (!data || !data.length) return; // пустые ответы не кэшируем
+            _ohlcCache.set(_ohlcCacheKey(id, days), { data: data, ts: Date.now() });
+            // Лимит размера кэша — не больше 30 ключей (≈ число ботов).
+            if (_ohlcCache.size > 30) {
+                const oldestKey = _ohlcCache.keys().next().value;
+                _ohlcCache.delete(oldestKey);
+            }
+        }
+        // Экспорт для возможной ручной инвалидации (например при ручном refresh).
+        window._invalidateOhlcCache = function() { _ohlcCache.clear(); };
+
         async function fetchOhlcData(id, days) {
+            // Кэш-хит — возвращаем мгновенно.
+            const cached = _ohlcCacheGet(id, days);
+            if (cached) return cached;
             try {
                 const symbol = BINANCE_SYMBOLS[id];
                 if (!symbol) {
@@ -9051,7 +9103,9 @@
                     const effectiveDays = 365; // запрашиваем год данных для контекста
                     const r = await fetch(`/api/ohlc?id=${id}&days=${effectiveDays}`);
                     const data = await r.json();
-                    return Array.isArray(data) ? data : [];
+                    const out = Array.isArray(data) ? data : [];
+                    _ohlcCachePut(id, days, out);
+                    return out;
                 }
                 
                 // Для Binance: интервалы как в большом графике
@@ -9092,7 +9146,9 @@
                 const r = await fetch(`/api/ohlc?symbol=${symbol}&interval=${interval}&limit=${limit}`);
                 const d = await r.json();
                 if (!Array.isArray(d)) return [];
-                return d.map(k => [k[0], parseFloat(k[1]), parseFloat(k[2]), parseFloat(k[3]), parseFloat(k[4]), parseFloat(k[5]), parseFloat(k[9] || 0)]);
+                const out = d.map(k => [k[0], parseFloat(k[1]), parseFloat(k[2]), parseFloat(k[3]), parseFloat(k[4]), parseFloat(k[5]), parseFloat(k[9] || 0)]);
+                _ohlcCachePut(id, days, out);
+                return out;
             } catch { return []; }
         }
 
@@ -9733,6 +9789,66 @@
             lwBotPositionLines = [];
         }
 
+        // ── Маркер ТЕКУЩЕЙ открытой позиции на графике ──
+        // Ставит одну стрелку на свече входа: зелёная вверх под свечой для LONG,
+        // красная вниз над свечой для SHORT. Текст 'LONG ●' / 'SHORT ●' — точка
+        // означает «позиция всё ещё открыта». После закрытия позиции этот маркер
+        // снимается, а на его месте появляется обычный trade-маркер из /api/bot/trades.
+        // Проверка совпадения пары/таймфрейма — как в drawBotTradeMarkers.
+        function setOpenPositionMarker(position) {
+            if (!lwSeries) return;
+
+            // Снимаем маркер если позиции нет, она ещё «pending» (не исполнена) или закрывается.
+            if (!position || !position.openedAt || !position.side || !position.entryPrice
+                || position.pending || position.closing) {
+                if (window._openPositionMarker) {
+                    window._openPositionMarker = null;
+                    _applyCombinedMarkers();
+                }
+                return;
+            }
+
+            // Пара бота должна совпадать с парой графика.
+            const botSymbol = typeof window._getBotPairSymbol === 'function' ? window._getBotPairSymbol() : null;
+            if (botSymbol && selectedCoin && botSymbol !== selectedCoin.symbol) {
+                if (window._openPositionMarker) {
+                    window._openPositionMarker = null;
+                    _applyCombinedMarkers();
+                }
+                return;
+            }
+
+            // Таймфрейм бота должен совпадать с активным таймфреймом графика.
+            const botTf = typeof window._getBotTimeframe === 'function' ? window._getBotTimeframe() : null;
+            if (botTf) {
+                const TF_TO_PERIOD = {
+                    '1m': '0.0007', '5m': '0.003', '15m': '0.01',
+                    '30m': '0.01',  '1h': '0.04',  '4h': '0.17', '1d': '1',
+                };
+                const expectedPeriod = TF_TO_PERIOD[botTf];
+                const activeBtn = document.querySelector('.period-btn.active');
+                const activePeriod = activeBtn ? activeBtn.dataset.period : null;
+                if (expectedPeriod && activePeriod && expectedPeriod !== activePeriod) {
+                    if (window._openPositionMarker) {
+                        window._openPositionMarker = null;
+                        _applyCombinedMarkers();
+                    }
+                    return;
+                }
+            }
+
+            const isLong = position.side === 'LONG';
+            window._openPositionMarker = {
+                time: Math.floor(position.openedAt / 1000),
+                position: isLong ? 'belowBar' : 'aboveBar',
+                shape: isLong ? 'arrowUp' : 'arrowDown',
+                color: isLong ? '#10B981' : '#EF4444',
+                text: (isLong ? 'LONG' : 'SHORT') + ' \u25CF',  // ● — точка-индикатор «открыта»
+            };
+            _applyCombinedMarkers();
+        }
+        window._setOpenPositionMarker = setOpenPositionMarker;
+
         // Рисует линии для открытой позиции и ожидающих лимиток.
         // Вызывается из bot-panel.js через window._drawBotPosition().
         // position: { side, entryPrice, stop, target, ... } или null
@@ -9740,6 +9856,11 @@
         // pendingLimit: { side, price } или null — лимит на вход (manual, позиции ещё нет)
         function drawBotPositionLines(position, pendingExit, pendingLimit) {
             if (!lwSeries || !lwChart) return;
+
+            // Маркер открытой позиции на графике — ставим/снимаем независимо от стратегии.
+            // Делаем это ДО ранних return-ов для MR/несовпадения пары, потому что
+            // setOpenPositionMarker сам валидирует пару/ТФ и при несовпадении просто снимает маркер.
+            setOpenPositionMarker(position);
 
             // Линии позиции (entry / stop / target / pendingExit / pendingLimit) рисуются
             // для manual и scalper. В mean_reversion бот динамически двигает таргет
@@ -9845,6 +9966,11 @@
         // Рендер отдельный от паттерн-маркеров (_lastScanMarkers) — при каждом обновлении
         // объединяем оба набора и зовём setMarkers один раз.
         window._botTradeMarkers = [];
+        // Маркер ТЕКУЩЕЙ открытой позиции (одна штука максимум). Хранится отдельно от
+        // _botTradeMarkers потому что закрытые сделки приходят через /api/bot/trades,
+        // а открытая — из /api/bot/status. Эту переменную обновляет setOpenPositionMarker().
+        // Формат тот же, что и у обычного trade-маркера. null — нет открытой позиции.
+        window._openPositionMarker = null;
 
         function _applyCombinedMarkers() {
             if (!lwSeries) return;
@@ -9852,6 +9978,7 @@
                 const scan = Array.isArray(window._lastScanMarkers) ? window._lastScanMarkers : [];
                 const trades = window._botTradeMarkers || [];
                 const hl = window._highlightTradeMarkers || [];
+                const open = window._openPositionMarker ? [window._openPositionMarker] : [];
                 // lightweight-charts требует сортировку маркеров по time.
                 // Highlight-маркеры янтарные, рисуются поверх обычных trade-маркеров —
                 // если на той же свече есть и обычный trade-маркер, и highlight-маркер,
@@ -9859,7 +9986,7 @@
                 // и нам важнее золотой цвет подсветки).
                 const hlTimes = new Set(hl.map(m => m.time));
                 const tradesFiltered = trades.filter(m => !hlTimes.has(m.time));
-                const combined = scan.concat(tradesFiltered).concat(hl).slice().sort((a, b) => a.time - b.time);
+                const combined = scan.concat(tradesFiltered).concat(open).concat(hl).slice().sort((a, b) => a.time - b.time);
                 lwSeries.setMarkers(combined);
             } catch(e) {
                 console.warn('[BOT] combined markers error:', e);
@@ -10139,27 +10266,74 @@
 
         // Глобальный хук — синхронизирует график с парой и таймфреймом бота.
         // Вызывается из bot-panel.js при старте бота и переключении бота в дропдауне.
-        window._syncChartToBot = function(pair, timeframe) {
-            // 1. Переключаем пару
-            if (pair) {
-                var symbol = pair.replace('/USDT', '').replace('USDT', '');
-                var coin = COINS.find(function(c) { return c.symbol === symbol; });
-                if (coin && coin.id !== selectedCoin.id) {
-                    selectCoin(coin);
-                }
+        window._syncChartToBot = async function(pair, timeframe) {
+            // Меняем И пару И ТФ атомарно — ОДНОЙ загрузкой графика.
+            // ASYNC: возвращаем Promise свечей, чтобы вызывающий код (switchBot
+            // в bot-panel) мог ДОЖДАТЬСЯ загрузки свечей и только потом запросить
+            // ботовские уровни/BB. Иначе была гонка: ботовские BB приходили
+            // быстрее свечей и рисовались по rawOhlcCache со СТАРОЙ парой —
+            // отсюда полосы в координатах предыдущей цены, шкала растягивается.
+
+            // ── NOOP-выход: пара и ТФ совпадают с текущими ──
+            // У пользователя десятки ботов на одной паре+ТФ. Без этого guard
+            // переключение между ними делало полный loadChartData (1с задержки
+            // и визуальное мерцание) ради того же самого графика.
+            // Уровни/маркеры бота обновятся отдельно через fetchAndDrawBotLevels
+            // в switchBot, так что переключение всё равно остаётся синхронным.
+            var targetPeriod = (timeframe && BOT_TF_TO_PERIOD[timeframe]) ? BOT_TF_TO_PERIOD[timeframe] : null;
+            var targetSymbol = pair ? pair.replace('/USDT', '').replace('USDT', '') : null;
+            var sameCoin = targetSymbol && selectedCoin && selectedCoin.symbol === targetSymbol;
+            var samePeriod = (targetPeriod == null) || (targetPeriod === currentPeriod);
+            if (sameCoin && samePeriod) {
+                window._botActiveTimeframe = timeframe || null;
+                setTimeout(updateBotTimeframeHighlight, 50);
+                return;
             }
-            // 2. Запоминаем целевой ТФ для подсветки
+
+            // 1. Меняем целевой ТФ В ПАМЯТИ ДО запуска loadChartData
+            if (targetPeriod != null && targetPeriod !== currentPeriod) {
+                currentPeriod = targetPeriod;
+                // Синхронизируем UI кнопок периода без вызова click (он триггерит reload)
+                document.querySelectorAll('.period-btn').forEach(function(b) {
+                    b.classList.toggle('active', parseFloat(b.dataset.period) === targetPeriod);
+                });
+                if (typeof updateDoublePatternVisibility === 'function') {
+                    try { updateDoublePatternVisibility(currentPeriod); } catch (e) {}
+                }
+                // Сброс кеша winrate — как в обработчике кнопки
+                window._fsWinRateCache = null;
+                window._fsWinRateCacheKey = null;
+            }
             window._botActiveTimeframe = timeframe || null;
-            // 3. Переключаем период графика
-            if (timeframe && BOT_TF_TO_PERIOD[timeframe]) {
-                var targetPeriod = BOT_TF_TO_PERIOD[timeframe];
-                var btn = document.querySelector('.period-btn[data-period="' + targetPeriod + '"]');
-                if (btn && !btn.classList.contains('active')) {
-                    btn.click();  // вызовет existing handler — он перезагрузит данные и WS
+
+            // 2. Переключаем пару БЕЗ автозагрузки (skipReload=true)
+            //    Обёртка selectCoin сама делает startPriceWs — отдельно его звать не надо.
+            //    ВАЖНО: обёртка также чистит BB-серии (clearBBSeries + _clearClientBB),
+            //    поэтому в промежутке между selectCoin и loadChartData ботовский поллинг
+            //    не сможет нарисовать BB по старым свечам — ему просто нечего рисовать.
+            var pairChanged = false;
+            if (pair) {
+                var coin = COINS.find(function(c) { return c.symbol === targetSymbol; });
+                if (coin && coin.id !== selectedCoin.id) {
+                    selectCoin(coin, true);
+                    pairChanged = true;
                 }
             }
-            // 4. Обновляем подсветку (на случай если уже на нужном ТФ — снимем подсветку)
+
+            // 3. WS перезапускаем ТОЛЬКО если пара НЕ менялась — иначе обёртка selectCoin
+            //    уже сделала restart с правильным символом. Раньше тут был второй restart,
+            //    который дублировал работу (в логе диагностики виден как два WS подряд).
+            //    А при смене только ТФ (без смены пары) обёртка не сработала — нужен наш.
+            if (!pairChanged && typeof startPriceWs === 'function' && _priceWsSymbol) {
+                startPriceWs(_priceWsSymbol);
+            }
+
+            // 4. Подсветка кнопки ТФ под бот
             setTimeout(updateBotTimeframeHighlight, 50);
+
+            // 5. AWAIT loadChartData — возвращаем Promise, который резолвится когда
+            //    свечи загружены и нарисованы. switchBot ждёт это перед уровнями/BB.
+            return updateCurrentPrice();
         };
 
         // Если юзер вручную переключает ТФ — обновляем подсветку
@@ -12347,8 +12521,14 @@
 
         // Переключаем WS при смене монеты — патчим selectCoin
         const _origSelectCoin = selectCoin;
-        selectCoin = function(coin) {
-            _origSelectCoin(coin);
+        selectCoin = function(coin, skipReload) {
+            // ВАЖНО: пробрасываем skipReload вторым аргументом. Без него _syncChartToBot
+            // обходился: его вызов selectCoin(coin, true) терял true на этой обёртке,
+            // оригинал получал только coin → запускал updateCurrentPrice → loadChartData
+            // первым, а потом _syncChartToBot запускал loadChartData вторым. Получался
+            // дубль loadChartData/WS на каждое переключение бота (видно в DevTools лога:
+            // FETCH→ n=3, WS, FETCH→ n=4, WS — два fetch подряд для одной пары/ТФ).
+            _origSelectCoin(coin, skipReload);
             const sym = (typeof BINANCE_SYMBOLS !== 'undefined' && BINANCE_SYMBOLS[coin.id])
                         || (coin.symbol ? coin.symbol + 'USDT' : null);
             _lastWsPrice = null;
@@ -12362,6 +12542,11 @@
             clearBotLevelLines();
             _clearClientBB();
             hidePriceLabel();
+            // WS перезапускаем всегда — даже при skipReload. Без этого после
+            // _syncChartToBot WS остался бы на старой паре, пока loadChartData
+            // не закончится; первые тики от Binance прилетали бы на старый символ.
+            // (При skipReload=false _syncChartToBot ещё раз вызовет startPriceWs
+            // под актуальный ТФ — это безопасно, startPriceWs сначала закрывает старый.)
             startPriceWs(sym);
         };
 

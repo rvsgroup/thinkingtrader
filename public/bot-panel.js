@@ -36,9 +36,9 @@
         trailingOffset: '0.25',
         trailingActivation: '70',
         stepTpEnabled: false,
-        stepTpTrigger: '6.00',
-        stepTpStep: '0.75',
-        stepTpTolerance: '1.50',
+        stepTpTrigger: '0.50',
+        stepTpStep: '0.06',
+        stepTpTolerance: '0.12',
         bbExitEnabled: false,
         bbExitTolerance: '5',
         smaReturnEnabled: false,
@@ -88,12 +88,19 @@
     };
 
     // Дефолты STP, SL, TP, cooldown и таймаута позиции по таймфрейму.
+    // STP (trigger/step/tolerance) — в % от размера позиции (нотионала).
+    // Инвариантны относительно депо и плеча: на $500×4 и на $2000×4 поведение одинаковое.
+    // Калибровка делалась по ATR % на каждом ТФ:
+    //   trigger ≈ 1.5×SL  (STP активируется после прохождения ~1.5 стопа в плюс)
+    //   step    = SL / 6  (мелкий шаг подтяжки)
+    //   tolerance = 2×step (зазор от пика, чтобы не выбивало шумом одной свечи)
+    //   TP = 2×SL (R:R 2:1)
     // Применимо ко всем стратегиям. ATR-режим стопа удалён — только fixed%.
     var TIMEFRAME_DEFAULTS = {
-        '5m':  { stepTpTrigger: '6.00',  stepTpStep: '0.75', stepTpTolerance: '1.50',  stopFixedPct: '0.4', maxProfitPct: '0.8', cooldownCandles: '3', positionTimeout: '30' },
-        '15m': { stepTpTrigger: '12.00', stepTpStep: '1.50', stepTpTolerance: '3.00',  stopFixedPct: '0.6', maxProfitPct: '1.2', cooldownCandles: '2', positionTimeout: '20' },
-        '1h':  { stepTpTrigger: '22.00', stepTpStep: '2.75', stepTpTolerance: '5.50',  stopFixedPct: '1.0', maxProfitPct: '2.0', cooldownCandles: '1', positionTimeout: '12' },
-        '4h':  { stepTpTrigger: '48.00', stepTpStep: '6.00', stepTpTolerance: '12.00', stopFixedPct: '2.0', maxProfitPct: '4.0', cooldownCandles: '1', positionTimeout: '10' },
+        '5m':  { stepTpTrigger: '0.50', stepTpStep: '0.06', stepTpTolerance: '0.12', stopFixedPct: '0.4', maxProfitPct: '0.8', cooldownCandles: '3', positionTimeout: '30' },
+        '15m': { stepTpTrigger: '0.80', stepTpStep: '0.10', stepTpTolerance: '0.20', stopFixedPct: '0.6', maxProfitPct: '1.2', cooldownCandles: '2', positionTimeout: '20' },
+        '1h':  { stepTpTrigger: '1.50', stepTpStep: '0.18', stepTpTolerance: '0.36', stopFixedPct: '1.0', maxProfitPct: '2.0', cooldownCandles: '1', positionTimeout: '12' },
+        '4h':  { stepTpTrigger: '3.20', stepTpStep: '0.40', stepTpTolerance: '0.80', stopFixedPct: '2.0', maxProfitPct: '4.0', cooldownCandles: '1', positionTimeout: '10' },
     };
 
     function applyTimeframeDefaults(tf) {
@@ -115,18 +122,47 @@
         document.head.appendChild(link);
     }
 
-    /* Утилита: ставит точке состояние. state: 'stopped' | 'idle' | 'in-position'.
-       Снимает inline background/animation (могут остаться с прошлых версий кода)
-       и выставляет один из трёх классов. Так состояние всегда управляется CSS. */
+    // Состояния индикатора бота: stopped / idle / in-position.
+    // Все три рисуются как простая точка, цвет/анимация задаются CSS-классом.
+    // Старые long/short с SVG-стрелками удалены — направление позиции
+    // показывается в других местах (карточка позиции, P&L).
+
+    /* Утилита: ставит индикатору бота состояние.
+       state: 'stopped' | 'idle' | 'in-position'.
+       Все состояния — точка, отличаются только цветом/анимацией (через CSS-класс).
+       Снимает inline background/animation от старого кода. */
     function setBotDotState(dotEl, state) {
         if (!dotEl) return;
-        dotEl.classList.remove('bot-dot-stopped', 'bot-dot-idle', 'bot-dot-in-position');
+        dotEl.classList.remove('bot-dot-stopped', 'bot-dot-idle', 'bot-dot-in-position', 'bot-dot-long', 'bot-dot-short');
         // Чистим inline стили, которые могли быть выставлены старым кодом —
         // иначе они перебили бы наши CSS-классы.
         dotEl.style.background = '';
         dotEl.style.backgroundColor = '';
         dotEl.style.animation = '';
+        // Контент очищаем — точка рисуется чистым CSS (background-color).
+        dotEl.innerHTML = '';
         dotEl.classList.add('bot-dot-' + state);
+    }
+
+    // Извлекает side из позиции, которая может прийти в двух форматах:
+    // - объект {side:'LONG', ...}  — из /api/bot/status (_state.position)
+    // - строка 'LONG'|'SHORT'      — из /api/bot/list (bot.position)
+    // Возвращает 'LONG' | 'SHORT' | null.
+    function _extractPosSide(pos) {
+        if (!pos) return null;
+        if (typeof pos === 'string') return pos;
+        if (typeof pos === 'object' && pos.side) return pos.side;
+        return null;
+    }
+
+    // Вычисляет состояние индикатора по данным бота.
+    // running: true/false, hasPos: bool. Третий аргумент (side) больше не используется,
+    // но оставлен в сигнатуре для обратной совместимости со старыми вызовами.
+    // Зеркало логики, используемой и в дропдауне, и в главной кнопке.
+    function computeBotDotState(running, hasPos, side) {
+        if (!running) return 'stopped';
+        if (!hasPos)  return 'idle';
+        return 'in-position';
     }
 
     /* Управление видимостью групп секций ("Рынок"/"Торговля") в виджете.
@@ -912,13 +948,14 @@
         if (data.manualShowLevels !== undefined) {
             _state.manualShowLevels = !!data.manualShowLevels;
         }
-        // 3 состояния: серый (остановлен) / зелёный (ждёт сигнала) / янтарный пульс (в позиции).
-        // Здесь это КРИТИЧНО: функция вызывается при каждом поллинге статуса, и раньше она
-        // безусловно затирала янтарный цвет на зелёный.
-        var dotState = !_state.running ? 'stopped' : (_state.position ? 'in-position' : 'idle');
+        // 4 состояния: stopped / idle / long / short.
+        // Здесь это КРИТИЧНО: функция вызывается при каждом поллинге статуса.
+        // _state.position может содержать объект позиции с side='LONG'|'SHORT'.
+        var posSide = _extractPosSide(_state.position);
+        var dotState = computeBotDotState(!!_state.running, !!_state.position, posSide);
         if (selectorDot) setBotDotState(selectorDot, dotState);
 
-        // Точка в кнопке БОТ в главной шапке (тоже 3 состояния).
+        // Точка/стрелка в кнопке БОТ в главной шапке (тоже 4 состояния).
         var mainBtn = document.getElementById('botBtnApp');
         if (mainBtn) {
             var mainDot = mainBtn.querySelector('.bot-btn-dot');
@@ -1572,14 +1609,19 @@
         var amber = '#F59E0B';
 
         // ── Метки Step TP (STP) ──
-        // До активации: одна зелёная стрелка сверху — где STP активируется (цена, при которой прибыль = trigger$).
-        // После активации: красная стрелка = текущий подтянутый стоп (= pos.stop), зелёная = следующая ступенька.
+        // До активации: одна янтарная подпись "STP" + сплошная линия — где STP активируется (цена, при которой прибыль = trigger$).
+        // После активации: красная "STOP" = текущий подтянутый стоп (= pos.stop), янтарная "STP+" = следующая ступенька.
         // Показываем только если stepTpEnabled (и трейлинг неактивен — они взаимоисключают друг друга).
         var stpMarkers = '';
         if (_state.stepTpEnabled && !_state.trailingEnabled && pos.entryPrice && pos.size > 0 && totalRange > 0) {
-            var trigger = parseFloat(_state.stepTpTrigger) || 5.0;
-            var step = parseFloat(_state.stepTpStep) || 0.5;
-            var tolerance = parseFloat(_state.stepTpTolerance) || 0.5;
+            // Значения теперь в % от размера позиции (нотионала pos.size).
+            // Конвертируем в доллары для использования в profitToPrice (она ожидает $).
+            var triggerPct   = parseFloat(_state.stepTpTrigger)   || 0.5;
+            var stepPct      = parseFloat(_state.stepTpStep)      || 0.06;
+            var tolerancePct = parseFloat(_state.stepTpTolerance) || 0.12;
+            var trigger   = triggerPct   * pos.size / 100;
+            var step      = stepPct      * pos.size / 100;
+            var tolerance = tolerancePct * pos.size / 100;
 
             // Функция: unrealized $ → цена
             function profitToPrice(profit) {
@@ -1592,30 +1634,28 @@
                     ? ((pr - pos.stop) / totalRange) * 100
                     : ((pos.stop - pr) / totalRange) * 100;
             }
-            // Стрелочка торчит СВЕРХУ над шкалой, пунктир идёт ВНУТРИ шкалы
-            // (как у штриха трейлинга), чтобы зрительно не отрываться от полосы.
-            function makeMarker(barPct, color) {
+            // Подпись СВЕРХУ над шкалой, сплошная линия идёт ВНУТРИ шкалы.
+            // label — текст подписи ('STP', 'STOP', 'STP+'), color — цвет.
+            function makeMarker(barPct, color, label) {
                 if (barPct < -5 || barPct > 105) return '';
-                // Стрелочка над шкалой
-                var arrow = '<div style="position:absolute;left:' + barPct.toFixed(1) + '%;top:-8px;width:8px;height:6px;transform:translateX(-50%);pointer-events:none;z-index:5;">' +
-                    '<svg width="8" height="6" viewBox="0 0 8 6" style="display:block;"><path d="M4 6 L0 0 L8 0 Z" fill="' + color + '"/></svg>' +
-                '</div>';
-                // Пунктирная линия ВНУТРИ шкалы — на всю высоту
-                var dash = '<div style="position:absolute;left:' + barPct.toFixed(1) + '%;top:0;width:1px;height:100%;transform:translateX(-50%);background-image:repeating-linear-gradient(to bottom,' + color + ' 0 2px,transparent 2px 4px);pointer-events:none;z-index:4;"></div>';
-                return arrow + dash;
+                // Текстовая подпись над шкалой
+                var tag = '<div style="position:absolute;left:' + barPct.toFixed(1) + '%;bottom:calc(100% + 2px);transform:translateX(-50%);font-size:9px;font-weight:700;line-height:1;letter-spacing:0.3px;color:' + color + ';white-space:nowrap;pointer-events:none;z-index:5;">' + label + '</div>';
+                // Сплошная линия ВНУТРИ шкалы — на всю высоту
+                var line = '<div style="position:absolute;left:' + barPct.toFixed(1) + '%;top:0;width:1px;height:100%;transform:translateX(-50%);background:' + color + ';pointer-events:none;z-index:4;"></div>';
+                return tag + line;
             }
 
             if (!pos.stepTpActive) {
-                // До активации — одна метка: где активируется STP
+                // До активации — одна метка: где активируется STP (янтарный)
                 var actPrice = profitToPrice(trigger);
                 var actPct = priceToBarPct(actPrice);
-                stpMarkers = makeMarker(actPct, '#10B981');
+                stpMarkers = makeMarker(actPct, amber, 'STP');
             } else {
                 // После активации — две метки:
-                // 1) красная = текущий подтянутый стоп (уже в pos.stop)
+                // 1) красная STOP = текущий подтянутый стоп (уже в pos.stop)
                 var stopPct = priceToBarPct(pos.stop);
-                stpMarkers += makeMarker(stopPct, '#EF4444');
-                // 2) зелёная = следующая ступенька
+                stpMarkers += makeMarker(stopPct, '#EF4444', 'STOP');
+                // 2) янтарная STP+ = следующая ступенька
                 // текущий уровень stopProfit мы знаем как pos.stepTpMaxLevel. Следующая ступенька
                 // подтянет стоп на (stopProfit + step). Соответствующая прибыль для активации —
                 // на step выше пика. Упрощённо: next_stop_profit = pos.stepTpMaxLevel + step.
@@ -1624,7 +1664,7 @@
                 var nextStopProfit = curMaxStop + step;
                 var nextPrice = profitToPrice(nextStopProfit);
                 var nextPct = priceToBarPct(nextPrice);
-                stpMarkers += makeMarker(nextPct, '#10B981');
+                stpMarkers += makeMarker(nextPct, amber, 'STP+');
             }
         }
 
@@ -1705,10 +1745,98 @@
 
         var entryPriceFmt = fmtPrice(pos.entryPrice);
 
+        // ── R:R сделки ──
+        // Считаем по входу/стопу/тейку, как они стояли на старте.
+        // Если STP активирован — pos.stop уже подтянут, R показывает текущий риск,
+        // а не первоначальный (это полезнее для оценки «куда мы сейчас»).
+        var rrLine = '';
+        if (pos.entryPrice && pos.stop && pos.target) {
+            var riskDist   = Math.abs(pos.entryPrice - pos.stop);
+            var rewardDist = Math.abs(pos.target - pos.entryPrice);
+            if (riskDist > 0) {
+                var rrRatio = (rewardDist / riskDist).toFixed(2);
+                // $-эквиваленты: на одной единице цены количество = pos.size / pos.entryPrice
+                var qty = pos.size / pos.entryPrice;
+                var riskUsd   = (riskDist * qty).toFixed(2);
+                var rewardUsd = (rewardDist * qty).toFixed(2);
+                rrLine = '<div style="font-size:10px;color:#475569;margin-top:3px;font-variant-numeric:tabular-nums;">' +
+                    'R:R 1 : ' + rrRatio + ' \u00B7 \u0440\u0438\u0441\u043A $' + riskUsd + ' \u00B7 \u0446\u0435\u043B\u044C $' + rewardUsd +
+                '</div>';
+            }
+        }
+
+        // ── Чистый PnL после комиссии ──
+        // Paper-комиссия 0.11% round-trip (как в bot-server.js, findEntrySignal).
+        // Считаем round-trip от размера: $500 → $0.55.
+        var feePct = 0.11;
+        var feeUsd = (pos.size || 0) * feePct / 100;
+        var netPnl = unrealizedPnl - feeUsd;
+        var netStr = (netPnl >= 0 ? '+' : '\u2212') + '$' + Math.abs(netPnl).toFixed(2);
+        var netColor = netPnl >= 0 ? '#26a69a' : '#EF5350';
+        var netLine = '<div style="font-size:10px;color:#64748B;margin-top:3px;font-variant-numeric:tabular-nums;">' +
+            '\u0447\u0438\u0441\u0442\u044B\u0439 <span style="color:' + netColor + ';opacity:0.85;">' + netStr + '</span> \u043F\u043E\u0441\u043B\u0435 \u043A\u043E\u043C\u0438\u0441\u0441\u0438\u0438' +
+        '</div>';
+
+        // ── Расстояния от текущей цены до стопа/тейка в % ──
+        var stopDistPct = '', tgtDistPct = '';
+        if (_state.currentPrice && pos.stop && pos.target) {
+            var sd = ((pos.stop   - _state.currentPrice) / _state.currentPrice) * 100;
+            var td = ((pos.target - _state.currentPrice) / _state.currentPrice) * 100;
+            // Знаки: показываем как есть от текущей цены (LONG: стоп ниже = отрицательный, тейк выше = положительный).
+            stopDistPct = ' <span style="color:#64748B;">(' + (sd >= 0 ? '+' : '') + sd.toFixed(2) + '%)</span>';
+            tgtDistPct  = ' <span style="color:#64748B;">(' + (td >= 0 ? '+' : '') + td.toFixed(2) + '%)</span>';
+        }
+
+        // ── Таймаут в свечах ──
+        // Используем pos.candlesHeld с сервера (обновляется на закрытии каждой свечи).
+        // Для непрерывности показываем дробное значение: candlesHeld + (elapsed внутри текущей свечи / minutesPerCandle).
+        // Это даёт плавный счётчик типа "6.1 / 20 свечей".
+        var tfMin = ({ '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440 })[_state.timeframe] || 5;
+        var timeoutCandles = parseFloat(_state.positionTimeout) || 0;
+        var candlesHeldInt = pos.candlesHeld || 0;
+        // Дробная часть = сколько прошло внутри текущей свечи. openedAt → elapsed уже есть в минутах.
+        // Текущая свеча начала отсчитываться, когда candlesHeld последний раз инкрементировался;
+        // у нас этой инфы нет точно, но можем оценить как (elapsed % tfMin) / tfMin.
+        var candleFrac = tfMin > 0 ? ((elapsed % tfMin) / tfMin) : 0;
+        var candlesHeldFrac = candlesHeldInt + candleFrac;
+        // Защита от выхода за лимит: clamp в 0..timeout
+        if (timeoutCandles > 0 && candlesHeldFrac > timeoutCandles) candlesHeldFrac = timeoutCandles;
+        var timePctTotal = timeoutCandles > 0 ? Math.max(0, Math.min(100, (candlesHeldFrac / timeoutCandles) * 100)) : 0;
+        // Цвет полоски: серый → янтарь (>70%) → красный (>90%)
+        var timeBarColor = timePctTotal >= 90 ? '#EF5350' : timePctTotal >= 70 ? '#F59E0B' : '#64748B';
+        var timePctLabel = timeoutCandles > 0
+            ? '<span style="color:' + timeBarColor + ';font-variant-numeric:tabular-nums;font-weight:500;">' + timePctTotal.toFixed(0) + '%</span>'
+            : '';
+        var candlesMain = timeoutCandles > 0
+            ? candlesHeldFrac.toFixed(1) + ' / ' + timeoutCandles + ' \u0441\u0432\u0435\u0447\u0435\u0439'
+            : candlesHeldFrac.toFixed(1) + ' \u0441\u0432\u0435\u0447\u0435\u0439';
+        var minutesRemaining = timeoutCandles > 0
+            ? Math.max(0, Math.round((timeoutCandles - candlesHeldFrac) * tfMin))
+            : null;
+        var timeFootLine = minutesRemaining != null
+            ? elapsed + ' \u043C\u0438\u043D \u00B7 \u043E\u0441\u0442. ' + minutesRemaining
+            : elapsed + ' \u043C\u0438\u043D';
+
+        // ── MFE / MAE ──
+        // pos.maxUnrealized — пик прибыли за сделку; pos.maxDrawdown — самая глубокая просадка.
+        // Оба в долларах. Для процентов берём от entry-цены через размер позиции.
+        var mfeUsd = pos.maxUnrealized || 0;
+        var maeUsd = pos.maxDrawdown   || 0;
+        var mfePct = (pos.entryPrice > 0 && pos.size > 0) ? (mfeUsd / pos.size * 100) : 0;
+        var maePct = (pos.entryPrice > 0 && pos.size > 0) ? (maeUsd / pos.size * 100) : 0;
+        var mfeStr = '+$' + mfeUsd.toFixed(2);
+        var maeStr = (maeUsd < 0 ? '\u2212$' : '$') + Math.abs(maeUsd).toFixed(2);
+
         container.innerHTML = '\
             <div class="bot-w-pos-header">\
-                <span class="bot-w-pos-side" style="color:' + sideColor + ';">' + pos.side + ' \u00B7 ' + entryPriceFmt + '</span>\
-                <span class="bot-w-pos-pnl-big" style="color:' + pnlColor + ';">' + pnlStr + ' <span style="font-size:11px;font-weight:500;opacity:0.75;">(' + pnlPct + '%)</span></span>\
+                <div style="display:flex;flex-direction:column;min-width:0;">\
+                    <span class="bot-w-pos-side" style="color:' + sideColor + ';">' + pos.side + ' \u00B7 ' + entryPriceFmt + '</span>\
+                    ' + rrLine + '\
+                </div>\
+                <div style="display:flex;flex-direction:column;align-items:flex-end;">\
+                    <span class="bot-w-pos-pnl-big" style="color:' + pnlColor + ';">' + pnlStr + ' <span style="font-size:11px;font-weight:500;opacity:0.75;">(' + pnlPct + '%)</span></span>\
+                    ' + netLine + '\
+                </div>\
             </div>\
             \
             <div class="bot-w-pos-bar-wrap">\
@@ -1722,8 +1850,8 @@
                     ' + stpMarkers + '\
                 </div>\
                 <div class="bot-w-pos-bar-labels">\
-                    <span style="color:#EF5350;">' + (pos.trailingActive ? '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="vertical-align:-1px;"><polyline points="1,8 3,5 5,6 9,2" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="6,2 9,2 9,5" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Трейл ' : 'Стоп ') + fmtPrice(pos.stop) + '</span>\
-                    <span style="color:#26a69a;">Тейк ' + fmtPrice(pos.target) + '</span>\
+                    <span style="color:#EF5350;">' + (pos.trailingActive ? '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="vertical-align:-1px;"><polyline points="1,8 3,5 5,6 9,2" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="6,2 9,2 9,5" stroke="#EF5350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Трейл ' : 'Стоп ') + fmtPrice(pos.stop) + stopDistPct + '</span>\
+                    <span style="color:#26a69a;">Тейк ' + fmtPrice(pos.target) + tgtDistPct + '</span>\
                 </div>\
             </div>\
             \
@@ -1737,8 +1865,32 @@
                     <span class="bot-w-pos-dval">' + sizeStr + '</span>\
                 </div>\
                 <div class="bot-w-pos-detail">\
-                    <span class="bot-w-pos-dlabel">Время</span>\
-                    <span class="bot-w-pos-dval">' + elapsed + ' мин</span>\
+                    <span class="bot-w-pos-dlabel" style="display:flex;justify-content:space-between;align-items:center;">\
+                        <span>Время</span>\
+                        ' + timePctLabel + '\
+                    </span>\
+                    <span class="bot-w-pos-dval">' + candlesMain + '</span>\
+                    <div style="position:relative;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin-top:5px;overflow:hidden;">\
+                        <div style="position:absolute;left:0;top:0;height:100%;width:' + timePctTotal.toFixed(1) + '%;background:' + timeBarColor + ';border-radius:2px;transition:width 0.5s ease,background 0.3s ease;"></div>\
+                    </div>\
+                    <div style="font-size:9px;color:#64748B;margin-top:3px;font-variant-numeric:tabular-nums;">' + timeFootLine + '</div>\
+                </div>\
+            </div>\
+            \
+            <div class="bot-w-pos-extras">\
+                <div class="bot-w-pos-extra">\
+                    <span class="bot-w-pos-elabel">\
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#26a69a" stroke-width="2.5" style="vertical-align:-1px;"><path d="M7 17l5-5 5 5M7 7l5 5 5-5"/></svg>\
+                        Пик прибыли\
+                    </span>\
+                    <span class="bot-w-pos-eval" style="color:#26a69a;">' + mfeStr + ' <span style="font-size:10px;opacity:0.6;">(' + mfePct.toFixed(2) + '%)</span></span>\
+                </div>\
+                <div class="bot-w-pos-extra">\
+                    <span class="bot-w-pos-elabel">\
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#EF5350" stroke-width="2.5" style="vertical-align:-1px;"><path d="M7 7l5 5 5-5M7 17l5-5 5 5"/></svg>\
+                        Макс. просадка\
+                    </span>\
+                    <span class="bot-w-pos-eval" style="color:#EF5350;">' + maeStr + ' <span style="font-size:10px;opacity:0.6;">(' + Math.abs(maePct).toFixed(2) + '%)</span></span>\
                 </div>\
             </div>';
     }
@@ -2545,27 +2697,27 @@
                     <div class="bst-trail-body" id="bstStepTpBody" style="' + (_state.stepTpEnabled ? '' : 'opacity:0.55;pointer-events:none;') + '">\
                         <div class="bst-row bst-row-3">\
                             <div class="bst-col">\
-                                <div class="bst-lbl">Активация ($)</div>\
+                                <div class="bst-lbl">Активация (%)</div>\
                                 <div class="bst-stepper">\
-                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpTrigger" data-step="0.5" data-min="0.5"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
-                                    <input class="bst-step-input" id="bstStepTpTrigger" type="number" min="0.5" max="100" step="0.5" value="' + _state.stepTpTrigger + '">\
-                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpTrigger" data-step="0.5" data-max="100">▶</div>\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpTrigger" data-step="0.05" data-min="0.1"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstStepTpTrigger" type="number" min="0.1" max="10" step="0.05" value="' + _state.stepTpTrigger + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpTrigger" data-step="0.05" data-max="10">▶</div>\
                                 </div>\
                             </div>\
                             <div class="bst-col">\
-                                <div class="bst-lbl">Шаг подтяжки ($)</div>\
+                                <div class="bst-lbl">Шаг подтяжки (%)</div>\
                                 <div class="bst-stepper">\
-                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpStep" data-step="0.1" data-min="0.1"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
-                                    <input class="bst-step-input" id="bstStepTpStep" type="number" min="0.1" max="10" step="0.1" value="' + _state.stepTpStep + '">\
-                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpStep" data-step="0.1" data-max="10">▶</div>\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpStep" data-step="0.01" data-min="0.01"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstStepTpStep" type="number" min="0.01" max="2" step="0.01" value="' + _state.stepTpStep + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpStep" data-step="0.01" data-max="2">▶</div>\
                                 </div>\
                             </div>\
                             <div class="bst-col">\
-                                <div class="bst-lbl">Зазор стопа ($)</div>\
+                                <div class="bst-lbl">Зазор стопа (%)</div>\
                                 <div class="bst-stepper">\
-                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpTolerance" data-step="0.1" data-min="0"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
-                                    <input class="bst-step-input" id="bstStepTpTolerance" type="number" min="0" max="10" step="0.1" value="' + _state.stepTpTolerance + '">\
-                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpTolerance" data-step="0.1" data-max="10">▶</div>\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstStepTpTolerance" data-step="0.05" data-min="0"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstStepTpTolerance" type="number" min="0" max="5" step="0.05" value="' + _state.stepTpTolerance + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstStepTpTolerance" data-step="0.05" data-max="5">▶</div>\
                                 </div>\
                             </div>\
                         </div>\
@@ -3675,7 +3827,7 @@
             ? 'Вкл (' + parseFloat(_state.trailingOffset).toFixed(2) + '%, акт. ' + _state.trailingActivation + '%)'
             : 'Выкл';
         var stepTpLabel = _state.stepTpEnabled
-            ? 'Вкл ($' + parseFloat(_state.stepTpTrigger).toFixed(2) + ' / ' + parseFloat(_state.stepTpStep).toFixed(2) + ' / ' + parseFloat(_state.stepTpTolerance).toFixed(2) + ')'
+            ? 'Вкл (' + parseFloat(_state.stepTpTrigger).toFixed(2) + '% / ' + parseFloat(_state.stepTpStep).toFixed(2) + '% / ' + parseFloat(_state.stepTpTolerance).toFixed(2) + '%)'
             : 'Выкл';
         var modeLabel = (_state.mode === 'live' ? 'Live' : 'Paper');
 
@@ -3843,14 +3995,16 @@
                 updateButtons();
                 startStatusPolling(uid);
                 loadBotList();
-                // Начинаем рисовать уровни бота на графике (только если стратегия не manual)
                 window._botCurrentBotId = _state.botId;
-                syncBotLevelsVisibility();
-                // Автоматически переключаем график на пару и таймфрейм бота,
-                // чтобы BB-полосы и маркеры рисовались на правильной шкале времени.
-                if (typeof window._syncChartToBot === 'function') {
-                    window._syncChartToBot(_state.pair, _state.timeframe);
-                }
+                // Сначала ждём загрузки графика с правильной парой+ТФ, и ТОЛЬКО ПОТОМ
+                // рисуем уровни/BB. Иначе BB считаются по rawOhlcCache со старой пары
+                // и рисуются в координатах предыдущей цены.
+                (async function() {
+                    if (typeof window._syncChartToBot === 'function') {
+                        try { await window._syncChartToBot(_state.pair, _state.timeframe); } catch (e) {}
+                    }
+                    syncBotLevelsVisibility();
+                })();
             } else {
                 alert('Ошибка запуска: ' + (data.error || 'unknown'));
             }
@@ -3904,10 +4058,13 @@
                 startStatusPolling(uid);
                 loadBotList();
                 window._botCurrentBotId = _state.botId;
-                syncBotLevelsVisibility();
-                if (typeof window._syncChartToBot === 'function') {
-                    window._syncChartToBot(_state.pair, _state.timeframe);
-                }
+                // Сначала ждём график, потом уровни (см. switchBot/startBot).
+                (async function() {
+                    if (typeof window._syncChartToBot === 'function') {
+                        try { await window._syncChartToBot(_state.pair, _state.timeframe); } catch (e) {}
+                    }
+                    syncBotLevelsVisibility();
+                })();
             } else {
                 alert('Ошибка запуска: ' + (data.error || 'unknown'));
             }
@@ -5062,7 +5219,11 @@
         modal.querySelector('#botJournalClear').onclick = function() { confirmClearTrades(isAllBots); };
         modal.querySelector('#botJournalAnalytics').onclick = function() {
             // isAllBots определяет скоуп: true → анализ всех ботов, false → конкретного бота
-            openAnalytics(isAllBots ? null : (_state.botId || null));
+            // Прокидываем активные фильтры журнала — анализ применит их к выборке.
+            // Копируем, чтобы изменения фильтров после открытия модалки не влияли на снимок.
+            var filtersSnapshot = {};
+            for (var k in _journalFilters) filtersSnapshot[k] = _journalFilters[k];
+            openAnalytics(isAllBots ? null : (_state.botId || null), filtersSnapshot);
         };
 
         // ════════════════════════════════════════════════════════════════
@@ -5218,21 +5379,10 @@
             if (_activeFilterCount() > 0) {
                 html += '<span id="bjmResetFilters" style="cursor:pointer;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:500;white-space:nowrap;background:rgba(226,75,74,0.08);border:1px solid rgba(226,75,74,0.25);color:#E24B4A;">✕ Сбросить</span>';
             }
-            // Счётчик показывается только когда есть активные фильтры — иначе дублирует
-            // блок статистики выше.
-            if (_activeFilterCount() > 0) {
-                var filtered = _filterTrades(trades);
-                var fTotal = filtered.length;
-                var fWins = filtered.filter(function(t){ return (t.pnl||0) > 0; }).length;
-                var fWR = fTotal > 0 ? Math.round(fWins / fTotal * 100) : 0;
-                var fNet = filtered.reduce(function(s, t){ return s + (t.pnl || 0); }, 0);
-                var counterColor = fNet >= 0 ? '#10B981' : '#EF4444';
-                html += '<span style="margin-left:auto;font-size:11px;color:#888780;">'
-                     +  'Показано <b style="color:#C8CACE;font-weight:500;">' + fTotal + '</b> из ' + trades.length
-                     +  ' · WR <b style="color:' + (fWR >= 50 ? '#10B981' : '#EF4444') + ';font-weight:500;">' + fWR + '%</b>'
-                     +  ' · <b style="color:' + counterColor + ';font-weight:500;">' + (fNet >= 0 ? '+' : '') + '$' + fNet.toFixed(2) + '</b>'
-                     +  '</span>';
-            }
+            // Правая сводка ("Показано N из M · WR · P&L") удалена — она дублировала
+            // левую статистику в _renderJournalContent, которая при активных фильтрах
+            // пересчитывается по отфильтрованным сделкам. Общее количество до фильтра
+            // теперь показывается прямо в счётчике "Сделок" слева ("9 из 15").
             container.innerHTML = html;
 
             // Обработчики чипов
@@ -5347,7 +5497,7 @@
             var fPfText = (fPf == null) ? '—' : fPf.toFixed(2);
 
             stats.innerHTML =
-                  '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + fTotal + '</span></div>'
+                  '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Сделок <span style="color:#E2E8F0;font-weight:700;">' + fTotal + '</span><span style="color:#636B76;font-weight:400;"> из ' + trades.length + '</span></div>'
                 + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">Win rate <span style="color:' + (fWR>=50?'#10B981':'#EF4444') + ';font-weight:700;">' + fWR + '%</span></div>'
                 + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">PF <span style="color:' + fPfColor + ';font-weight:700;">' + fPfText + '</span></div>'
                 + '<div style="font-size:' + (isMobile?'11px':'10px') + ';color:#636B76;">P&L <span style="color:' + (fNet>=0?'#10B981':'#EF4444') + ';font-weight:700;">' + (fNet>=0?'+':'') + '$' + fNet.toFixed(2) + '</span></div>'
@@ -5395,11 +5545,13 @@
     // hours удалён — теперь всегда показываем "Всё".
     // tab: 'general' (общий по всем стратегиям) или 'scalper' (только скальпер с разрезами по уровням).
     // scalperData кэшируется отдельно — у двух вкладок разные эндпоинты.
-    var _analyticsState = { tab: 'general', scope: null, data: null, scalperData: null, loading: false };
+    // filters — снимок _journalFilters в момент открытия (из showJournalModal). Сервер применит к выборке.
+    var _analyticsState = { tab: 'general', scope: null, filters: {}, data: null, scalperData: null, loading: false };
 
-    function openAnalytics(botId) {
+    function openAnalytics(botId, filters) {
         _analyticsState.scope = botId || null;
         _analyticsState.tab = 'general';
+        _analyticsState.filters = filters || {};
         _analyticsState.data = null;
         _analyticsState.scalperData = null;
         renderAnalyticsModal();
@@ -5414,8 +5566,18 @@
         var params = ['uid=' + encodeURIComponent(uid), 'hours=0'];
         if (_analyticsState.scope) params.push('botId=' + encodeURIComponent(_analyticsState.scope));
 
+        // Пробрасываем активные фильтры журнала (не 'all') в URL как f_<key>=<value>.
+        // Сервер применит их перед всеми агрегациями. См. /api/bot/analytics в bot-server.js.
+        var filters = _analyticsState.filters || {};
+        Object.keys(filters).forEach(function(k) {
+            var v = filters[k];
+            if (v && v !== 'all') {
+                params.push('f_' + k + '=' + encodeURIComponent(v));
+            }
+        });
+
         var url = _analyticsState.tab === 'scalper'
-            ? '/api/bot/analytics/scalper?' + params.filter(function(p){ return p.indexOf('hours=') !== 0; }).join('&')
+            ? '/api/bot/analytics/scalper?' + params.filter(function(p){ return p.indexOf('hours=') !== 0 && p.indexOf('f_') !== 0; }).join('&')
             : '/api/bot/analytics?' + params.join('&');
 
         fetch(url)
@@ -5457,7 +5619,7 @@
 
         var innerStyle = isMobile
             ? 'width:100%;height:100%;display:flex;flex-direction:column;background:#0a0e1a;'
-            : 'width:100%;max-width:780px;background:#0F1419;border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 80px);overflow:hidden;';
+            : 'width:100%;max-width:800px;background:#0F1419;border:1px solid rgba(255,255,255,0.08);border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 80px);overflow:hidden;';
 
         var headerPad = isMobile ? 'padding:14px 16px;' : 'padding:12px 16px;';
         var bodyPad   = isMobile ? 'padding:14px 16px;' : 'padding:14px 18px;';
@@ -5472,6 +5634,27 @@
             scopeLabel = 'Этот бот';
         }
 
+        // currentData объявлен здесь раньше, потому что используется в кнопке копирования,
+        // чипах фильтров и счётчике ниже.
+        var currentData = _analyticsState.tab === 'scalper'
+            ? _analyticsState.scalperData
+            : _analyticsState.data;
+
+        // Кнопка копирования. На мобиле показываем только иконку (экономим место).
+        // Активна только когда есть данные (currentData существует и не пустой/ошибочный).
+        var copyBtnEnabled = currentData && !currentData.empty && !currentData.error && !_analyticsState.loading;
+        var copyBtnHtml = '';
+        if (copyBtnEnabled) {
+            copyBtnHtml =
+                '<div id="botAnalyticsCopy" title="Копировать анализ в Markdown" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:' + (isMobile ? '6px 8px' : '5px 10px') + ';font-size:' + (isMobile ? '11px' : '11px') + ';color:#94A3B8;border:1px solid rgba(255,255,255,0.10);border-radius:5px;transition:all 0.15s;user-select:none;">' +
+                    '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">' +
+                        '<rect x="5" y="5" width="9" height="9" rx="1"/>' +
+                        '<path d="M3 11V3a1 1 0 011-1h7"/>' +
+                    '</svg>' +
+                    (isMobile ? '' : '<span class="bac-text">Копировать</span>') +
+                '</div>';
+        }
+
         var headerHtml =
             '<div style="' + headerPad + 'display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;">' +
                 '<svg width="' + (isMobile ? 20 : 16) + '" height="' + (isMobile ? 20 : 16) + '" viewBox="0 0 16 16" fill="none">' +
@@ -5479,6 +5662,7 @@
                 '</svg>' +
                 '<span style="font-size:' + (isMobile ? '15px' : '13px') + ';font-weight:700;color:#E2E8F0;">Анализ</span>' +
                 '<div style="flex:1;"></div>' +
+                copyBtnHtml +
                 '<div id="botAnalyticsClose" style="cursor:pointer;color:#94A3B8;width:' + (isMobile ? 36 : 24) + 'px;height:' + (isMobile ? 36 : 24) + 'px;display:flex;align-items:center;justify-content:center;border-radius:6px;margin-left:6px;">' +
                     '<svg width="' + closeIconSize + '" height="' + closeIconSize + '" viewBox="0 0 12 12" fill="none">' +
                         '<line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
@@ -5506,16 +5690,66 @@
                 tabBtn('Скальпер', 'scalper', scalperCount) +
             '</div>';
 
-        // Скоуп-строка
+        // Скоуп-строка + чипы активных фильтров + индикатор «X из Y сделок»
+        // Чипы — info-only (нередактируемые из анализа). Чтобы изменить фильтры —
+        // надо закрыть Анализ и менять их в журнале (это снаружи).
+        var filterChipsHtml = '';
+        var counterHtml = '';
+        if (currentData && currentData.appliedFilters && currentData.hasFilters) {
+            // Маппинги для красивого отображения значений фильтров
+            var fLabelMap = {
+                firstMove: 'Движение',
+                exitReason: 'Выход',
+                side: 'Сторона',
+                result: 'Результат',
+                pair: 'Пара',
+                strategy: 'Стратегия',
+                timeframe: 'ТФ',
+                regime: 'Режим',
+            };
+            var fValMap = {
+                'favor': 'в нашу', 'adverse': 'против',
+                'win': 'победа', 'loss': 'поражение',
+                'step_tp': 'Шаговый TP', 'take_profit': 'Тейк', 'stop_loss': 'Стоп',
+                'trailing_stop': 'Трейлинг', 'cluster_exit': 'Кластер',
+                'manual_close': 'Ручной', 'timeout': 'Таймаут',
+                'mean_reversion': 'Mean Reversion', 'scalper': 'Скальпер', 'manual': 'Ручной',
+            };
+            var chips = [];
+            Object.keys(currentData.appliedFilters).forEach(function(k) {
+                var raw = currentData.appliedFilters[k];
+                var label = fLabelMap[k] || k;
+                var val   = fValMap[raw] || raw;
+                chips.push(
+                    '<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(38,166,154,0.12);color:#26a69a;border:1px solid rgba(38,166,154,0.25);padding:2px 7px;border-radius:4px;font-size:' + (isMobile ? '10px' : '10px') + ';margin-left:6px;font-weight:500;">' +
+                        '<svg width="9" height="9" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;"><path d="M2 2h8l-3 4v4l-2-1V6L2 2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>' +
+                        escapeHtml(label) + ' = ' + escapeHtml(val) +
+                    '</span>'
+                );
+            });
+            filterChipsHtml = chips.join('');
+        }
+        if (currentData && currentData.totalBeforeFilters != null) {
+            var n = currentData.totalTrades || 0;
+            var total = currentData.totalBeforeFilters;
+            var active = currentData.hasFilters;
+            counterHtml = '<span style="margin-left:auto;font-size:' + (isMobile ? '10px' : '10px') + ';padding:2px 8px;border-radius:4px;' +
+                (active
+                    ? 'background:rgba(38,166,154,0.12);color:#26a69a;border:1px solid rgba(38,166,154,0.25);'
+                    : 'background:rgba(255,255,255,0.04);color:#94A3B8;border:1px solid rgba(255,255,255,0.06);') +
+                'font-weight:500;flex-shrink:0;">' +
+                (active ? (n + ' из ' + total + ' сделок') : ('все ' + total + ' сделок')) +
+                '</span>';
+        }
+
         var scopeRow =
-            '<div style="' + (isMobile ? 'padding:8px 16px;' : 'padding:6px 16px;') + 'border-bottom:1px solid rgba(255,255,255,0.04);font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;flex-shrink:0;">' +
-                'Скоуп: <span style="color:#94A3B8;">' + escapeHtml(scopeLabel) + '</span>' +
+            '<div style="' + (isMobile ? 'padding:8px 16px;' : 'padding:6px 16px;') + 'border-bottom:1px solid rgba(255,255,255,0.04);font-size:' + (isMobile ? '11px' : '10px') + ';color:#636B76;flex-shrink:0;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' +
+                '<span>Скоуп: <span style="color:#94A3B8;">' + escapeHtml(scopeLabel) + '</span></span>' +
+                filterChipsHtml +
+                counterHtml +
             '</div>';
 
         var bodyHtml = '';
-        var currentData = _analyticsState.tab === 'scalper'
-            ? _analyticsState.scalperData
-            : _analyticsState.data;
 
         if (_analyticsState.loading) {
             bodyHtml = '<div style="' + bodyPad + 'flex:1;display:flex;align-items:center;justify-content:center;color:#636B76;font-size:12px;">Загрузка...</div>';
@@ -5534,7 +5768,7 @@
             bodyHtml = renderAnalyticsBody(currentData, isMobile);
         }
 
-        var bodyWrap = '<div style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;">' + bodyHtml + '</div>';
+        var bodyWrap = '<div style="flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;">' + bodyHtml + '</div>';
 
         modal.innerHTML = '<div style="' + innerStyle + '">' + headerHtml + tabsRow + scopeRow + bodyWrap + '</div>';
 
@@ -5546,6 +5780,31 @@
         }
 
         modal.querySelector('#botAnalyticsClose').onclick = function() { modal.remove(); };
+
+        // Кнопка копирования (рендерится только когда есть данные)
+        var copyBtn = modal.querySelector('#botAnalyticsCopy');
+        if (copyBtn) {
+            copyBtn.onclick = function() { _handleAnalyticsCopy(copyBtn); };
+            // Hover-эффект: оттенок акцентного цвета при наведении.
+            // Базовые значения восстанавливаем ЯВНО, а не через '', потому что
+            // base-стили заданы инлайн в HTML — сброс к '' их тоже удалит,
+            // и кнопка останется чёрной (унаследует цвет от родителя).
+            var BASE_COLOR  = '#94A3B8';
+            var BASE_BORDER = 'rgba(255,255,255,0.10)';
+            var BASE_BG     = 'transparent';
+            copyBtn.onmouseenter = function() {
+                if (copyBtn._resetTimer) return; // не трогаем, если показывается "Скопировано"
+                copyBtn.style.color = '#26a69a';
+                copyBtn.style.borderColor = 'rgba(38,166,154,0.4)';
+                copyBtn.style.background = 'rgba(38,166,154,0.06)';
+            };
+            copyBtn.onmouseleave = function() {
+                if (copyBtn._resetTimer) return;
+                copyBtn.style.color = BASE_COLOR;
+                copyBtn.style.borderColor = BASE_BORDER;
+                copyBtn.style.background = BASE_BG;
+            };
+        }
 
         // Клики по вкладкам
         var tabBtns = modal.querySelectorAll('.bam-tab-btn');
@@ -5628,10 +5887,23 @@
             options = options || {};
             var keys = Object.keys(obj);
             if (keys.length === 0) return '';
-            keys.sort(function(a, b) {
-                if (options.sortBy === 'pnl') return (obj[b].pnl || 0) - (obj[a].pnl || 0);
-                return (obj[b].n || 0) - (obj[a].n || 0);
-            });
+            if (options.sortBy === 'custom' && Array.isArray(options.customOrder)) {
+                // Фиксированный порядок (например, ТФ: 5m → 15m → 1h → 4h).
+                // Ключи вне списка идут в конец в порядке появления.
+                var ord = options.customOrder;
+                keys.sort(function(a, b) {
+                    var ia = ord.indexOf(a); var ib = ord.indexOf(b);
+                    if (ia === -1 && ib === -1) return 0;
+                    if (ia === -1) return 1;
+                    if (ib === -1) return -1;
+                    return ia - ib;
+                });
+            } else {
+                keys.sort(function(a, b) {
+                    if (options.sortBy === 'pnl') return (obj[b].pnl || 0) - (obj[a].pnl || 0);
+                    return (obj[b].n || 0) - (obj[a].n || 0);
+                });
+            }
             var keyMap = options.keyMap || {};
             var rows = keys.map(function(k) {
                 var b = obj[k];
@@ -5650,11 +5922,9 @@
             '</div>';
         }
 
-        // ── Общая картина: 6 крупных карточек (4 на мобиле, 2 ряда) ──
-        // Раньше было 4: Сделок · WR · P&L · Комиссии. Добавлены:
-        //   Средняя — d.overall.avgPnl (был только в журнале)
-        //   Лучшая  — d.best (новое поле сервера)
-        //   Худшая  — d.worst (новое поле сервера)
+        // ── Общая картина: 8 крупных карточек (на мобиле 2 ряда) ──
+        // 8 карточек: Сделок · WR · PF · P&L · Средняя · Лучшая · Худшая · Комиссии.
+        // PF (Profit Factor) — ΣWin/|ΣLoss|. null = нет проигрышных (показываем ∞), 0 = нет выигрышных.
         var beBelow = (d.breakEvenWR != null) && (d.overall.winRate < d.breakEvenWR);
         var beSubtext = '';
         if (d.breakEvenWR != null) {
@@ -5678,14 +5948,34 @@
         var worstVal = (d.worst != null) ? fmtMoney(d.worst) : '—';
         var avgVal   = (d.overall.avgPnl != null) ? fmtMoney(d.overall.avgPnl) : '—';
 
+        // PF: null → ∞ (нет проигрышей), 0 → 0, иначе число.
+        // Цвет: ≥1.5 зелёный, 1.0-1.5 жёлтый, <1.0 красный, ∞ — нейтральный белый.
+        var pfRaw = d.overall.pf;
+        var pfVal, pfColor, pfSubtext;
+        if (pfRaw == null) {
+            pfVal = '∞'; pfColor = '#E2E8F0';
+            pfSubtext = '<div style="font-size:10px;color:#636B76;margin-top:3px;">нет проигр.</div>';
+        } else if (pfRaw === 0) {
+            pfVal = '0'; pfColor = '#EF4444';
+            pfSubtext = '<div style="font-size:10px;color:#636B76;margin-top:3px;">нет выигр.</div>';
+        } else {
+            pfVal = pfRaw.toFixed(2);
+            pfColor = pfRaw >= 1.5 ? '#10B981' : pfRaw >= 1.0 ? '#FBBF24' : '#EF4444';
+            pfSubtext = '<div style="font-size:10px;color:#636B76;margin-top:3px;">profit factor</div>';
+        }
+        // На худшую/лучшую цвет ставим по знаку (если все сделки в плюсе — худшая зелёная).
+        var bestColor  = (d.best != null  && d.best  < 0) ? '#EF4444' : '#10B981';
+        var worstColor = (d.worst != null && d.worst >= 0) ? '#10B981' : '#EF4444';
+
         var overallBlock =
-            '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 7) + ',1fr);gap:8px;margin-bottom:14px;">' +
+            '<div style="display:grid;grid-template-columns:repeat(' + (isMobile ? 2 : 4) + ',1fr);gap:8px;margin-bottom:14px;">' +
                 metricCard('Сделок', d.overall.n, '#E2E8F0', '') +
                 metricCard('Win rate', d.overall.winRate + '%', wrColor(d.overall.winRate), beSubtext) +
+                metricCard('PF', pfVal, pfColor, pfSubtext) +
                 metricCard('P&L net', fmtMoney(d.overall.pnl), colorFor(d.overall.pnl), '') +
                 metricCard('Средняя', avgVal, d.overall.avgPnl >= 0 ? '#10B981' : '#EF4444', '') +
-                metricCard('Лучшая', bestVal, '#10B981', '') +
-                metricCard('Худшая', worstVal, '#EF4444', '') +
+                metricCard('Лучшая', bestVal, bestColor, '') +
+                metricCard('Худшая', worstVal, worstColor, '') +
                 metricCard('Комиссии', '$' + d.overall.fees.toFixed(2), '#FBBF24', feesSubtext) +
             '</div>';
 
@@ -5723,12 +6013,12 @@
         var sideMap = { 'LONG': 'LONG', 'SHORT': 'SHORT' };
         var windowMap = { 'EU': 'EU (07:05–11:55)', 'US': 'US (13:05–16:55)', 'EU+US': 'EU + US', 'all': 'Без фильтра окон' };
         var regimeMap = {
-            'all_up': 'Все 3 ТФ согласны вверх',
-            'all_down': 'Все 3 ТФ согласны вниз',
+            'all_up':    'Все 3 ТФ — тренд вверх',
+            'all_down':  'Все 3 ТФ — тренд вниз',
             'two_agree': 'Согласны 2 из 3',
-            'disagree': 'Расхождение или флэт',
+            'disagree':  'Расхождение ТФ (флэт)',
             'no_regime': 'Без фильтра режима',
-            'legacy': 'Старый формат',
+            'legacy':    'Старый формат',
         };
         var exitMap = {
             'stop_loss': 'Стоп', 'take_profit': 'Тейк', 'timeout': 'Таймаут',
@@ -5742,8 +6032,12 @@
             renderBreakdown('По парам', d.byPair, { sortBy: 'pnl' }) +
             renderBreakdown('По режиму при входе', d.byRegimeAgreement, { keyMap: regimeMap });
 
+        // По таймфрейму — порядок не по N/pnl, а фиксированный (5m → 15m → 1h → 4h)
+        // для предсказуемого UI. Сортировка sortBy='custom' с tfOrder.
+        var tfOrder = ['5m', '15m', '1h', '4h', 'unknown'];
         var rightCol =
             renderBreakdown('По направлению', d.bySide, { keyMap: sideMap }) +
+            renderBreakdown('По таймфрейму', d.byTimeframe || {}, { sortBy: 'custom', customOrder: tfOrder }) +
             renderBreakdown('По окну торговли', d.byWindow, { keyMap: windowMap }) +
             renderExitBreakdown('По выходу', d.byExit, exitMap, isMobile, fmtMoney, colorFor);
 
@@ -5772,6 +6066,262 @@
         }
 
         return '<div style="' + pad + '">' + overallBlock + beAlert + insightsBlock + breakdownsGrid + matchupBlock + durationBlock + hoursBlock + byBotBlock + '</div>';
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  ЭКСПОРТ АНАЛИЗА В MARKDOWN
+    //  Собирает читаемый текст из объекта data, который сервер прислал.
+    //  Используется кнопкой "Копировать" в шапке окна Анализа.
+    //  Формат — Markdown с заголовками ## и буллетами -, чтобы нейросеть
+    //  легко парсила структуру.
+    // ════════════════════════════════════════════════════════════
+    function _buildAnalyticsMarkdown(d, scopeLabel) {
+        if (!d) return '';
+        var lines = [];
+
+        function fmt$(v) {
+            if (v == null || isNaN(v)) return '$0.00';
+            var sign = v >= 0 ? '+' : '';
+            return sign + '$' + Number(v).toFixed(2);
+        }
+        function fmtPF(pf) {
+            if (pf == null) return '∞ (нет проигрышей)';
+            if (pf === 0)  return '0 (нет выигрышей)';
+            return pf.toFixed(2);
+        }
+        // Универсальный буллет: "- KEY: n=X, WR Y%, P&L $Z"
+        function bulletLine(label, b) {
+            return '- ' + label + ': n=' + b.n + ', WR ' + b.winRate + '%, P&L ' + fmt$(b.pnl);
+        }
+
+        // ── Заголовок и метаданные ──
+        lines.push('# Анализ ThinkingTrader');
+        lines.push('Скоуп: ' + (scopeLabel || 'Все боты'));
+
+        // Применённые фильтры (только активные)
+        var filterLabelMap = {
+            firstMove: 'Движение', exitReason: 'Выход', side: 'Сторона',
+            result: 'Результат', pair: 'Пара', strategy: 'Стратегия',
+            timeframe: 'ТФ', regime: 'Режим',
+        };
+        var filterValMap = {
+            'favor': 'в нашу', 'adverse': 'против',
+            'win': 'победа', 'loss': 'поражение',
+            'step_tp': 'Шаговый TP', 'take_profit': 'Тейк', 'stop_loss': 'Стоп',
+            'trailing_stop': 'Трейлинг', 'cluster_exit': 'Кластер',
+            'manual_close': 'Ручной', 'timeout': 'Таймаут',
+            'mean_reversion': 'Mean Reversion', 'scalper': 'Скальпер', 'manual': 'Ручной',
+        };
+        if (d.hasFilters && d.appliedFilters) {
+            var filterParts = Object.keys(d.appliedFilters).map(function(k) {
+                var raw = d.appliedFilters[k];
+                return (filterLabelMap[k] || k) + ' = ' + (filterValMap[raw] || raw);
+            });
+            lines.push('Фильтры: ' + filterParts.join(', '));
+            lines.push('Сделок: ' + (d.totalTrades || 0) + ' из ' + (d.totalBeforeFilters || 0));
+        } else {
+            lines.push('Фильтры: не применены');
+            lines.push('Сделок: ' + (d.totalTrades || 0));
+        }
+        lines.push('');
+
+        // ── Общая статистика ──
+        if (d.overall) {
+            lines.push('## Общая статистика');
+            lines.push('- Сделок: ' + d.overall.n);
+            var beStr = (d.breakEvenWR != null) ? (' (b/e ' + d.breakEvenWR + '%)') : '';
+            lines.push('- Win rate: ' + d.overall.winRate + '%' + beStr);
+            lines.push('- PF (Profit Factor): ' + fmtPF(d.overall.pf));
+            lines.push('- P&L net: ' + fmt$(d.overall.pnl));
+            lines.push('- Средняя сделка: ' + fmt$(d.overall.avgPnl));
+            if (d.best != null)  lines.push('- Лучшая: ' + fmt$(d.best));
+            if (d.worst != null) lines.push('- Худшая: ' + fmt$(d.worst));
+            var feesPct = (d.feesAsPercentOfGross != null) ? (' (' + d.feesAsPercentOfGross + '% валового)') : '';
+            lines.push('- Комиссии: $' + d.overall.fees.toFixed(2) + feesPct);
+            lines.push('');
+        }
+
+        // ── Универсальный сборщик breakdown-секции ──
+        // Идёт по ключам в нужном порядке, форматирует через keyMap (если задан).
+        function appendBreakdown(title, obj, options) {
+            options = options || {};
+            if (!obj) return;
+            var keys = Object.keys(obj);
+            if (keys.length === 0) return;
+            if (options.customOrder) {
+                var ord = options.customOrder;
+                keys.sort(function(a, b) {
+                    var ia = ord.indexOf(a), ib = ord.indexOf(b);
+                    if (ia === -1 && ib === -1) return 0;
+                    if (ia === -1) return 1;
+                    if (ib === -1) return -1;
+                    return ia - ib;
+                });
+            } else if (options.sortBy === 'pnl') {
+                keys.sort(function(a, b) { return (obj[b].pnl || 0) - (obj[a].pnl || 0); });
+            } else {
+                keys.sort(function(a, b) { return (obj[b].n || 0) - (obj[a].n || 0); });
+            }
+            lines.push('## ' + title);
+            var keyMap = options.keyMap || {};
+            keys.forEach(function(k) {
+                lines.push(bulletLine(keyMap[k] || k, obj[k]));
+            });
+            lines.push('');
+        }
+
+        // Маппинги (то же, что в renderAnalyticsBody)
+        var strategyMap = { 'mean_reversion': 'Mean Reversion', 'scalper': 'Скальпер' };
+        var sideMap = { 'LONG': 'LONG', 'SHORT': 'SHORT' };
+        var windowMap = { 'EU': 'EU (07:05–11:55)', 'US': 'US (13:05–16:55)', 'EU+US': 'EU + US', 'all': 'Без фильтра окон' };
+        var regimeMap = {
+            'all_up':    'Все 3 ТФ — тренд вверх',
+            'all_down':  'Все 3 ТФ — тренд вниз',
+            'two_agree': 'Согласны 2 из 3',
+            'disagree':  'Расхождение ТФ (флэт)',
+            'no_regime': 'Без фильтра режима',
+            'legacy':    'Старый формат',
+        };
+        var exitMap = {
+            'stop_loss': 'Стоп', 'take_profit': 'Тейк', 'timeout': 'Таймаут',
+            'manual_stop': 'Стоп бота', 'trailing_stop': 'Трейлинг', 'step_tp': 'Шаговый TP',
+            'cluster_exit': 'Кластер', 'bb_exit': 'Bollinger', 'manual': 'Ручной', 'external_close': 'Внешнее',
+        };
+        var tfOrder = ['5m', '15m', '1h', '4h', 'unknown'];
+
+        appendBreakdown('По стратегии',   d.byStrategy,         { keyMap: strategyMap });
+        appendBreakdown('По направлению', d.bySide,             { keyMap: sideMap });
+        appendBreakdown('По таймфрейму',  d.byTimeframe,        { customOrder: tfOrder });
+        appendBreakdown('По парам',       d.byPair,             { sortBy: 'pnl' });
+        appendBreakdown('По окну торговли', d.byWindow,         { keyMap: windowMap });
+        appendBreakdown('По выходу',      d.byExit,             { keyMap: exitMap, sortBy: 'pnl' });
+        appendBreakdown('По режиму при входе', d.byRegimeAgreement, { keyMap: regimeMap });
+
+        // ── Только если скоуп — все боты, есть смысл показывать "по ботам" ──
+        if (!_analyticsState.scope && d.byBot) {
+            appendBreakdown('По ботам', d.byBot, { sortBy: 'pnl' });
+        }
+
+        // ── Время удержания ──
+        if (d.avgWinDuration != null || d.avgLossDuration != null) {
+            lines.push('## Время удержания');
+            if (d.avgWinDuration != null)  lines.push('- Среднее (победы): ' + d.avgWinDuration + ' мин');
+            if (d.avgLossDuration != null) lines.push('- Среднее (поражения): ' + d.avgLossDuration + ' мин');
+            // Бакеты по длительности
+            if (d.byDuration && Object.keys(d.byDuration).length > 0) {
+                var durLabel = { 'lt2': '< 2 мин', 'lt5': '2–5 мин', 'lt15': '5–15 мин', 'gte15': '> 15 мин' };
+                var durOrder = ['lt2', 'lt5', 'lt15', 'gte15'];
+                durOrder.forEach(function(k) {
+                    if (d.byDuration[k]) {
+                        lines.push(bulletLine(durLabel[k], d.byDuration[k]));
+                    }
+                });
+            }
+            lines.push('');
+        }
+
+        // ── По часам торговли ──
+        if (d.byHour && Object.keys(d.byHour).length > 0) {
+            lines.push('## По часам торговли (UTC)');
+            // Сортируем по часу
+            var hourKeys = Object.keys(d.byHour);
+            hourKeys.sort(function(a, b) {
+                var ma = String(a).match(/^(\d+)/), mb = String(b).match(/^(\d+)/);
+                return (ma ? parseInt(ma[1], 10) : 0) - (mb ? parseInt(mb[1], 10) : 0);
+            });
+            hourKeys.forEach(function(k) {
+                lines.push(bulletLine(k, d.byHour[k]));
+            });
+            lines.push('');
+        }
+
+        // ── Инсайты ──
+        if (d.insights && d.insights.length > 0) {
+            lines.push('## Инсайты');
+            d.insights.forEach(function(ins) {
+                var mark = ins.type === 'good' ? '✓' : ins.type === 'bad' ? '✗' : '⚠';
+                lines.push('- ' + mark + ' ' + ins.text);
+            });
+            lines.push('');
+        }
+
+        return lines.join('\n').trim();
+    }
+
+    // ── Копирование в clipboard с fallback для HTTP/старых браузеров ──
+    function _copyToClipboard(text) {
+        // Современный API (HTTPS или localhost)
+        if (navigator.clipboard && window.isSecureContext) {
+            return navigator.clipboard.writeText(text);
+        }
+        // Fallback: скрытый textarea + execCommand
+        return new Promise(function(resolve, reject) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus(); ta.select();
+            try {
+                var ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                ok ? resolve() : reject(new Error('execCommand returned false'));
+            } catch (e) {
+                document.body.removeChild(ta);
+                reject(e);
+            }
+        });
+    }
+
+    // Обработчик клика по кнопке копирования.
+    // Берёт текущие данные анализа, собирает Markdown, копирует, показывает "Скопировано" на 2 сек.
+    function _handleAnalyticsCopy(btn) {
+        var data = _analyticsState.tab === 'scalper'
+            ? _analyticsState.scalperData
+            : _analyticsState.data;
+        if (!data || data.empty || data.error) return;
+
+        // Скоуп для заголовка — то же, что показано в шапке модалки
+        var scopeLabel = 'Все боты';
+        if (_analyticsState.scope && data.scope && data.scope.label) {
+            scopeLabel = data.scope.label;
+        } else if (_analyticsState.scope) {
+            scopeLabel = 'Этот бот';
+        }
+
+        var md = _buildAnalyticsMarkdown(data, scopeLabel);
+        _copyToClipboard(md).then(function() {
+            // Меняем кнопку на "Скопировано ✓" на 2 секунды.
+            // Сохраняем оригинальный HTML, чтобы вернуть его обратно.
+            if (!btn._originalHtml) btn._originalHtml = btn.innerHTML;
+            btn.innerHTML =
+                '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,8 7,12 13,4"/></svg>' +
+                '<span class="bac-text">Скопировано</span>';
+            btn.style.color = '#10B981';
+            btn.style.borderColor = 'rgba(16,185,129,0.5)';
+            btn.style.background = 'rgba(16,185,129,0.10)';
+            if (btn._resetTimer) clearTimeout(btn._resetTimer);
+            btn._resetTimer = setTimeout(function() {
+                btn.innerHTML = btn._originalHtml;
+                // Восстанавливаем базовые значения явно (см. комментарий к onmouseleave выше).
+                btn.style.color = '#94A3B8';
+                btn.style.borderColor = 'rgba(255,255,255,0.10)';
+                btn.style.background = 'transparent';
+                btn._resetTimer = null;
+            }, 2000);
+        }).catch(function(e) {
+            console.error('Copy failed:', e);
+            if (!btn._originalHtml) btn._originalHtml = btn.innerHTML;
+            btn.innerHTML = btn._originalHtml.replace(/Копировать/, 'Ошибка');
+            btn.style.color = '#EF4444';
+            setTimeout(function() {
+                btn.innerHTML = btn._originalHtml;
+                btn.style.color = '#94A3B8';
+                btn.style.borderColor = 'rgba(255,255,255,0.10)';
+                btn.style.background = 'transparent';
+            }, 2000);
+        });
     }
 
     // ── Время удержания: средняя длительность win vs loss + разрез по бакетам ──
@@ -6650,13 +7200,13 @@
         var mode = (bot.entryMode === 'tick') ? 'T' : 'C';
         var dir = bot.direction === 'long' ? 'L' : bot.direction === 'short' ? 'S' : 'L+S';
         var trail = bot.trailingEnabled ? ' ' + s + ' TR' : '';
-        // STP с порогами: активация/шаг/зазор в долларах. Зеркалит серверный getFullBotLabel.
+        // STP с порогами: активация/шаг/зазор в %. Зеркалит серверный getFullBotLabel.
         var stepTp = '';
         if (bot.stepTpEnabled) {
-            var stpT = (bot.stepTpTrigger != null) ? bot.stepTpTrigger : 5;
-            var stpS = (bot.stepTpStep != null) ? bot.stepTpStep : 0.5;
-            var stpG = (bot.stepTpTolerance != null) ? bot.stepTpTolerance : 0.5;
-            stepTp = ' ' + s + ' STP ' + stpT + '/' + stpS + '/' + stpG;
+            var stpT = (bot.stepTpTrigger != null) ? bot.stepTpTrigger : 0.5;
+            var stpS = (bot.stepTpStep != null) ? bot.stepTpStep : 0.06;
+            var stpG = (bot.stepTpTolerance != null) ? bot.stepTpTolerance : 0.12;
+            stepTp = ' ' + s + ' STP ' + stpT + '%/' + stpS + '%/' + stpG + '%';
         }
         var bbExit = bot.bbExitEnabled ? ' ' + s + ' BB' : '';
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
@@ -6712,10 +7262,11 @@
         var current = _state.bots.find(function(b) { return b.botId === _state.botId; });
         if (current) {
             label.textContent = getBotLabel(current);
-            // Для текущего бота предпочитаем _state.position — он всегда свежий (из /api/bot/status),
-            // а bot.position из /api/bot/list может отсутствовать или запаздывать.
-            var hasPos = _state.position || current.position;
-            var state = !current.running ? 'stopped' : (hasPos ? 'in-position' : 'idle');
+            // Для текущего бота предпочитаем _state.position (всегда свежий, из /api/bot/status),
+            // а current.position — fallback из /api/bot/list (там строка 'LONG'/'SHORT').
+            var pos = _state.position || current.position;
+            var posSide = _extractPosSide(pos);
+            var state = computeBotDotState(!!current.running, !!pos, posSide);
             setBotDotState(dot, state);
         } else {
             var fallback = {
@@ -6731,7 +7282,8 @@
                 stopFixedPct: _state.stopFixedPct,
             };
             label.textContent = getBotLabel(fallback);
-            var fbState = !_state.running ? 'stopped' : (_state.position ? 'in-position' : 'idle');
+            var fbPosSide = _extractPosSide(_state.position);
+            var fbState = computeBotDotState(!!_state.running, !!_state.position, fbPosSide);
             setBotDotState(dot, fbState);
         }
     }
@@ -6748,7 +7300,7 @@
             renderBotDropdown();
             dd.style.display = 'block';
             // Обновляем список каждые 4 сек, пока dropdown открыт — чтобы индикаторы
-            // (running / in-position / P&L) у ВСЕХ ботов оставались актуальными.
+            // (running / long / short / P&L) у ВСЕХ ботов оставались актуальными.
             if (_dropdownPollTimer) clearInterval(_dropdownPollTimer);
             _dropdownPollTimer = setInterval(function() {
                 var stillOpen = document.getElementById('botSelectorDropdown');
@@ -6811,14 +7363,12 @@
             var row = document.createElement('div');
             var isActive = bot.botId === _state.botId;
             var label = getBotLabel(bot);
-            // 3 состояния: серый = остановлен, зелёный = ждёт сигнала, янтарный пульс = в позиции.
+            // 3 состояния: stopped / idle / in-position.
             // Для активного бота предпочитаем свежее состояние позиции из _state
             // (bot.position из /api/bot/list может отсутствовать или запаздывать).
-            var hasPos = isActive ? (_state.position || bot.position) : bot.position;
-            var dotClass;
-            if (!bot.running) dotClass = 'bot-dot-stopped';
-            else if (hasPos)  dotClass = 'bot-dot-in-position';
-            else              dotClass = 'bot-dot-idle';
+            var pos = isActive ? (_state.position || bot.position) : bot.position;
+            var posSide = _extractPosSide(pos);
+            var dotState = computeBotDotState(!!bot.running, !!pos, posSide);
 
             // Общий P&L бота за всё время (сумма всех закрытых сделок).
             // Сервер должен возвращать bot.totalPnl из /api/bot/list.
@@ -6829,7 +7379,10 @@
             row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:7px 10px;cursor:pointer;transition:background 0.15s;' +
                 (isActive ? 'background:rgba(38,166,154,0.08);' : '');
 
-            row.innerHTML = '<span class="' + dotClass + '" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>' +
+            // Единый размер точки 6×6 для всех состояний. Цвет/пульсация — через CSS-класс.
+            var dotStyle = 'width:6px;height:6px;border-radius:50%;flex-shrink:0;margin:0 2px;';
+
+            row.innerHTML = '<span class="bot-dot-' + dotState + '" style="' + dotStyle + '"></span>' +
                 '<span style="flex:1;font-size:11px;color:' + (isActive ? '#26a69a' : '#D1D5DB') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + label + '</span>' +
                 '<span style="font-size:10px;color:' + pnlColor + ';flex-shrink:0;margin-right:4px;">' + pnlStr + '</span>' +
                 '<span class="bot-dd-delete" data-botid="' + bot.botId + '" style="flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:3px;cursor:pointer;opacity:0.3;transition:opacity 0.15s;" title="Удалить">' +
@@ -6998,7 +7551,7 @@
         .catch(function(e) { console.warn('[BOT] delete error', e); });
     }
 
-    function switchBot(botId) {
+    async function switchBot(botId) {
         if (_state.botId === botId) return;
         _state.botId = botId;
 
@@ -7016,9 +7569,13 @@
             var pairLabel = document.getElementById('botWidgetPairLabel');
             if (pairLabel) pairLabel.textContent = bot.pair;
 
-            // Переключаем график на пару и таймфрейм бота
+            // Переключаем график на пару и таймфрейм бота — И ЖДЁМ загрузки свечей.
+            // Без await ботовские BB могли нарисоваться по rawOhlcCache со СТАРОЙ
+            // парой (свечи прилетают за 500-1000мс, уровни/BB — за 50-100мс).
+            // Симптом: при переключении DOGE→BTC BB-полосы появлялись в координатах
+            // $0.10, шкала растягивалась на оба диапазона, иногда свечей вообще нет.
             if (typeof window._syncChartToBot === 'function') {
-                window._syncChartToBot(bot.pair, bot.timeframe);
+                try { await window._syncChartToBot(bot.pair, bot.timeframe); } catch (e) {}
             } else {
                 // Fallback на старый _switchChartCoin если _syncChartToBot не определён
                 var symbol = bot.pair ? bot.pair.replace('/USDT', '').replace('USDT', '') : null;
@@ -7026,6 +7583,10 @@
                     window._switchChartCoin(symbol);
                 }
             }
+
+            // Guard актуальности: пока ждали свечи пользователь мог переключиться
+            // ещё раз. Не рисуем уровни для устаревшего выбора.
+            if (_state.botId !== botId) return;
 
             // Обновляем botId для отрисовки уровней
             if (typeof window._botCurrentBotId !== 'undefined') {
