@@ -111,7 +111,7 @@ module.exports = function(app) {
         'atrFilterEnabled', 'atrFilterThreshold',
         'clusterEntryFilter', 'clusterThreshold', 'clusterLookback', 'clusterExitConfirm',
         'regimeFilterEnabled',
-        'tradingWindowEU', 'tradingWindowUS',
+        'tradingWindowAsia', 'tradingWindowEU', 'tradingWindowUS',
         'rsiPeriod', 'rsiOversold', 'rsiOverbought',
         'bbPeriod', 'bbMultiplier',
         'levelTouches', 'levelTolerance',
@@ -222,13 +222,13 @@ module.exports = function(app) {
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
         if (session.atrFilterEnabled) extra += ` ${s} A`;
-        // Окно торговли (W12 = только EU, W17 = только US, W12-17 = оба)
-        if (session.tradingWindowEU || session.tradingWindowUS) {
-            let wTag = 'W';
-            if (session.tradingWindowEU && session.tradingWindowUS) wTag = 'W12-17';
-            else if (session.tradingWindowEU) wTag = 'W12';
-            else if (session.tradingWindowUS) wTag = 'W17';
-            extra += ` ${s} ${wTag}`;
+        // Окно торговли: AS=Азия, EU=Европа, US=США (через "+" если несколько)
+        if (session.tradingWindowAsia || session.tradingWindowEU || session.tradingWindowUS) {
+            const parts = [];
+            if (session.tradingWindowAsia) parts.push('AS');
+            if (session.tradingWindowEU)   parts.push('EU');
+            if (session.tradingWindowUS)   parts.push('US');
+            extra += ` ${s} W:${parts.join('+')}`;
         }
         // Диапазон фильтра входа с явным префиксом:
         //   MR      -> RSI 24/76 (RSI oversold/overbought)
@@ -266,7 +266,47 @@ module.exports = function(app) {
                     balance: Math.round(session.virtualBalance * 100) / 100,
                     dayPnl: Math.round(session.dayPnl * 100) / 100,
                     totalPnl: Math.round(((session.virtualBalance || 0) - (session.startBalance || 0)) * 100) / 100,
-                    position: session.position ? session.position.side : null,
+                    // ── position ──
+                    // Возвращаем ПОЛНЫЙ объект позиции для модалки "Открытые позиции".
+                    // Если позиции нет — null. Если плейсхолдер LIVE (_pending) — тоже отдаём
+                    // его как минимальный объект, чтобы UI мог показать "открывается...".
+                    position: session.position ? (function() {
+                        const p = session.position;
+                        const cur = session.currentPrice || p.entryPrice;
+                        // unrealized: используем общий хелпер чтобы было в синхронизации с виджетом
+                        let unreal = 0;
+                        if (!p._pending && !p._closing && cur && p.entryPrice) {
+                            if (session.mode === 'live' && typeof session.exchangeUnrealizedPnl === 'number') {
+                                unreal = Math.round(session.exchangeUnrealizedPnl * 100) / 100;
+                            } else {
+                                const diff = p.side === 'LONG'
+                                    ? (cur - p.entryPrice) / p.entryPrice
+                                    : (p.entryPrice - cur) / p.entryPrice;
+                                unreal = Math.round(p.size * diff * 100) / 100;
+                            }
+                        }
+                        return {
+                            side:           p.side,
+                            entryPrice:     p.entryPrice,
+                            currentPrice:   cur,
+                            stop:           p.stop,
+                            initialStop:    p.initialStop != null ? p.initialStop : p.stop,
+                            target:         p.target,
+                            size:           Math.round((p.size || 0) * 100) / 100,
+                            openedAt:       p.openedAt,
+                            candlesHeld:    p.candlesHeld || 0,
+                            unrealizedPnl:  unreal,
+                            maxUnrealized:  p.maxUnrealized || 0,
+                            maxDrawdown:    p.maxDrawdown   || 0,
+                            trailingActive: p.trailingActive || false,
+                            stepTpActive:   p.stepTpActive || false,
+                            stepTpMaxLevel: p.stepTpMaxLevel || null,
+                            stepTpLastLevel: p.stepTpLastLevel != null ? p.stepTpLastLevel : -1,
+                            riskReward:     p.riskReward != null ? p.riskReward : null,
+                            pending:        !!p._pending,
+                            closing:        !!p._closing,
+                        };
+                    })() : null,
                     name: session.botName || null,
                     entryMode: session.entryMode || 'candle',
                     direction: session.direction || 'both',
@@ -279,6 +319,7 @@ module.exports = function(app) {
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
                     regimeFilterEnabled: session.regimeFilterEnabled || false,
+                    tradingWindowAsia: !!session.tradingWindowAsia,
                     tradingWindowEU: !!session.tradingWindowEU,
                     tradingWindowUS: !!session.tradingWindowUS,
                     atrFilterEnabled: session.atrFilterEnabled || false,
@@ -353,12 +394,12 @@ module.exports = function(app) {
             if (session.clusterEntryFilter)  tagParts.push('CL');
             if (session.regimeFilterEnabled) tagParts.push('R');
             if (session.bbExitEnabled)       tagParts.push('BB');
-            if (session.tradingWindowEU || session.tradingWindowUS) {
-                let wTag = 'W';
-                if (session.tradingWindowEU && session.tradingWindowUS) wTag = 'W12-17';
-                else if (session.tradingWindowEU) wTag = 'W12';
-                else if (session.tradingWindowUS) wTag = 'W17';
-                tagParts.push(wTag);
+            if (session.tradingWindowAsia || session.tradingWindowEU || session.tradingWindowUS) {
+                const parts = [];
+                if (session.tradingWindowAsia) parts.push('AS');
+                if (session.tradingWindowEU)   parts.push('EU');
+                if (session.tradingWindowUS)   parts.push('US');
+                tagParts.push('W:' + parts.join('+'));
             }
             const botTag = tagParts.join(' ');
 
@@ -1638,6 +1679,8 @@ module.exports = function(app) {
        - Включён хоть один       → торгуем только в активных окнах.
        ────────────────────────────────────────────── */
 
+    const TRADING_WINDOW_ASIA_START_MIN = 0 * 60 + 5;   // 00:05 UTC = 03:05 МСК
+    const TRADING_WINDOW_ASIA_END_MIN   = 6 * 60 + 55;  // 06:55 UTC = 09:55 МСК
     const TRADING_WINDOW_EU_START_MIN = 7 * 60 + 5;   // 07:05 UTC = 425 минут от полуночи
     const TRADING_WINDOW_EU_END_MIN   = 11 * 60 + 55; // 11:55 UTC = 715 минут
     const TRADING_WINDOW_US_START_MIN = 13 * 60 + 5;  // 13:05 UTC = 785 минут
@@ -1647,11 +1690,15 @@ module.exports = function(app) {
      * Возвращает текущую активную метку окна для журнала: 'EU' | 'US' | 'EU+US' | 'all' | 'none'
      */
     function getActiveWindowLabel(session) {
+        const asia = !!session.tradingWindowAsia;
         const eu = !!session.tradingWindowEU;
         const us = !!session.tradingWindowUS;
-        if (!eu && !us) return 'all';
-        if (eu && us) return 'EU+US';
-        return eu ? 'EU' : 'US';
+        if (!asia && !eu && !us) return 'all';
+        const parts = [];
+        if (asia) parts.push('AS');
+        if (eu) parts.push('EU');
+        if (us) parts.push('US');
+        return parts.join('+');
     }
 
     /**
@@ -1664,14 +1711,18 @@ module.exports = function(app) {
         // согласовал что для них фильтр выключен. На 5m/15m работает как раньше.
         if (session.timeframe === '1h' || session.timeframe === '4h') return true;
 
+        const asia = !!session.tradingWindowAsia;
         const eu = !!session.tradingWindowEU;
         const us = !!session.tradingWindowUS;
-        // Оба выключены → ограничений нет
-        if (!eu && !us) return true;
+        // Все выключены → ограничений нет
+        if (!asia && !eu && !us) return true;
 
         const now = new Date();
         const minOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
 
+        if (asia && minOfDay >= TRADING_WINDOW_ASIA_START_MIN && minOfDay <= TRADING_WINDOW_ASIA_END_MIN) {
+            return true;
+        }
         if (eu && minOfDay >= TRADING_WINDOW_EU_START_MIN && minOfDay <= TRADING_WINDOW_EU_END_MIN) {
             return true;
         }
@@ -2557,6 +2608,7 @@ module.exports = function(app) {
                 side:       signal.side,
                 entryPrice: signal.entry,  // временно сигнальная цена; перезапишется fill-ценой
                 stop:       signal.stop,
+                initialStop: signal.stop,  // исходный стоп, фиксируется при открытии (для шкалы)
                 target:     signal.target,
                 size:       size,
             };
@@ -2607,6 +2659,7 @@ module.exports = function(app) {
             side:       signal.side,
             entryPrice: entryPrice,
             stop:       signal.stop,
+            initialStop: signal.stop,  // исходный стоп при открытии — для отрисовки шкалы (не мутируется при STP/трейлинге)
             target:     signal.target,
             size:       size,
             openedAt:   Date.now(),
@@ -3526,6 +3579,7 @@ module.exports = function(app) {
             side,
             entryPrice: exchEntry,
             stop:       stopPrice,
+            initialStop: stopPrice,  // исходный стоп — для отрисовки шкалы
             target:     null,
             size:       sizeUsdt,
             openedAt:   Date.now(),
@@ -3709,6 +3763,7 @@ module.exports = function(app) {
             stepTpActivatedPrice:   pos.stepTpActivatedPrice || null,
             stepTpActivatedPnl:     pos.stepTpActivatedPnl || null,
             stepTpMaxLevel:         pos.stepTpMaxLevel || null,
+            stepTpLastLevel:        pos.stepTpLastLevel != null ? pos.stepTpLastLevel : -1,
             durationMin:      Math.round((Date.now() - pos.openedAt) / 60000),
             // ── Live: данные с биржи ──
             // Сохраняем для последующей сверки и анализа проскальзывания.
@@ -5026,6 +5081,7 @@ module.exports = function(app) {
                 clusterLookback:    session.clusterLookback,
                 clusterExitConfirm: session.clusterExitConfirm,
                 regimeFilterEnabled: session.regimeFilterEnabled,
+                tradingWindowAsia:  session.tradingWindowAsia,
                 tradingWindowEU:    session.tradingWindowEU,
                 tradingWindowUS:    session.tradingWindowUS,
                 rsiPeriod:          session.rsiPeriod,
@@ -5602,7 +5658,7 @@ module.exports = function(app) {
                 'smaReturnEnabled', 'atrFilterEnabled',
                 'clusterEnabled', 'clusterEntryFilter',
                 'regimeFilterEnabled',
-                'tradingWindowEU', 'tradingWindowUS',
+                'tradingWindowAsia', 'tradingWindowEU', 'tradingWindowUS',
             ];
 
             for (const f of numFields) {
@@ -5786,7 +5842,12 @@ module.exports = function(app) {
                 position:    session.position ? {
                     side:        session.position.side,
                     entryPrice:  session.position.entryPrice,
+                    // currentPrice — текущая цена пары на которой сидит бот. Нужна шкале
+                    // позиции в модалке "Открытые позиции" чтобы корректно отрисовать
+                    // заливку. Без неё модалка падала в дефолт 50% и шкала "прыгала".
+                    currentPrice: session.currentPrice || session.position.entryPrice,
                     stop:        session.position.stop,
+                    initialStop: session.position.initialStop != null ? session.position.initialStop : session.position.stop,
                     target:      session.position.target,
                     size:        Math.round(session.position.size * 100) / 100,
                     openedAt:    session.position.openedAt,
@@ -5799,6 +5860,8 @@ module.exports = function(app) {
                     trailingActive: session.position.trailingActive || false,
                     stepTpActive:   session.position.stepTpActive || false,
                     stepTpMaxLevel: session.position.stepTpMaxLevel || null,
+                    stepTpLastLevel: session.position.stepTpLastLevel != null ? session.position.stepTpLastLevel : -1,
+                    riskReward:     session.position.riskReward != null ? session.position.riskReward : null,
                     // Live: дополнительные данные с биржи (если есть)
                     pending:        !!session.position._pending,
                     closing:        !!session.position._closing,
@@ -5922,6 +5985,14 @@ module.exports = function(app) {
                 strategy:   req.query.f_strategy   || 'all',
                 timeframe:  req.query.f_timeframe  || 'all',
                 regime:     req.query.f_regime     || 'all',
+                // ── Фильтры по часам и сессиям (для drill-down из аналитики) ──
+                // hoursIn — список часов МСК через запятую ("9,10,14") по часу ВХОДА.
+                // hoursOut — то же по часу ВЫХОДА.
+                // sessionIn / sessionOut — имя сессии МСК: 'Ночь' | 'Азия' | 'Европа' | 'США'.
+                hoursIn:    req.query.f_hoursIn    || 'all',
+                hoursOut:   req.query.f_hoursOut   || 'all',
+                sessionIn:  req.query.f_sessionIn  || 'all',
+                sessionOut: req.query.f_sessionOut || 'all',
             };
 
             // Извлекает ТФ из лейбла бота (зеркало клиентского _tfFromLabel).
@@ -5953,6 +6024,22 @@ module.exports = function(app) {
 
             // ── Применяем фильтры из журнала ──
             // Логика мирроред с клиентским _filterTrades в bot-panel.js.
+            // Парсим списки часов один раз перед фильтрацией.
+            const hoursInSet = (rawFilters.hoursIn !== 'all')
+                ? new Set(rawFilters.hoursIn.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)))
+                : null;
+            const hoursOutSet = (rawFilters.hoursOut !== 'all')
+                ? new Set(rawFilters.hoursOut.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)))
+                : null;
+            // Хелпер для классификации сессии по часу МСК.
+            // Дублируем границы из основного блока выше.
+            const hourMskToSession = (mh) => {
+                if (mh == null) return null;
+                if (mh < 3)  return 'Ночь';
+                if (mh < 10) return 'Азия';
+                if (mh < 16) return 'Европа';
+                return 'США';
+            };
             trades = trades.filter(t => {
                 if (rawFilters.firstMove !== 'all' && t.firstMoveSide !== rawFilters.firstMove) return false;
                 if (rawFilters.exitReason !== 'all' && t.reason !== rawFilters.exitReason) return false;
@@ -5969,6 +6056,16 @@ module.exports = function(app) {
                     const rg = t.entryRegime && t.entryRegime.allowed;
                     if (rg !== rawFilters.regime) return false;
                 }
+                // ── Фильтры по времени МСК ──
+                const mhIn = (t.entryHourUTC != null) ? (t.entryHourUTC + 3) % 24 : null;
+                let mhOut = null;
+                if (t.closedAt) {
+                    mhOut = (new Date(t.closedAt).getUTCHours() + 3) % 24;
+                }
+                if (hoursInSet && (mhIn == null || !hoursInSet.has(mhIn))) return false;
+                if (hoursOutSet && (mhOut == null || !hoursOutSet.has(mhOut))) return false;
+                if (rawFilters.sessionIn !== 'all' && hourMskToSession(mhIn) !== rawFilters.sessionIn) return false;
+                if (rawFilters.sessionOut !== 'all' && hourMskToSession(mhOut) !== rawFilters.sessionOut) return false;
                 return true;
             });
 
@@ -6064,8 +6161,43 @@ module.exports = function(app) {
             // Окна торговли — используем tradingWindowAtEntry
             const byWindow   = groupBy(t => t.tradingWindowAtEntry || 'unknown');
 
-            // Часы UTC
-            const byHour     = groupBy(t => t.entryHourUTC != null ? `${String(t.entryHourUTC).padStart(2,'0')}:00 UTC` : null);
+            // Часы МСК (UTC+3). Бэк хранит entryHourUTC — конвертируем сразу здесь
+            // чтобы клиент работал в одной таймзоне с пользователем.
+            function utcHourToMsk(h) {
+                if (h == null) return null;
+                return (h + 3) % 24;
+            }
+            const byHour     = groupBy(t => {
+                const mh = utcHourToMsk(t.entryHourUTC);
+                return mh != null ? `${String(mh).padStart(2,'0')}:00 МСК` : null;
+            });
+
+            // Сессия МСК: Ночь 00-03 / Азия 03-10 / Европа 10-16 / США 16-24.
+            // Границы жёсткие (без 5-мин буферов) — для классификации статистики.
+            function hourToSessionMSK(h) {
+                if (h == null) return null;
+                if (h < 3)  return 'Ночь';
+                if (h < 10) return 'Азия';
+                if (h < 16) return 'Европа';
+                return 'США';
+            }
+            const bySession = groupBy(t => {
+                const mh = utcHourToMsk(t.entryHourUTC);
+                return hourToSessionMSK(mh);
+            });
+
+            // Матрица "вход сессия → выход сессия" (4×4).
+            // Часа выхода в trade напрямую нет, считаем из closedAt.
+            const bySessionMatrix = groupBy(t => {
+                const mhIn = utcHourToMsk(t.entryHourUTC);
+                if (!t.closedAt) return null;
+                const outDate = new Date(t.closedAt);
+                const mhOut = (outDate.getUTCHours() + 3) % 24;
+                const sIn = hourToSessionMSK(mhIn);
+                const sOut = hourToSessionMSK(mhOut);
+                if (!sIn || !sOut) return null;
+                return sIn + ' → ' + sOut;
+            });
 
             // По режиму V2 — степень согласованности 4h/15m/5m
             // Ключи: 'all_up' | 'all_down' | 'two_agree' | 'disagree' | 'no_regime' | 'legacy'
@@ -6112,10 +6244,33 @@ module.exports = function(app) {
             const byDuration = groupBy(t => {
                 if (t.durationMin == null) return null;
                 const d = num(t.durationMin);
-                if (d < 2)  return 'lt2';
-                if (d < 5)  return 'lt5';
-                if (d < 15) return 'lt15';
-                return 'gte15';
+                if (d < 2)    return 'd_lt2';     // <2 мин
+                if (d < 5)    return 'd_2to5';    // 2-5
+                if (d < 15)   return 'd_5to15';   // 5-15
+                if (d < 30)   return 'd_15to30';  // 15-30
+                if (d < 60)   return 'd_30to60';  // 30-60
+                if (d < 120)  return 'd_1to2h';   // 1-2ч
+                if (d < 240)  return 'd_2to4h';   // 2-4ч
+                if (d < 480)  return 'd_4to8h';   // 4-8ч
+                return 'd_8hplus';                 // 8ч+
+            });
+
+            // Матрица "длительность × выход" — почему именно сделки умирают на каждом интервале.
+            // Особенно интересно: 5-15 мин почти всегда = стоп, 2-4ч почти всегда = тейк/STP.
+            const byDurationExit = groupBy(t => {
+                if (t.durationMin == null || !t.reason) return null;
+                const d = num(t.durationMin);
+                let bucket;
+                if (d < 2)    bucket = 'd_lt2';
+                else if (d < 5)    bucket = 'd_2to5';
+                else if (d < 15)   bucket = 'd_5to15';
+                else if (d < 30)   bucket = 'd_15to30';
+                else if (d < 60)   bucket = 'd_30to60';
+                else if (d < 120)  bucket = 'd_1to2h';
+                else if (d < 240)  bucket = 'd_2to4h';
+                else if (d < 480)  bucket = 'd_4to8h';
+                else               bucket = 'd_8hplus';
+                return bucket + '__' + t.reason;
             });
 
             // Выявление инсайтов — топ-3 наблюдения для пользователя
@@ -6193,6 +6348,8 @@ module.exports = function(app) {
                 byTimeframe: byTimeframe,
                 byWindow: byWindow,
                 byHour: byHour,
+                bySession: bySession,
+                bySessionMatrix: bySessionMatrix,
                 byRegimeAgreement: byRegimeAgreement,
                 byExit: byExit,
                 best: best,
@@ -6200,6 +6357,7 @@ module.exports = function(app) {
                 avgWinDuration: avgWinDuration,
                 avgLossDuration: avgLossDuration,
                 byDuration: byDuration,
+                byDurationExit: byDurationExit,
                 insights: insights.slice(0, 5),
             });
         } catch(e) {
