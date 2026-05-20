@@ -20,7 +20,7 @@
         completedSteps: [],
         // ── Live mode: API ключи Binance Futures ──
         // Заполняются только когда выбран mode='live'. На сервер отправляются
-        // отдельным запросом и хранятся в зашифрованном виде.
+        // отдельным запросом и хранятся в зашифрованном виде..
         apiKey: '',
         apiSecret: '',
         apiTestnet: false,        // true → testnet.binancefuture.com
