@@ -13,6 +13,9 @@
         timeframe: '5m',
         running: false,
         paused: false,
+        // Мягкая остановка: бот всё ещё работает (running=true), но не открывает
+        // новых позиций; после закрытия текущей будет полный hard-stop.
+        pendingStop: false,
         modalStep: 0,
         completedSteps: [],
         // ── Live mode: API ключи Binance Futures ──
@@ -39,6 +42,12 @@
         stepTpTrigger: '0.50',
         stepTpStep: '0.06',
         stepTpTolerance: '0.12',
+        // ── Break-Even (BE) ── единоразовый переезд стопа на entry+offset
+        // когда цена прошла breakEvenAt% в нашу сторону. Не путать с STP — это
+        // разовое действие, без последующей подтяжки.
+        breakEvenEnabled: false,
+        breakEvenAt: '0.15',
+        breakEvenOffset: '0.03',
         bbExitEnabled: false,
         bbExitTolerance: '5',
         smaReturnEnabled: false,
@@ -69,13 +78,13 @@
         manualOrderType: 'market',     // 'market' | 'limit' — выбирается прямо в виджете
         pendingLimit: null,            // ожидающая лимитка с сервера {side, price, createdAt}
         pendingExit: null,             // ожидающий лимитный выход {price, createdAt}
-        virtualBalance: 10000,
+        virtualBalance: 500,
         trades: [],
         // Данные с сервера
         levels: [],
         currentPrice: 0,
         position: null,
-        balance: 10000,
+        balance: 500,
         dayPnl: 0,
         totalPnl: 0,
         tradeCount: 0,
@@ -97,10 +106,10 @@
     //   TP = 2×SL (R:R 2:1)
     // Применимо ко всем стратегиям. ATR-режим стопа удалён — только fixed%.
     var TIMEFRAME_DEFAULTS = {
-        '5m':  { stepTpTrigger: '0.50', stepTpStep: '0.06', stepTpTolerance: '0.12', stopFixedPct: '0.4', maxProfitPct: '0.8', cooldownCandles: '3', positionTimeout: '30' },
-        '15m': { stepTpTrigger: '0.80', stepTpStep: '0.10', stepTpTolerance: '0.20', stopFixedPct: '0.6', maxProfitPct: '1.2', cooldownCandles: '2', positionTimeout: '20' },
-        '1h':  { stepTpTrigger: '1.50', stepTpStep: '0.18', stepTpTolerance: '0.36', stopFixedPct: '1.0', maxProfitPct: '2.0', cooldownCandles: '1', positionTimeout: '12' },
-        '4h':  { stepTpTrigger: '3.20', stepTpStep: '0.40', stepTpTolerance: '0.80', stopFixedPct: '2.0', maxProfitPct: '4.0', cooldownCandles: '1', positionTimeout: '10' },
+        '5m':  { stepTpTrigger: '0.50', stepTpStep: '0.06', stepTpTolerance: '0.12', stopFixedPct: '0.4', maxProfitPct: '0.8', cooldownCandles: '3', positionTimeout: '30', breakEvenAt: '0.15', breakEvenOffset: '0.03' },
+        '15m': { stepTpTrigger: '0.80', stepTpStep: '0.10', stepTpTolerance: '0.20', stopFixedPct: '0.6', maxProfitPct: '1.2', cooldownCandles: '2', positionTimeout: '20', breakEvenAt: '0.20', breakEvenOffset: '0.04' },
+        '1h':  { stepTpTrigger: '1.50', stepTpStep: '0.18', stepTpTolerance: '0.36', stopFixedPct: '1.0', maxProfitPct: '2.0', cooldownCandles: '1', positionTimeout: '12', breakEvenAt: '0.30', breakEvenOffset: '0.05' },
+        '4h':  { stepTpTrigger: '3.20', stepTpStep: '0.40', stepTpTolerance: '0.80', stopFixedPct: '2.0', maxProfitPct: '4.0', cooldownCandles: '1', positionTimeout: '10', breakEvenAt: '0.50', breakEvenOffset: '0.08' },
     };
 
     function applyTimeframeDefaults(tf) {
@@ -113,6 +122,8 @@
         _state.maxProfitPct    = d.maxProfitPct;
         _state.cooldownCandles = d.cooldownCandles;
         _state.positionTimeout = d.positionTimeout;
+        if (d.breakEvenAt)     _state.breakEvenAt     = d.breakEvenAt;
+        if (d.breakEvenOffset) _state.breakEvenOffset = d.breakEvenOffset;
     }
 
     function injectCSS() {
@@ -808,6 +819,7 @@
         _state.running      = data.running       || false;
         _state.warmupUntil  = data.warmupUntil    || 0;
         _state.paused       = data.paused        || false;
+        _state.pendingStop  = !!data.pendingStop;
         _state.bbData       = data.bbData        || null;
         _state.regime       = data.regime        || null;
         _state.atrRegime    = data.atrRegime     || null;
@@ -840,6 +852,10 @@
             if (data.stepTpTrigger !== undefined)   _state.stepTpTrigger = String(data.stepTpTrigger);
             if (data.stepTpStep !== undefined)      _state.stepTpStep = String(data.stepTpStep);
             if (data.stepTpTolerance !== undefined) _state.stepTpTolerance = String(data.stepTpTolerance);
+            // Break-Even
+            if (data.breakEvenEnabled !== undefined) _state.breakEvenEnabled = !!data.breakEvenEnabled;
+            if (data.breakEvenAt !== undefined)      _state.breakEvenAt = String(data.breakEvenAt);
+            if (data.breakEvenOffset !== undefined)  _state.breakEvenOffset = String(data.breakEvenOffset);
             // BB exit + SMA return (Mean Reversion)
             if (data.bbExitEnabled !== undefined)      _state.bbExitEnabled = !!data.bbExitEnabled;
             if (data.bbExitTolerance !== undefined)    _state.bbExitTolerance = data.bbExitTolerance;
@@ -1740,6 +1756,45 @@
             }
         }
 
+        // ── Метка Break-Even (BE) ──
+        // Логика:
+        //   - До активации (pos.breakEvenActive=false): синяя метка "BE" на цене,
+        //     где сработает безубыток (entry ± breakEvenAt%).
+        //   - После активации: синяя метка исчезает (роль выполнена).
+        //     Но КРАСНАЯ метка SL рисуется ниже — она показывает новое положение стопа.
+        // НЕ зависит от STP — BE может работать одновременно с STP и трейлингом.
+        if (_state.breakEvenEnabled && pos.entryPrice && totalRange > 0 && !pos.breakEvenActive) {
+            var beAtPct = parseFloat(_state.breakEvenAt) || 0.15;
+            var beTriggerPrice = isLong
+                ? pos.entryPrice * (1 + beAtPct / 100)
+                : pos.entryPrice * (1 - beAtPct / 100);
+            var bePctOnBar = isLong
+                ? ((beTriggerPrice - barLeftStop) / totalRange) * 100
+                : ((barLeftStop - beTriggerPrice) / totalRange) * 100;
+            if (bePctOnBar >= -5 && bePctOnBar <= 105) {
+                var beColor = '#3B82F6'; // синий — отличается и от янтарного STP, и от красного SL
+                stpMarkers +=
+                    '<div style="position:absolute;left:' + bePctOnBar.toFixed(1) + '%;bottom:calc(100% + 2px);transform:translateX(-50%);font-size:9px;font-weight:700;line-height:1;letter-spacing:0.3px;color:' + beColor + ';white-space:nowrap;pointer-events:none;z-index:5;">BE</div>' +
+                    '<div style="position:absolute;left:' + bePctOnBar.toFixed(1) + '%;top:0;width:1px;height:100%;transform:translateX(-50%);background:' + beColor + ';pointer-events:none;z-index:4;"></div>';
+            }
+        }
+
+        // ── Универсальная метка SL для подтянутого стопа ──
+        // Рисуем красную линию SL ВСЕГДА когда стоп был передвинут защитным механизмом,
+        // НО только если STP-блок выше её ещё не нарисовал (он рисует свой SL при stepTpActive).
+        // Это покрывает кейс "BE сработал, STP ещё нет" — раньше после активации BE синяя метка
+        // исчезала, а новый стоп не показывался вообще. Теперь будет виден красный SL.
+        if (pos.breakEvenActive && !pos.stepTpActive && pos.stop != null && totalRange > 0) {
+            var sl2Pct = isLong
+                ? ((pos.stop - barLeftStop) / totalRange) * 100
+                : ((barLeftStop - pos.stop) / totalRange) * 100;
+            if (sl2Pct >= -5 && sl2Pct <= 105) {
+                stpMarkers +=
+                    '<div style="position:absolute;left:' + sl2Pct.toFixed(1) + '%;bottom:calc(100% + 2px);transform:translateX(-50%);font-size:9px;font-weight:700;line-height:1;letter-spacing:0.3px;color:#EF4444;white-space:nowrap;pointer-events:none;z-index:5;">SL</div>' +
+                    '<div style="position:absolute;left:' + sl2Pct.toFixed(1) + '%;top:0;width:1px;height:100%;transform:translateX(-50%);background:#EF4444;pointer-events:none;z-index:4;"></div>';
+            }
+        }
+
         // ── Метка активации трейлинга ──
         // ШТРИХ пунктирный — на самой шкале (top:0, height:100%, проходит от верха до низа).
         // ПОДПИСЬ — отдельным элементом над шкалой, чтобы они не толкались по Y.
@@ -2458,6 +2513,24 @@
             paperBtn.style.display  = '';
             resumeBtn.style.display = 'none';
         }
+
+        // Подсветка кнопки Стоп при взведённом soft-stop у текущего бота.
+        // Янтарная обводка + tooltip сообщает что бот ждёт закрытия позиции.
+        // При hard-stop / отсутствии флага возвращаем стандартные стили.
+        if (stopBtn) {
+            if (_state.pendingStop && _state.running) {
+                stopBtn.style.borderColor = 'rgba(245,158,11,0.55)';
+                stopBtn.style.background  = 'rgba(245,158,11,0.10)';
+                stopBtn.style.color       = '#F59E0B';
+                stopBtn.title = 'Ожидает закрытия позиции — потом авто-стоп. Клик: переоткрыть диалог остановки';
+            } else {
+                // Сбрасываем явно (а не через '') чтобы не зависеть от исходных инлайн-стилей.
+                stopBtn.style.borderColor = '';
+                stopBtn.style.background  = '';
+                stopBtn.style.color       = '';
+                stopBtn.title = 'Остановить';
+            }
+        }
     }
 
 
@@ -2567,6 +2640,16 @@
                             </div>\
                             <div class="bst-pair-dropdown" id="bstPairDropdown" style="display:none;">\
                                 <input type="text" class="bst-pair-search" id="bstPairSearch" placeholder="Поиск пары..." autocomplete="off">\
+                                <div id="bstPairFavBar" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);">\
+                                    <button type="button" id="bstPairFavLoad" title="Загрузить избранные пары" style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;background:transparent;border:1px solid rgba(255,193,7,0.3);color:#ffc107;padding:5px 8px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:500;">\
+                                        <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><polygon points="6,0.5 7.5,4 11.5,4.5 8.5,7.5 9.5,11.5 6,9.5 2.5,11.5 3.5,7.5 0.5,4.5 4.5,4"/></svg>\
+                                        Избранные\
+                                    </button>\
+                                    <button type="button" id="bstPairFavSave" title="Сохранить текущий выбор в избранное" style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:#a8b0bd;padding:5px 8px;border-radius:4px;font-size:11px;cursor:pointer;">\
+                                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/></svg>\
+                                        В избранное\
+                                    </button>\
+                                </div>\
                                 <div class="bst-pair-list" id="bstPairList"></div>\
                             </div>\
                             <input type="hidden" id="bstPair" value="' + _state.pair + '">\
@@ -2801,6 +2884,41 @@
                     </div>\
                 </div>\
                 \
+                <!-- 6a-2. БЕЗУБЫТОК (Break-Even) — разовый переезд стопа на entry+offset -->\
+                <div class="bst-section" id="bstBreakEvenSection">\
+                    <div class="bst-trail-header">\
+                        <span class="bst-section-label">Безубыток</span>\
+                        <label class="bst-switch">\
+                            <input type="checkbox" id="bstBreakEvenToggle" ' + (_state.breakEvenEnabled ? 'checked' : '') + '>\
+                            <span class="bst-switch-slider"></span>\
+                        </label>\
+                    </div>\
+                    <div class="bst-trail-body" id="bstBreakEvenBody" style="' + (_state.breakEvenEnabled ? '' : 'opacity:0.55;pointer-events:none;') + '">\
+                        <div class="bst-row bst-row-3">\
+                            <div class="bst-col">\
+                                <div class="bst-lbl">Активация (%)</div>\
+                                <div class="bst-stepper">\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstBreakEvenAt" data-step="0.05" data-min="0.01"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstBreakEvenAt" type="number" min="0.01" max="10" step="0.05" value="' + _state.breakEvenAt + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstBreakEvenAt" data-step="0.05" data-max="10">▶</div>\
+                                </div>\
+                            </div>\
+                            <div class="bst-col">\
+                                <div class="bst-lbl">Оффсет стопа (%)</div>\
+                                <div class="bst-stepper">\
+                                    <div class="bst-step-btn bst-step-dec" data-target="bstBreakEvenOffset" data-step="0.01" data-min="0"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><polygon points="6,0 0,4 6,8"/></svg></div>\
+                                    <input class="bst-step-input" id="bstBreakEvenOffset" type="number" min="0" max="5" step="0.01" value="' + _state.breakEvenOffset + '">\
+                                    <div class="bst-step-btn bst-step-inc" data-target="bstBreakEvenOffset" data-step="0.01" data-max="5">▶</div>\
+                                </div>\
+                            </div>\
+                            <div class="bst-col">\
+                                <div class="bst-lbl" style="opacity:0.7;">Логика</div>\
+                                <div style="font-size:11px;color:var(--text-secondary,#7a8290);line-height:1.4;padding-top:4px;">При +X% в плюс стоп → entry + оффсет (защита от выноса)</div>\
+                            </div>\
+                        </div>\
+                    </div>\
+                </div>\
+                \
                 <!-- 6b. ВЫХОД ПО ПРОТИВОПОЛОЖНОЙ BB (MR) -->\
                 <div class="bst-section" id="bstBbExitSection">\
                     <div class="bst-trail-header">\
@@ -2883,7 +3001,7 @@
                     <div class="bst-row bst-row-2">\
                         <div class="bst-col">\
                             <div class="bst-lbl">Баланс (USDT)</div>\
-                            <input class="bst-input" id="bstBalance" type="number" min="100" step="100" value="' + (_state.virtualBalance || 10000) + '">\
+                            <input class="bst-input" id="bstBalance" type="number" min="100" step="100" value="' + (_state.virtualBalance || 500) + '">\
                         </div>\
                         <div class="bst-col">\
                             <div class="bst-lbl">Режим</div>\
@@ -3359,18 +3477,43 @@
 
             function renderList(filter) {
                 filter = (filter || '').toUpperCase();
+                var favs = loadFavorites();
                 var html = '';
                 for (var i = 0; i < pairOptions.length; i++) {
                     var p = pairOptions[i];
                     if (filter && p.toUpperCase().indexOf(filter) === -1) continue;
                     var isSelected = _state.pairs.indexOf(p) !== -1;
+                    var isFav = favs.indexOf(p) !== -1;
                     var checkSvg = isSelected
                         ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;"><rect x="0.5" y="0.5" width="11" height="11" rx="2" fill="#26a69a" stroke="#26a69a"/><path d="M3 6l2 2 4-4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
                         : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0;"><rect x="0.5" y="0.5" width="11" height="11" rx="2" fill="transparent" stroke="rgba(255,255,255,0.25)"/></svg>';
-                    html += '<div class="bst-pair-item' + (isSelected ? ' bst-pair-item-active' : '') + '" data-pair="' + p + '" style="display:flex;align-items:center;gap:8px;">' + checkSvg + '<span>' + p + '</span></div>';
+                    var favStar = isFav
+                        ? '<span class="bst-pair-fav" data-pair="' + p + '" title="Убрать из избранного" style="margin-left:auto;cursor:pointer;color:#ffc107;display:inline-flex;align-items:center;padding:2px 4px;"><svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><polygon points="6,0.5 7.5,4 11.5,4.5 8.5,7.5 9.5,11.5 6,9.5 2.5,11.5 3.5,7.5 0.5,4.5 4.5,4"/></svg></span>'
+                        : '<span class="bst-pair-fav" data-pair="' + p + '" title="В избранное" style="margin-left:auto;cursor:pointer;color:rgba(255,255,255,0.2);display:inline-flex;align-items:center;padding:2px 4px;"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><polygon points="6,0.5 7.5,4 11.5,4.5 8.5,7.5 9.5,11.5 6,9.5 2.5,11.5 3.5,7.5 0.5,4.5 4.5,4"/></svg></span>';
+                    html += '<div class="bst-pair-item' + (isSelected ? ' bst-pair-item-active' : '') + '" data-pair="' + p + '" style="display:flex;align-items:center;gap:8px;">' + checkSvg + '<span>' + p + '</span>' + favStar + '</div>';
                 }
                 if (!html) html = '<div class="bst-pair-empty">Ничего не найдено</div>';
                 list.innerHTML = html;
+            }
+
+            // ── Избранные пары — хранятся в localStorage ──
+            function loadFavorites() {
+                try {
+                    var raw = localStorage.getItem('tt_favorite_pairs');
+                    if (!raw) return [];
+                    var arr = JSON.parse(raw);
+                    return Array.isArray(arr) ? arr : [];
+                } catch(e) { return []; }
+            }
+            function saveFavorites(arr) {
+                try { localStorage.setItem('tt_favorite_pairs', JSON.stringify(arr || [])); } catch(e) {}
+            }
+            function toggleFavorite(p) {
+                var favs = loadFavorites();
+                var idx = favs.indexOf(p);
+                if (idx === -1) favs.push(p);
+                else favs.splice(idx, 1);
+                saveFavorites(favs);
             }
 
             function openDropdown() {
@@ -3410,6 +3553,14 @@
 
             // Клик по пункту списка — toggle (не закрываем dropdown!)
             list.onclick = function(e) {
+                // Клик по звёздочке — toggle избранного
+                var favBtn = e.target.closest('.bst-pair-fav');
+                if (favBtn) {
+                    e.stopPropagation();
+                    toggleFavorite(favBtn.getAttribute('data-pair'));
+                    renderList(searchInput.value);
+                    return;
+                }
                 var item = e.target.closest('.bst-pair-item');
                 if (item) {
                     // stopPropagation КРИТИЧНО — иначе document.click считает
@@ -3419,6 +3570,49 @@
                     e.stopPropagation();
                     togglePair(item.getAttribute('data-pair'));
                 }
+            };
+
+            // ── Кнопка "Избранные" — добавляет все избранные пары к текущему выбору ──
+            var favLoadBtn = body.querySelector('#bstPairFavLoad');
+            if (favLoadBtn) favLoadBtn.onclick = function(e) {
+                e.stopPropagation();
+                var favs = loadFavorites();
+                if (favs.length === 0) {
+                    // Подсветим кнопку красным на секунду чтобы дать понять — пусто
+                    favLoadBtn.style.borderColor = 'rgba(244,67,54,0.5)';
+                    favLoadBtn.style.color = '#f44336';
+                    setTimeout(function() {
+                        favLoadBtn.style.borderColor = 'rgba(255,193,7,0.3)';
+                        favLoadBtn.style.color = '#ffc107';
+                    }, 600);
+                    return;
+                }
+                // Добавляем все избранные, которые есть в pairOptions и ещё не выбраны
+                for (var i = 0; i < favs.length; i++) {
+                    var p = favs[i];
+                    if (pairOptions.indexOf(p) === -1) continue;
+                    if (_state.pairs.indexOf(p) === -1) _state.pairs.push(p);
+                }
+                _state.pair = _state.pairs[0];
+                updateTriggerLabel();
+                renderList(searchInput.value);
+                updateSummary();
+            };
+
+            // ── Кнопка "В избранное" — сохраняет текущий выбор как избранное ──
+            // Перезаписывает, не добавляет — это namespaced действие.
+            var favSaveBtn = body.querySelector('#bstPairFavSave');
+            if (favSaveBtn) favSaveBtn.onclick = function(e) {
+                e.stopPropagation();
+                saveFavorites(_state.pairs.slice());
+                // Подсвечиваем кнопку зелёным на секунду — подтверждение
+                favSaveBtn.style.borderColor = 'rgba(38,166,154,0.5)';
+                favSaveBtn.style.color = '#26a69a';
+                setTimeout(function() {
+                    favSaveBtn.style.borderColor = 'rgba(255,255,255,0.12)';
+                    favSaveBtn.style.color = '#a8b0bd';
+                }, 600);
+                renderList(searchInput.value);  // обновим звёздочки
             };
 
             // Enter в поиске — добавить/убрать первый подходящий
@@ -3539,6 +3733,18 @@
                 }
             } else if (trailToggle && !_state.bbExitEnabled) {
                 trailToggle.disabled = false;
+            }
+            updateSummary();
+        };
+
+        // Break-Even toggle (независимый от STP — может работать одновременно)
+        var breakEvenToggle = body.querySelector('#bstBreakEvenToggle');
+        if (breakEvenToggle) breakEvenToggle.onchange = function() {
+            _state.breakEvenEnabled = breakEvenToggle.checked;
+            var beBody = body.querySelector('#bstBreakEvenBody');
+            if (beBody) {
+                beBody.style.opacity = breakEvenToggle.checked ? '1' : '0.55';
+                beBody.style.pointerEvents = breakEvenToggle.checked ? 'auto' : 'none';
             }
             updateSummary();
         };
@@ -3684,6 +3890,7 @@
             bstRiskPct: 'riskPct', bstDayLimit: 'dayLimitPct', bstMaxLosses: 'maxLosses',
             bstBalance: 'virtualBalance', bstTrailOffset: 'trailingOffset', bstTrailAct: 'trailingActivation',
             bstStepTpTrigger: 'stepTpTrigger', bstStepTpStep: 'stepTpStep', bstStepTpTolerance: 'stepTpTolerance',
+            bstBreakEvenAt: 'breakEvenAt', bstBreakEvenOffset: 'breakEvenOffset',
             bstLeverage: 'maxLeverage',
             bstBbTol: 'bbExitTolerance', bstSmaTol2: 'smaReturnTolerance'
         };
@@ -3845,7 +4052,7 @@
                     direction: _state.direction,
                     entryMode: _state.entryMode,
                     mode: _state.mode || 'paper',
-                    virtualBalance: parseFloat(_state.virtualBalance) || 10000,
+                    virtualBalance: parseFloat(_state.virtualBalance) || 500,
                     riskPct: parseFloat(_state.riskPct) || 2,
                     dayLimitPct: parseFloat(_state.dayLimitPct) || 50,
                     maxLosses: parseInt(_state.maxLosses) || 30,
@@ -3862,6 +4069,9 @@
                     stepTpTrigger: _state.stepTpTrigger,
                     stepTpStep: _state.stepTpStep,
                     stepTpTolerance: _state.stepTpTolerance,
+                    breakEvenEnabled: !!_state.breakEvenEnabled,
+                    breakEvenAt: _state.breakEvenAt,
+                    breakEvenOffset: _state.breakEvenOffset,
                     clusterEnabled: _state.clusterEnabled,
                     clusterThreshold: _state.clusterThreshold,
                     clusterExitConfirm: _state.clusterExitConfirm,
@@ -3906,6 +4116,9 @@
         var stepTpLabel = _state.stepTpEnabled
             ? 'Вкл (' + parseFloat(_state.stepTpTrigger).toFixed(2) + '% / ' + parseFloat(_state.stepTpStep).toFixed(2) + '% / ' + parseFloat(_state.stepTpTolerance).toFixed(2) + '%)'
             : 'Выкл';
+        var breakEvenLabel = _state.breakEvenEnabled
+            ? 'Вкл (+' + parseFloat(_state.breakEvenAt).toFixed(2) + '% → +' + parseFloat(_state.breakEvenOffset).toFixed(2) + '%)'
+            : 'Выкл';
         var modeLabel = (_state.mode === 'live' ? 'Live' : 'Paper');
 
         var rsiOS = 100 - (parseInt(_state.rsiOverbought) || 65);
@@ -3937,8 +4150,9 @@
             <div class="bst-sum-row"><span class="bst-sum-key">Стоп / Тейк</span><span class="bst-sum-val">' + _state.stopFixedPct + '% / ' + _state.maxProfitPct + '%</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Трейлинг</span><span class="bst-sum-val ' + (_state.trailingEnabled ? 'bst-sum-accent' : '') + '">' + trailLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Шаговый TP</span><span class="bst-sum-val ' + (_state.stepTpEnabled ? 'bst-sum-accent' : '') + '">' + stepTpLabel + '</span></div>\
+            <div class="bst-sum-row"><span class="bst-sum-key">Безубыток</span><span class="bst-sum-val ' + (_state.breakEvenEnabled ? 'bst-sum-accent' : '') + '">' + breakEvenLabel + '</span></div>\
             <div class="bst-sum-row"><span class="bst-sum-key">Риск / Плечо</span><span class="bst-sum-val">' + _state.riskPct + '% / ' + _state.maxLeverage + 'x</span></div>\
-            <div class="bst-sum-row"><span class="bst-sum-key">Баланс</span><span class="bst-sum-val">' + (parseFloat(_state.virtualBalance) || 10000) + ' USDT · ' + modeLabel + '</span></div>';
+            <div class="bst-sum-row"><span class="bst-sum-key">Баланс</span><span class="bst-sum-val">' + (parseFloat(_state.virtualBalance) || 500) + ' USDT · ' + modeLabel + '</span></div>';
     }
 
 
@@ -4024,6 +4238,9 @@
                 stepTpTrigger: _state.stepTpTrigger,
                 stepTpStep: _state.stepTpStep,
                 stepTpTolerance: _state.stepTpTolerance,
+                breakEvenEnabled: !!_state.breakEvenEnabled,
+                breakEvenAt: _state.breakEvenAt,
+                breakEvenOffset: _state.breakEvenOffset,
                 maxProfitPct: _state.maxProfitPct,
                 cooldownCandles: _state.cooldownCandles,
                 stopFixedPct: _state.stopFixedPct,
@@ -4286,11 +4503,18 @@
         // Склонение "бот/бота/ботов"
         var word = pluralBotsRu(count);
 
+        // Сколько ботов с открытыми позициями — определяет осмысленность "мягкого" режима.
+        // Если их 0 — "мягкий" не имеет смысла (он работает только для ботов с позициями;
+        // ботов без позиций он останавливает сразу), но всё равно показываем выбор
+        // для единообразия. Просто пометим режимы пояснениями.
+        var withPos = running.filter(function(b) { return b.position; }).length;
+        var withoutPos = count - withPos;
+
         var modal = document.createElement('div');
         modal.id = 'botStopAllModal';
         modal.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
         modal.innerHTML = '\
-            <div style="background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:90%;max-width:380px;padding:20px;">\
+            <div style="background:#1A1D23;border-radius:12px;border:1px solid rgba(255,255,255,0.08);width:90%;max-width:420px;padding:20px;">\
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">\
                     <svg width="20" height="20" viewBox="0 0 16 16" fill="none">\
                         <rect x="1.5" y="3.5" width="6" height="9" rx="1" stroke="#EF4444" stroke-width="1.2" fill="none"/>\
@@ -4298,9 +4522,25 @@
                     </svg>\
                     <span style="font-size:14px;font-weight:700;color:#E2E8F0;">Остановить всех ботов?</span>\
                 </div>\
-                <div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:18px;">\
-                    Будет остановлено <span style="color:#E2E8F0;font-weight:600;">' + count + ' ' + word + '</span>.<br>\
+                <div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:14px;">\
+                    Будет остановлено <span style="color:#E2E8F0;font-weight:600;">' + count + ' ' + word + '</span> · в сделке <span style="color:#E2E8F0;font-weight:600;">' + withPos + '</span><br>\
                     Суммарный P&L за сегодня: <span style="color:' + (dayPnlTotal >= 0 ? '#10B981' : '#EF4444') + ';font-weight:600;">' + pnlSign + '$' + pnlAbs + '</span>\
+                </div>\
+                <div id="botStopModeBox" style="margin-bottom:18px;display:flex;flex-direction:column;gap:8px;">\
+                    <label style="display:flex;gap:10px;padding:10px 12px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.25);border-radius:6px;cursor:pointer;align-items:flex-start;">\
+                        <input type="radio" name="botStopMode" value="soft" checked style="margin-top:2px;accent-color:#F59E0B;">\
+                        <div style="flex:1;">\
+                            <div style="font-size:12px;color:#F59E0B;font-weight:600;margin-bottom:2px;">Мягко · дождаться закрытия сделок</div>\
+                            <div style="font-size:11px;color:#94A3B8;line-height:1.45;">Открытые позиции закроются естественно (STP / стоп / тейк / таймаут). Новые входы запрещены. Аналитика не пострадает.</div>\
+                        </div>\
+                    </label>\
+                    <label style="display:flex;gap:10px;padding:10px 12px;background:rgba(239,68,68,0.04);border:1px solid rgba(239,68,68,0.20);border-radius:6px;cursor:pointer;align-items:flex-start;">\
+                        <input type="radio" name="botStopMode" value="hard" style="margin-top:2px;accent-color:#EF4444;">\
+                        <div style="flex:1;">\
+                            <div style="font-size:12px;color:#EF4444;font-weight:600;margin-bottom:2px;">Жёстко · закрыть все позиции сейчас</div>\
+                            <div style="font-size:11px;color:#94A3B8;line-height:1.45;">Открытые позиции закрываются принудительно как manual_close. Аналитика покажет ручное закрытие.</div>\
+                        </div>\
+                    </label>\
                 </div>\
                 <div id="botStopAllProgress" style="display:none;margin-bottom:14px;">\
                     <div style="font-size:12px;color:#94A3B8;margin-bottom:6px;">Останавливаю: <span id="botStopAllCounter">0 / ' + count + '</span></div>\
@@ -4310,7 +4550,7 @@
                 </div>\
                 <div style="display:flex;gap:8px;justify-content:flex-end;" id="botStopAllActions">\
                     <button id="botStopAllCancel" style="padding:8px 14px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:5px;color:#94A3B8;font-size:12px;cursor:pointer;">Отмена</button>\
-                    <button id="botStopAllConfirm" style="padding:8px 14px;background:#EF4444;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Остановить все</button>\
+                    <button id="botStopAllConfirm" style="padding:8px 14px;background:#EF4444;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Остановить</button>\
                 </div>\
             </div>';
 
@@ -4320,7 +4560,15 @@
         modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
         modal.querySelector('#botStopAllCancel').onclick = function() { modal.remove(); };
         modal.querySelector('#botStopAllConfirm').onclick = function() {
-            doStopAll(running, modal);
+            var chosen = modal.querySelector('input[name="botStopMode"]:checked');
+            var mode = chosen ? chosen.value : 'hard';
+            // На время прогресса прячем переключатель режима — он уже неактуален.
+            var modeBox = modal.querySelector('#botStopModeBox');
+            if (modeBox) modeBox.style.display = 'none';
+            // Меняем цвет прогресс-бара под выбранный режим — янтарный для soft, красный для hard.
+            var bar = modal.querySelector('#botStopAllBar');
+            if (bar && mode === 'soft') bar.style.background = '#F59E0B';
+            doStopAll(running, modal, mode);
         };
     }
 
@@ -4332,8 +4580,11 @@
         return 'ботов';
     }
 
-    // Последовательный стоп с паузой 200мс + сводный push в конце
-    function doStopAll(runningBots, modal) {
+    // Последовательный стоп с паузой 200мс + сводный push в конце.
+    // mode: 'hard' | 'soft'. Сервер сам разбирается: soft + позиция = pendingStop,
+    // soft без позиции = обычный hard.
+    function doStopAll(runningBots, modal, mode) {
+        mode = (mode === 'soft') ? 'soft' : 'hard';
         var uid = getUid();
         var total = runningBots.length;
 
@@ -4358,8 +4609,12 @@
                     body: JSON.stringify({ uid: uid, count: total, dayPnlTotal: dayPnlTotal })
                 }).catch(function() {});
 
-                // Обновляем локальный state, UI, список
-                if (_state.running) {
+                // Обновляем локальный state, UI, список.
+                // При soft-стопе — НЕ сбрасываем running локально, потому что у ботов
+                // с открытыми позициями сервер ОСТАВИЛ running=true. Polling сам
+                // подтянет реальное состояние (включая pendingStop=true). При hard
+                // — сразу обнуляем для мгновенного UI.
+                if (mode === 'hard' && _state.running) {
                     _state.running = false;
                     _state.paused = false;
                     _state.position = null;
@@ -4380,7 +4635,7 @@
             fetch('/api/bot/stop', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid: uid, botId: bot.botId, silent: true })
+                body: JSON.stringify({ uid: uid, botId: bot.botId, silent: true, mode: mode })
             })
             .catch(function(e) { console.warn('[BOT] stop-all error for', bot.botId, e); })
             .finally(function() {
@@ -4918,6 +5173,15 @@
         };
     }
 
+    // То же для Break-Even (BE) — единоразовый переезд стопа.
+    function _pmGetBotBeParams(bot) {
+        return {
+            enabled: !!bot.breakEvenEnabled,
+            at:      parseFloat(bot.breakEvenAt)     || 0.15,
+            offset:  parseFloat(bot.breakEvenOffset) || 0.03,
+        };
+    }
+
     function openPositionsModal() {
         showPositionsModal();
         // Запускаем поллинг — обновляем модалку при следующем pollStatus тике.
@@ -5170,6 +5434,12 @@
             modeBadge = '<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:2px;background:rgba(41,98,255,0.14);color:#2962FF;border:1px solid rgba(41,98,255,0.40);letter-spacing:0.3px;">P</span>';
         }
 
+        // Бейдж "ожидает закрытия" — янтарная пауза рядом с PAPER/LIVE
+        // Появляется если бот pendingStop=true (soft-stop ждёт естественного закрытия).
+        var pendingBadge = bot.pendingStop
+            ? '<span title="После закрытия позиции бот будет остановлен" style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:2px;background:rgba(245,158,11,0.14);color:#F59E0B;border:1px solid rgba(245,158,11,0.40);letter-spacing:0.3px;display:inline-flex;align-items:center;gap:3px;"><svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor"><rect x="2" y="1.5" width="2" height="7" rx="0.5"/><rect x="6" y="1.5" width="2" height="7" rx="0.5"/></svg>ОЖИДАЕТ</span>'
+            : '';
+
         // Стратегия
         var stratShort = bot.strategy === 'mean_reversion' ? 'MR'
                        : bot.strategy === 'manual' ? 'MAN' : 'SC';
@@ -5224,6 +5494,37 @@
             }
         }
 
+        // ── Метка Break-Even (BE) на компактной шкале ──
+        // Скрываем после активации (стоп уже переехал, метка теряет смысл).
+        var be = _pmGetBotBeParams(bot);
+        if (be.enabled && !p.breakEvenActive && p.entryPrice && totalRange > 0) {
+            var beTriggerPrice = isLong
+                ? p.entryPrice * (1 + be.at / 100)
+                : p.entryPrice * (1 - be.at / 100);
+            var bePct = isLong
+                ? ((beTriggerPrice - barLeftStop) / totalRange) * 100
+                : ((barLeftStop - beTriggerPrice) / totalRange) * 100;
+            if (bePct >= -5 && bePct <= 105) {
+                stpMarkers +=
+                    '<div style="position:absolute;left:' + bePct.toFixed(1) + '%;bottom:calc(100% + 2px);transform:translateX(-50%);font-size:8px;font-weight:700;color:#3B82F6;white-space:nowrap;pointer-events:none;letter-spacing:0.3px;">BE</div>' +
+                    '<div style="position:absolute;left:' + bePct.toFixed(1) + '%;top:-2px;width:1px;height:10px;transform:translateX(-50%);background:#3B82F6;pointer-events:none;"></div>';
+            }
+        }
+
+        // ── Универсальная метка SL для подтянутого стопа (компактная шкала) ──
+        // Если BE сработал, но STP ещё нет — показываем красный SL на новом стопе.
+        // (При stepTpActive SL уже нарисован STP-блоком выше.)
+        if (p.breakEvenActive && !p.stepTpActive && p.stop != null && totalRange > 0) {
+            var sl2Pct = isLong
+                ? ((p.stop - barLeftStop) / totalRange) * 100
+                : ((barLeftStop - p.stop) / totalRange) * 100;
+            if (sl2Pct >= -5 && sl2Pct <= 105) {
+                stpMarkers +=
+                    '<div style="position:absolute;left:' + sl2Pct.toFixed(1) + '%;bottom:calc(100% + 2px);transform:translateX(-50%);font-size:8px;font-weight:700;color:#EF4444;white-space:nowrap;pointer-events:none;letter-spacing:0.3px;">SL</div>' +
+                    '<div style="position:absolute;left:' + sl2Pct.toFixed(1) + '%;top:-2px;width:1px;height:10px;transform:translateX(-50%);background:#EF4444;pointer-events:none;"></div>';
+            }
+        }
+
         // Цвет заливки
         var fillColor = isProfit ? 'rgba(38,166,154,0.85)' : 'rgba(239,83,80,0.85)';
 
@@ -5234,7 +5535,7 @@
             ? ((p.stop - p.entryPrice) / p.entryPrice) * (isLong ? 100 : -100)
             : 0;
         var stopLabel;
-        if (p.stepTpActive && stopFromEntry > 0) {
+        if ((p.stepTpActive || p.breakEvenActive) && stopFromEntry > 0) {
             stopLabel = 'Стоп ' + _pmFmtPrice(p.stop) + ' <span style="color:#26a69a;">(+' + stopFromEntry.toFixed(2) + '% защита)</span>';
         } else {
             var stopSign = stopFromEntry >= 0 ? '+' : '';
@@ -5290,6 +5591,7 @@
                     <span style="color:#D1D4DC;font-size:13px;font-weight:500;">' + bot.pair + '</span>\
                     <span style="color:#94A3B8;font-size:11px;">· ' + _pmFmtPrice(p.entryPrice) + '</span>\
                     ' + modeBadge + '\
+                    ' + pendingBadge + '\
                     <span style="color:#636B76;font-size:11px;">· ' + stratShort + ' · ' + (bot.timeframe || '?') + ' · ' + sizeStr + '</span>\
                 </div>\
                 <div style="text-align:right;flex-shrink:0;">\
@@ -5489,6 +5791,8 @@
         var old = document.getElementById('botJournalModal');
         if (old) old.remove();
 
+        ensureBotLinkStyles();
+
         // Статистика
         var totalTrades = trades.length;
         var wins = trades.filter(function(t) { return t.pnl > 0; });
@@ -5574,7 +5878,14 @@
                 var trailActDelta = deltaMin(t.openedAt, t.trailingActivatedAt);
 
                 // ── DESKTOP: таблица (как раньше) ──
-                var botCol = '<td style="padding:6px 4px;font-size:9px;color:#94A3B8;vertical-align:top;white-space:nowrap;" title="' + botLabel + '">' + botLabel + '</td>';
+                // Сам слепок-текст бота — ссылка google-стиля: цвет как у обычного текста,
+                // подчёркивание появляется только при наведении и красится в синий.
+                // data-switch-bot-id читается общим обработчиком на modal (см. ниже).
+                // Если botId отсутствует (старые сделки/чужой контекст) — просто статичный текст.
+                var botInner = t.botId
+                    ? '<a class="jt-bot-link" data-switch-bot-id="' + t.botId + '" title="' + botLabel + ' · открыть этого бота">' + botLabel + '</a>'
+                    : botLabel;
+                var botCol = '<td style="padding:6px 4px;font-size:9px;color:#94A3B8;vertical-align:top;white-space:nowrap;" title="' + botLabel + '">' + botInner + '</td>';
 
                 // Группа 1 — "Вход": индикаторы при открытии
                 var g1 = [];
@@ -5655,6 +5966,18 @@
                     if (t.stepTpMaxLevel != null) stpTxt += ' стоп $' + t.stepTpMaxLevel.toFixed(2);
                     if (stpDelta) stpTxt += ' (' + stpDelta + ')';
                     g3.push('<span style="color:#10B981;">' + stpTxt + '</span>');
+                }
+                // Break-Even: активировался или нет (синий для отличия от STP/Trail).
+                // Не активировался при стопе → явная пометка, чтобы видеть случаи когда
+                // защита не успела сработать (цена не дотянула до триггера).
+                if (t.breakEvenActivated) {
+                    var beDelta = deltaMin(t.openedAt, t.breakEvenActivatedAt);
+                    var beTxt = 'BE акт.';
+                    if (t.breakEvenActivatedPrice) beTxt += ' @ ' + pn(t.breakEvenActivatedPrice);
+                    if (beDelta) beTxt += ' (' + beDelta + ')';
+                    g3.push('<span style="color:#3B82F6;">' + beTxt + '</span>');
+                } else if (t.reason === 'stop_loss') {
+                    g3.push('<span style="color:#636B76;">BE не акт.</span>');
                 }
 
                 // Собираем серую строку: три блока через " │ "
@@ -5738,6 +6061,16 @@
                     if (t.stepTpMaxLevel != null) stpVal += ', стоп → $' + t.stepTpMaxLevel.toFixed(2);
                     if (stpDeltaExp) stpVal += ' <span style="color:#64748B;font-size:10px;">· ' + stpDeltaExp + '</span>';
                     expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Шаговый TP</span><span style="color:#10B981;">' + stpVal + '</span></div>';
+                }
+                // ── Break-Even: активировался или нет ──
+                if (t.breakEvenActivated) {
+                    var beDeltaExp = deltaMin(t.openedAt, t.breakEvenActivatedAt);
+                    var beVal = 'активирован';
+                    if (t.breakEvenActivatedPrice) beVal += ' @ ' + pn(t.breakEvenActivatedPrice);
+                    if (beDeltaExp) beVal += ' <span style="color:#64748B;font-size:10px;">· ' + beDeltaExp + '</span>';
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Безубыток</span><span style="color:#3B82F6;">' + beVal + '</span></div>';
+                } else if (t.reason === 'stop_loss') {
+                    expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Безубыток</span><span style="color:#636B76;">не активировался</span></div>';
                 }
 
                 expandedRows += '<div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="color:#64748B;">Тип входа</span><span style="color:' + entryColor + ';">' + entryLabel + '</span></div>';
@@ -5886,6 +6219,27 @@
         modal.querySelector('#botJournalToggle').onclick = function() { openJournal(!isAllBots); };
         modal.querySelector('#botJournalCsv').onclick = function() { exportTradesToCSV(trades, isAllBots); };
         modal.querySelector('#botJournalClear').onclick = function() { confirmClearTrades(isAllBots); };
+
+        // Клик по ячейке бота — переключает интерфейс на этого бота и закрывает журнал.
+        // Делегирование на modal, чтобы не вешать onclick на каждую <td> при ре-рендере
+        // фильтров (журнал может перестраиваться по чипам — обработчики сохранятся).
+        modal.addEventListener('click', function(e) {
+            var cell = e.target.closest('[data-switch-bot-id]');
+            if (!cell) return;
+            var bid = cell.getAttribute('data-switch-bot-id');
+            if (!bid) return;
+            e.stopPropagation();
+            // Если кликнули по уже активному боту — просто закрываем журнал.
+            if (bid === _state.botId) {
+                modal.remove();
+                return;
+            }
+            modal.remove();
+            // Сбросим возврат-стейт аналитики чтобы при следующем открытии журнала
+            // не сработала кнопка "← Назад в анализ" с устаревшим контекстом.
+            _analyticsReturnState = null;
+            if (typeof switchBot === 'function') switchBot(bid);
+        });
         modal.querySelector('#botJournalAnalytics').onclick = function() {
             // Если мы пришли в журнал из аналитики (drill-down) — возвращаемся ровно в ту
             // же аналитику со старым scope и старыми фильтрами журнала.
@@ -6499,10 +6853,25 @@
             });
     }
 
+    // Стили для google-style ссылок-слепков ботов (jt-bot-link).
+    // Используются и в журнале, и в аналитике. Идемпотентно — один тег <style>
+    // переиспользуется. Цвет текста до ховера наследуется (= обычный текст),
+    // при наведении становится синим и подчёркивается.
+    function ensureBotLinkStyles() {
+        if (document.getElementById('botJournalStyles')) return;
+        var st = document.createElement('style');
+        st.id = 'botJournalStyles';
+        st.textContent =
+            '.jt-bot-link { color: inherit; text-decoration: none; cursor: pointer; }' +
+            '.jt-bot-link:hover { color: #3B82F6; text-decoration: underline; text-underline-offset: 2px; }';
+        document.head.appendChild(st);
+    }
+
     function renderAnalyticsModal() {
         var isMobile = window.innerWidth < 768;
         var old = document.getElementById('botAnalyticsModal');
         if (old) old.remove();
+        ensureBotLinkStyles();
 
         var modal = document.createElement('div');
         modal.id = 'botAnalyticsModal';
@@ -6678,6 +7047,30 @@
 
         modal.querySelector('#botAnalyticsClose').onclick = function() { modal.remove(); };
 
+        // Клик по слепку бота в блоке "По ботам" — переключает интерфейс на этого бота
+        // и закрывает модалку аналитики (плюс журнал, если он открыт под нами).
+        // Делегирование на modal, потому что блок "По ботам" перестраивается при смене вкладок.
+        modal.addEventListener('click', function(e) {
+            var link = e.target.closest('[data-switch-bot-id]');
+            if (!link) return;
+            var bid = link.getAttribute('data-switch-bot-id');
+            if (!bid) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (bid === _state.botId) {
+                modal.remove();
+                var jModal0 = document.getElementById('botJournalModal');
+                if (jModal0) jModal0.remove();
+                return;
+            }
+            modal.remove();
+            var jModal = document.getElementById('botJournalModal');
+            if (jModal) jModal.remove();
+            // Сбрасываем drill-down return-стейт — после прыжка на бота старый контекст уже не релевантен.
+            _analyticsReturnState = null;
+            if (typeof switchBot === 'function') switchBot(bid);
+        });
+
         // Кнопка копирования (рендерится только когда есть данные)
         var copyBtn = modal.querySelector('#botAnalyticsCopy');
         if (copyBtn) {
@@ -6760,6 +7153,11 @@
     // Делает drill-down из аналитики в журнал: применяет filter в _journalFilters
     // и переключает модалки. patch — объект с одним или несколькими ключами
     // (hoursIn / hoursOut / sessionIn / sessionOut).
+    //
+    // КРИТИЧНО: мерджим patch с текущими фильтрами аналитики (_analyticsState.filters),
+    // потому что аналитика построена С УЧЁТОМ фильтров журнала (например, ТФ=1h).
+    // Если их не передать в журнал — drill-down "потеряет" контекст и покажет
+    // все сделки, отфильтрованные только по часу/сессии. См. баг от 16-май-26.
     function _drilldownToJournal(patch) {
         _analyticsReturnState = {
             scope: _analyticsState.scope,
@@ -6774,7 +7172,13 @@
 
         // openJournal сама загрузит сделки и откроет модалку. Применяем фильтры через
         // глобальный объект — showJournalModal прочитает его и установит _journalFilters.
-        window._pendingJournalFilters = patch;
+        // Сначала исходные фильтры журнала (по которым была построена аналитика),
+        // потом — drill-down patch, который имеет приоритет в случае конфликта ключей.
+        window._pendingJournalFilters = Object.assign(
+            {},
+            _analyticsState.filters || {},
+            patch || {}
+        );
         var showAll = !_analyticsState.scope;
         openJournal(showAll);
     }
@@ -6864,11 +7268,20 @@
                 });
             }
             var keyMap = options.keyMap || {};
+            // botLabelToId: { "BTC/USDT · MR · 15m ..." : "uuid" } — если передан,
+            // ключи строк превращаются в google-style ссылки, клик → switchBot + закрытие модалок.
+            // Используется только для блока "По ботам".
+            var botLabelToId = options.botLabelToId || null;
             var rows = keys.map(function(k) {
                 var b = obj[k];
                 var name = keyMap[k] || k;
+                var nameEsc = escapeHtml(name);
+                var botId = botLabelToId ? botLabelToId[k] : null;
+                var nameHtml = botId
+                    ? '<a class="jt-bot-link" data-switch-bot-id="' + botId + '" title="' + nameEsc + ' · открыть этого бота">' + nameEsc + '</a>'
+                    : nameEsc;
                 return '<div style="display:grid;grid-template-columns:1fr 36px 50px 64px;gap:8px;padding:6px 0;font-size:' + (isMobile ? '11px' : '12px') + ';border-bottom:1px solid rgba(255,255,255,0.04);align-items:center;">' +
-                    '<span style="color:#CBD5E1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>' +
+                    '<span style="color:#CBD5E1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;" title="' + nameEsc + '">' + nameHtml + '</span>' +
                     '<span style="color:#636B76;font-variant-numeric:tabular-nums;text-align:right;">n=' + b.n + '</span>' +
                     '<span style="color:' + wrColor(b.winRate) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + b.winRate + '%</span>' +
                     '<span style="color:' + colorFor(b.pnl) + ';font-weight:600;font-variant-numeric:tabular-nums;text-align:right;">' + fmtMoney(b.pnl) + '</span>' +
@@ -7027,7 +7440,7 @@
         // По ботам — только если "Все боты"
         var byBotBlock = '';
         if (!_analyticsState.scope && d.byBot) {
-            byBotBlock = renderBreakdown('По ботам', d.byBot, { sortBy: 'pnl' });
+            byBotBlock = renderBreakdown('По ботам', d.byBot, { sortBy: 'pnl', botLabelToId: d.botLabelToId || null });
         }
 
         return '<div style="' + pad + '">' + overallBlock + beAlert + insightsBlock + breakdownsGrid + matchupBlock + durationBlock + hoursBlock + sessionMatrixBlock + durationExitBlock + byBotBlock + '</div>';
@@ -8065,6 +8478,7 @@
             'Кластер вход %','Кластер выход %','Δ Кластер','Кластерный фильтр',
             'Трейлинг активирован','Трейлинг активирован через (мин)','Трейлинг активирован на ($)','Трейлинг активирован @ цене',
             'Step TP активирован','Step TP активирован через (мин)','Step TP активирован на ($)','Step TP финальный стоп ($)',
+            'BE активирован','BE активирован через (мин)','BE цена активации',
             'Режим рынка','ADX 15m','5m move %','Касаний уровня','Выход по',
             'Окно при входе','Час UTC','Минута UTC'
         ];
@@ -8148,6 +8562,9 @@
                 deltaMinN(t.openedAt, t.stepTpActivatedAt),
                 n(t.stepTpActivatedPnl),
                 n(t.stepTpMaxLevel),
+                t.breakEvenActivated ? 'да' : 'нет',
+                deltaMinN(t.openedAt, t.breakEvenActivatedAt),
+                pn(t.breakEvenActivatedPrice),
                 regimeStr(t.entryRegime),
                 regimeAdx(t.entryRegime),
                 regime5mMove(t.entryRegime),
@@ -8252,6 +8669,7 @@
                                 }
                             }
                             _state.bots[i].running = nowRunning;
+                            _state.bots[i].pendingStop = !!_state.pendingStop;
                             _state.bots[i].dayPnl = _state.dayPnl;
                             _state.bots[i].totalPnl = _state.totalPnl;
                             break;
@@ -8331,6 +8749,53 @@
                     };
                     var reason = reasonMap[t.reason] || t.reason;
                     var isActive = (_state._activeTradeId === t.openedAt);
+
+                    // ── Вторая мета-строка: путь сделки ──
+                    // Первое движение · Пик прибыли · Взяли N% (если win) · BE/STP/TR · RSI вход
+                    // Цвета: зелёный — в нашу сторону / сработало, серый — нет данных / не активировалось.
+                    var metaParts = [];
+                    // Первое движение
+                    if (t.firstMoveSide) {
+                        var fmUp = (t.side === 'LONG' && t.firstMoveSide === 'favor') || (t.side === 'SHORT' && t.firstMoveSide === 'adverse');
+                        var fmArrow = fmUp ? '↑' : '↓';
+                        if (t.firstMoveSide === 'favor') {
+                            metaParts.push('<span style="color:#10B981;">' + fmArrow + ' удачный вход</span>');
+                        } else {
+                            metaParts.push('<span style="color:#EF4444;">' + fmArrow + ' против нас</span>');
+                        }
+                    }
+                    // Пик прибыли (всегда показываем, даже если маленький — это важный диагностический сигнал)
+                    if (t.maxUnrealized != null) {
+                        var peakColor = t.maxUnrealized > 0.5 ? '#10B981' : '#636B76';
+                        metaParts.push('<span style="color:' + peakColor + ';">пик +$' + t.maxUnrealized.toFixed(2) + '</span>');
+                    }
+                    // Взяли N% от пика — только для прибыльных сделок (для убыточных бессмысленно)
+                    if (isProfit && t.maxUnrealized != null && t.maxUnrealized > 0.01 && t.pnl != null) {
+                        var tookPct = Math.round((t.pnl / t.maxUnrealized) * 100);
+                        if (tookPct > 0 && tookPct <= 200) {
+                            metaParts.push('<span style="color:#BA7517;">взяли ' + tookPct + '%</span>');
+                        }
+                    }
+                    // Маркеры защит: BE / STP / TR — всегда блоком, тусклые если не сработали
+                    var defenseParts = [];
+                    defenseParts.push(t.breakEvenActivated
+                        ? '<span style="color:#3B82F6;">BE✓</span>'
+                        : '<span style="color:#636B76;">BE·</span>');
+                    defenseParts.push(t.stepTpActivated
+                        ? '<span style="color:#10B981;">STP✓</span>'
+                        : '<span style="color:#636B76;">STP·</span>');
+                    defenseParts.push(t.trailingActivated
+                        ? '<span style="color:#FBBF24;">TR✓</span>'
+                        : '<span style="color:#636B76;">TR·</span>');
+                    metaParts.push(defenseParts.join(' '));
+                    // RSI входа
+                    if (t.entryRsi != null) {
+                        metaParts.push('<span style="color:#94A3B8;">RSI ' + t.entryRsi + '</span>');
+                    }
+                    var metaLine = metaParts.length
+                        ? '<div class="bot-w-trade-meta" style="font-size:10px;margin-top:3px;line-height:1.4;">' + metaParts.join(' <span style="color:#636B76;">·</span> ') + '</div>'
+                        : '';
+
                     return '<div class="bot-w-trade' + (isActive ? ' active' : '') + '"' +
                         ' data-opened-at="' + t.openedAt + '"' +
                         ' data-closed-at="' + t.closedAt + '"' +
@@ -8342,7 +8807,7 @@
                         '<span class="bot-w-trade-pnl ' + pnlClass + '">' + pnlStr + ' (' + pnlPctStr + ')</span>' +
                         '</div><div class="bot-w-trade-time">' + time + ' · ' + reason +
                         ' · R:R ' + (t.riskReward || '—') +
-                        ' · ' + (t.candlesHeld || 0) + ' свечей' + feeStr + '</div></div>';
+                        ' · ' + (t.candlesHeld || 0) + ' свечей' + feeStr + '</div>' + metaLine + '</div>';
                 }).join('');
             })
             .catch(function(e) { console.warn('[BOT] trades error', e); });
@@ -8400,6 +8865,11 @@
             stepTp = ' ' + s + ' STP ' + stpT + '%/' + stpS + '%/' + stpG + '%';
         }
         var bbExit = bot.bbExitEnabled ? ' ' + s + ' BB' : '';
+        var breakEven = '';
+        if (bot.breakEvenEnabled) {
+            var beAt = (bot.breakEvenAt != null) ? bot.breakEvenAt : 0.15;
+            breakEven = ' ' + s + ' BE ' + beAt + '%';
+        }
         var cluster = bot.clusterEntryFilter ? ' ' + s + ' Cl' : '';
         var regime = bot.regimeFilterEnabled ? ' ' + s + ' R' : '';
         var atr = bot.atrFilterEnabled ? ' ' + s + ' A' : '';
@@ -8430,7 +8900,7 @@
         if (bot.strategy !== 'manual' && bot.stopFixedPct) {
             slStr = ' ' + s + ' SL ' + bot.stopFixedPct;
         }
-        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + bbExit + cluster + regime + atr + windowTag + rsiStr + slStr;
+        return (bot.pair || 'BTC/USDT') + ' ' + s + ' ' + strat + ' ' + s + ' ' + (bot.timeframe || '5m') + ' ' + s + ' ' + mode + ' ' + s + ' ' + dir + trail + stepTp + breakEven + bbExit + cluster + regime + atr + windowTag + rsiStr + slStr;
     }
 
     function updateBotSelector() {
@@ -8477,6 +8947,8 @@
                 entryMode: _state.entryMode, direction: _state.direction,
                 trailingEnabled: _state.trailingEnabled,
                 stepTpEnabled: _state.stepTpEnabled,
+                breakEvenEnabled: _state.breakEvenEnabled,
+                breakEvenAt: _state.breakEvenAt,
                 rsiOversold: _state.rsiOversold, rsiOverbought: _state.rsiOverbought,
                 // Поля для отображения кластерного диапазона и SL в лейбле.
                 // Без них при первом рендере (когда _state.bots ещё не пришёл)
@@ -8585,7 +9057,16 @@
             // Единый размер точки 6×6 для всех состояний. Цвет/пульсация — через CSS-класс.
             var dotStyle = 'width:6px;height:6px;border-radius:50%;flex-shrink:0;margin:0 2px;';
 
+            // Бейдж "ожидает закрытия" — янтарная иконка паузы рядом с лейблом.
+            // Показываем только если бот реально работает и стоит pendingStop
+            // (sanity: pendingStop=true для остановленного бота — невозможная ситуация,
+            // но check на всякий случай).
+            var pendingBadge = (bot.pendingStop && bot.running)
+                ? '<span title="Бот ожидает закрытия позиции — после закрытия будет остановлен" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;color:#F59E0B;margin-right:2px;"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="2" y="1.5" width="2" height="7" rx="0.5"/><rect x="6" y="1.5" width="2" height="7" rx="0.5"/></svg></span>'
+                : '';
+
             row.innerHTML = '<span class="bot-dot-' + dotState + '" style="' + dotStyle + '"></span>' +
+                pendingBadge +
                 '<span style="flex:1;font-size:11px;color:' + (isActive ? '#26a69a' : '#D1D5DB') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + label + '</span>' +
                 '<span style="font-size:10px;color:' + pnlColor + ';flex-shrink:0;margin-right:4px;">' + pnlStr + '</span>' +
                 '<span class="bot-dd-delete" data-botid="' + bot.botId + '" style="flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:3px;cursor:pointer;opacity:0.3;transition:opacity 0.15s;" title="Удалить">' +
@@ -8653,6 +9134,9 @@
                 stepTpTrigger: _state.stepTpTrigger,
                 stepTpStep: _state.stepTpStep,
                 stepTpTolerance: _state.stepTpTolerance,
+                breakEvenEnabled: !!_state.breakEvenEnabled,
+                breakEvenAt: _state.breakEvenAt,
+                breakEvenOffset: _state.breakEvenOffset,
                 bbExitEnabled: _state.bbExitEnabled,
                 bbExitTolerance: _state.bbExitTolerance,
                 smaReturnEnabled: !!_state.smaReturnEnabled,
@@ -8768,6 +9252,7 @@
             _state.pair = bot.pair;
             _state.pairs = [bot.pair];  // у существующего бота всегда одна пара
             _state.running = bot.running;
+            _state.pendingStop = !!bot.pendingStop;
             _state.strategy = bot.strategy || 'scalper';
             var pairLabel = document.getElementById('botWidgetPairLabel');
             if (pairLabel) pairLabel.textContent = bot.pair;
@@ -8854,6 +9339,10 @@
                 stepTpTrigger: _state.stepTpTrigger,
                 stepTpStep: _state.stepTpStep,
                 stepTpTolerance: _state.stepTpTolerance,
+                // Безубыток (BE) — разовый переезд стопа на entry+offset.
+                breakEvenEnabled: !!_state.breakEvenEnabled,
+                breakEvenAt: _state.breakEvenAt,
+                breakEvenOffset: _state.breakEvenOffset,
                 // Выход по противоположной BB (MR) — та же история, отсутствовал в hot-save.
                 bbExitEnabled: !!_state.bbExitEnabled,
                 bbExitTolerance: _state.bbExitTolerance,

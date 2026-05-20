@@ -88,6 +88,62 @@ module.exports = function(app) {
 
     const PERSIST_INTERVAL_MS = 30_000;
 
+    /* ══════════════════════════════════════════
+       USER-LEVEL ПРЕФЕРЕНСЫ
+       Хранилище глобальных настроек пользователя, не привязанных к конкретному
+       боту. Сейчас здесь только globalDirection (см. ниже). При расширении —
+       добавлять поля сюда же.
+       ──────────────────────────────────────────
+       globalDirection: 'long' | 'short' | null
+         - 'long'  → все боты пропускают SHORT-сигналы
+         - 'short' → все боты пропускают LONG-сигналы
+         - null    → нет ограничения, работают по своим настройкам direction
+         Имеет ПРИОРИТЕТ над per-bot direction. Не закрывает существующие
+         позиции — только блокирует НОВЫЕ входы в запрещённую сторону.
+       ══════════════════════════════════════════ */
+    const USER_PREFS_FILENAME = 'user-prefs.json';
+    const USER_PREFS_FILE = process.env.PERSIST_DIR
+        ? path.join(process.env.PERSIST_DIR, USER_PREFS_FILENAME)
+        : path.join(__dirname, USER_PREFS_FILENAME);
+
+    // uid → { globalDirection: 'long'|'short'|null, ... }
+    const userPrefs = new Map();
+
+    function getUserPrefs(uid) {
+        if (!userPrefs.has(uid)) {
+            userPrefs.set(uid, { globalDirection: null });
+        }
+        return userPrefs.get(uid);
+    }
+
+    function saveUserPrefsToDisk() {
+        try {
+            const data = {};
+            for (const [uid, prefs] of userPrefs) data[uid] = prefs;
+            fs.writeFileSync(USER_PREFS_FILE, JSON.stringify(data), 'utf8');
+        } catch(e) {
+            console.error('[USER PREFS] Save failed:', e.message);
+        }
+    }
+
+    function loadUserPrefsFromDisk() {
+        try {
+            if (!fs.existsSync(USER_PREFS_FILE)) {
+                console.log('[USER PREFS] No existing ' + USER_PREFS_FILE + ' — starting fresh');
+                return;
+            }
+            const data = JSON.parse(fs.readFileSync(USER_PREFS_FILE, 'utf8'));
+            for (const [uid, prefs] of Object.entries(data)) {
+                userPrefs.set(uid, Object.assign({ globalDirection: null }, prefs));
+            }
+            console.log('[USER PREFS] Loaded ' + userPrefs.size + ' user pref records');
+        } catch(e) {
+            console.error('[USER PREFS] Load failed:', e.message);
+        }
+    }
+    loadUserPrefsFromDisk();
+    setInterval(saveUserPrefsToDisk, PERSIST_INTERVAL_MS);
+
     // Какие поля сохраняем на диск. Специально НЕ сохраняем:
     // - candles (массив из 200+ свечей, быстро подгрузится)
     // - ws (нельзя сериализовать)
@@ -106,6 +162,11 @@ module.exports = function(app) {
         'maxLeverage', 'volumeMultiplier', 'riskPct', 'dayLimitPct', 'maxLosses',
         'trailingEnabled', 'trailingOffset', 'trailingActivation',
         'stepTpEnabled', 'stepTpTrigger', 'stepTpStep', 'stepTpTolerance',
+        'breakEvenEnabled', 'breakEvenAt', 'breakEvenOffset',
+        // Мягкая остановка: бот продолжает работать, но не открывает новые позиции;
+        // как только текущая позиция закроется (STP/SL/TP/таймаут/manual_close) — автостоп.
+        // Persisted чтобы пережить рестарт сервера: после перезапуска бот всё ещё ждёт закрытия.
+        'pendingStop',
         'bbExitEnabled', 'bbExitTolerance',
         'smaReturnEnabled', 'smaReturnTolerance',
         'atrFilterEnabled', 'atrFilterThreshold',
@@ -188,12 +249,13 @@ module.exports = function(app) {
         shutdownHandled = true;
         console.log('[BOT PERSIST] Received ' + signal + ', saving sessions...');
         saveSessionsToDisk();
+        saveUserPrefsToDisk();
         console.log('[BOT PERSIST] Sessions saved. Bye.');
         process.exit(0);
     }
     process.on('SIGINT',  () => gracefulSave('SIGINT'));
     process.on('SIGTERM', () => gracefulSave('SIGTERM'));
-    process.on('beforeExit', () => saveSessionsToDisk());
+    process.on('beforeExit', () => { saveSessionsToDisk(); saveUserPrefsToDisk(); });
 
     function ts() {
         return new Date().toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
@@ -219,6 +281,10 @@ module.exports = function(app) {
             extra += ` ${s} STP ${stpT}%/${stpS}%/${stpG}%`;
         }
         if (session.bbExitEnabled) extra += ` ${s} BB`;
+        if (session.breakEvenEnabled) {
+            const beAt = (session.breakEvenAt != null) ? session.breakEvenAt : 0.15;
+            extra += ` ${s} BE ${beAt}%`;
+        }
         if (session.clusterEntryFilter) extra += ` ${s} Cl`;
         if (session.regimeFilterEnabled) extra += ` ${s} R`;
         if (session.atrFilterEnabled) extra += ` ${s} A`;
@@ -262,6 +328,7 @@ module.exports = function(app) {
                     running: session.running,
                     warmupUntil: session.warmupUntil || 0,
                     paused: session.paused,
+                    pendingStop: !!session.pendingStop,
                     mode: session.mode,
                     balance: Math.round(session.virtualBalance * 100) / 100,
                     dayPnl: Math.round(session.dayPnl * 100) / 100,
@@ -302,6 +369,7 @@ module.exports = function(app) {
                             stepTpActive:   p.stepTpActive || false,
                             stepTpMaxLevel: p.stepTpMaxLevel || null,
                             stepTpLastLevel: p.stepTpLastLevel != null ? p.stepTpLastLevel : -1,
+                            breakEvenActive: p.breakEvenActive || false,
                             riskReward:     p.riskReward != null ? p.riskReward : null,
                             pending:        !!p._pending,
                             closing:        !!p._closing,
@@ -315,6 +383,9 @@ module.exports = function(app) {
                     stepTpTrigger: session.stepTpTrigger || 0.50,
                     stepTpStep: session.stepTpStep || 0.06,
                     stepTpTolerance: session.stepTpTolerance || 0.12,
+                    breakEvenEnabled: session.breakEvenEnabled || false,
+                    breakEvenAt: session.breakEvenAt || 0.15,
+                    breakEvenOffset: session.breakEvenOffset || 0.03,
                     rsiOverbought: session.rsiOverbought || 65,
                     rsiOversold: session.rsiOversold || 35,
                     clusterEntryFilter: session.clusterEntryFilter || false,
@@ -389,6 +460,7 @@ module.exports = function(app) {
                 tagParts.push(`${session.rsiOversold || 35}/${session.rsiOverbought || 65}`);
             }
             if (session.stepTpEnabled)       tagParts.push('STP');
+            if (session.breakEvenEnabled)    tagParts.push('BE');
             if (session.trailingEnabled)     tagParts.push('TR');
             if (session.atrFilterEnabled)    tagParts.push('A');
             if (session.clusterEntryFilter)  tagParts.push('CL');
@@ -548,6 +620,20 @@ module.exports = function(app) {
                 stepTpStep:      0.06,      // шаг подтяжки в %
                 stepTpTolerance: 0.12,      // зазор стопа от уровня в %
 
+                // ── Безубыток (Break-Even) ──
+                // Когда цена прошла breakEvenAt% в нашу сторону → стоп переезжает
+                // на entryPrice ± breakEvenOffset% (защита от выноса в минус по сделке,
+                // которая прошла в плюс и развернулась). Срабатывает РАЗОВО, после чего
+                // STP продолжает работать как обычно с новой базой стопа.
+                // Не путать со STP: BE — это один переезд, STP — это пошаговая подтяжка.
+                breakEvenEnabled: false,    // вкл/выкл
+                breakEvenAt:      0.15,     // активация в % (дефолт для 5m)
+                breakEvenOffset:  0.03,     // оффсет стопа от entry в % (компенсация комиссии)
+
+                // ── Мягкая остановка ──
+                // true → бот не открывает новые позиции, после закрытия текущей делает автостоп
+                pendingStop:      false,
+
                 // ── Выход по противоположной полосе Боллинджера (только для MR) ──
                 bbExitEnabled:       false,  // если true — игнорируется minProfit и trailing
                 bbExitTolerance:     5,      // % от ширины канала: насколько не дотягивать до ББ считать касанием
@@ -568,8 +654,8 @@ module.exports = function(app) {
                 notifyEnabled:   true,      // уведомлять о закрытии сделок и остановке бота
 
                 // ── Баланс (paper trading) ──
-                virtualBalance: 10000,
-                startBalance:   10000,
+                virtualBalance: 500,
+                startBalance:   500,
 
                 // ── Состояние ──
                 position:      null,        // текущая позиция
@@ -2589,6 +2675,27 @@ module.exports = function(app) {
 
     function openPosition(session, signal) {
         if (session.position) return; // уже есть открытая (или _pending плейсхолдер)
+        // Soft-stop взведён: запрещаем новые входы. Ждём естественного закрытия
+        // активной позиции (если она вообще ещё есть) — после которого closePosition
+        // сделает полный hard-stop.
+        if (session.pendingStop) {
+            console.log(`[BOT ${ts()}] ⏸ Entry suppressed by pending soft-stop`);
+            return;
+        }
+
+        // Глобальное направление пользователя (приоритет над per-bot direction).
+        // Если задан 'long' — блокируем SHORT, если 'short' — блокируем LONG.
+        // Существующие позиции не трогаем (они работают до естественного закрытия),
+        // здесь блокируем только НОВЫЕ входы.
+        const gDir = session.uid ? getUserPrefs(session.uid).globalDirection : null;
+        if (gDir === 'long' && signal.side === 'SHORT') {
+            console.log(`[BOT ${ts()}] 🌐 SHORT blocked by global direction=long`);
+            return;
+        }
+        if (gDir === 'short' && signal.side === 'LONG') {
+            console.log(`[BOT ${ts()}] 🌐 LONG blocked by global direction=short`);
+            return;
+        }
 
         const size = calcPositionSize(session, signal.entry, signal.stop);
         if (size <= 0) return;
@@ -2725,6 +2832,12 @@ module.exports = function(app) {
             stepTpActivatedPrice:   null,
             stepTpActivatedPnl:     null,
             stepTpMaxLevel:         null,
+            // ── Трекинг Break-Even (BE) ──
+            // Срабатывает один раз: переезд стопа на entryPrice ± breakEvenOffset%
+            // когда цена впервые прошла breakEvenAt% в нашу сторону.
+            breakEvenActive:        false,  // флаг что BE уже сработал (защита от повтора)
+            breakEvenActivatedAt:   null,
+            breakEvenActivatedPrice: null,
             // ── Live: данные с биржи ──
             // Эти поля только для live-режима. orderId нужен для подтяжки стопа в Step TP
             // (cancel + new), commission — для журнала. signalEntry хранит "что было расчётно",
@@ -3764,6 +3877,10 @@ module.exports = function(app) {
             stepTpActivatedPnl:     pos.stepTpActivatedPnl || null,
             stepTpMaxLevel:         pos.stepTpMaxLevel || null,
             stepTpLastLevel:        pos.stepTpLastLevel != null ? pos.stepTpLastLevel : -1,
+            // ── Break-Even ──
+            breakEvenActivated:     pos.breakEvenActive || false,
+            breakEvenActivatedAt:   pos.breakEvenActivatedAt || null,
+            breakEvenActivatedPrice: pos.breakEvenActivatedPrice || null,
             durationMin:      Math.round((Date.now() - pos.openedAt) / 60000),
             // ── Live: данные с биржи ──
             // Сохраняем для последующей сверки и анализа проскальзывания.
@@ -3859,6 +3976,20 @@ module.exports = function(app) {
             session.pendingExit = null;
         }
         checkLimits(session);
+
+        // Soft-stop добивание: позиция только что закрылась, и стоит флаг "ждали закрытия".
+        // Делаем полный hard-stop асинхронно — на следующем тике, чтобы не дёргать
+        // ничего внутри closePosition (push-уведомление о трейде уже ушло, теперь
+        // отдельно уйдёт notification о стопе).
+        if (session.pendingStop && session.running) {
+            const uid = session.uid;
+            const bid = session.botId;
+            console.log(`[BOT ${ts()}] ⏸→🛑 Soft-stop completing — hard-stopping bot now`);
+            setImmediate(() => {
+                try { stopBot(uid, bid, false, 'hard'); }
+                catch (e) { console.error('[BOT] soft-stop completion error:', e.message); }
+            });
+        }
     }
 
     function checkLimits(session) {
@@ -4031,6 +4162,45 @@ module.exports = function(app) {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // ── Безубыток (Break-Even) ──
+        // Срабатывает один раз: когда цена прошла breakEvenAt% в нашу сторону,
+        // стоп переезжает на entryPrice ± breakEvenOffset%. После этого BE
+        // больше не дёргается (флаг breakEvenActive), а STP/трейлинг продолжают
+        // работать с новой базой стопа.
+        //
+        // Защита от регресса: новый стоп ставится ТОЛЬКО если он лучше текущего
+        // (выше для LONG, ниже для SHORT). Это нужно потому что STP мог уже
+        // активироваться раньше и подтянуть стоп выше уровня BE.
+        if (session.breakEvenEnabled && !pos.breakEvenActive) {
+            const beAtPct = (session.breakEvenAt || 0.15) / 100;
+            const beOffsetPct = (session.breakEvenOffset || 0.03) / 100;
+            if (pos.side === 'LONG') {
+                const beTrigger = pos.entryPrice * (1 + beAtPct);
+                if (price >= beTrigger) {
+                    const newStop = pos.entryPrice * (1 + beOffsetPct);
+                    if (newStop > pos.stop) {
+                        console.log(`[BOT ${ts()}] 🛡 BE activated for LONG @ ${price} | stop ${pos.stop.toFixed(6)} → ${newStop.toFixed(6)}`);
+                        pos.stop = newStop;
+                    }
+                    pos.breakEvenActive = true;
+                    pos.breakEvenActivatedAt = Date.now();
+                    pos.breakEvenActivatedPrice = price;
+                }
+            } else {
+                const beTrigger = pos.entryPrice * (1 - beAtPct);
+                if (price <= beTrigger) {
+                    const newStop = pos.entryPrice * (1 - beOffsetPct);
+                    if (newStop < pos.stop) {
+                        console.log(`[BOT ${ts()}] 🛡 BE activated for SHORT @ ${price} | stop ${pos.stop.toFixed(6)} → ${newStop.toFixed(6)}`);
+                        pos.stop = newStop;
+                    }
+                    pos.breakEvenActive = true;
+                    pos.breakEvenActivatedAt = Date.now();
+                    pos.breakEvenActivatedPrice = price;
                 }
             }
         }
@@ -4605,6 +4775,12 @@ module.exports = function(app) {
 
     async function startBot(uid, botId, settings) {
         const session = getSession(uid, botId);
+        // Сброс soft-stop флага: пользователь "передумал" или явно нажал старт.
+        // Если флаг был и позиция ещё открыта — бот продолжает работать как обычно.
+        if (session.pendingStop) {
+            console.log(`[BOT] ▶ pending soft-stop cancelled — bot resumes normal operation`);
+            session.pendingStop = false;
+        }
 
         // ── Live-guard: проверяем ключи ДО любых действий ──
         // Если бот в Live-режиме, ему нужны валидные API ключи Binance.
@@ -4688,7 +4864,7 @@ module.exports = function(app) {
         session.dayLimitPct      = parseFloat(settings.dayLimitPct)     || 5;
         session.maxLosses        = parseInt(settings.maxLosses)         || 3;
         session.maxLeverage      = parseInt(settings.maxLeverage)       || 5;
-        session.virtualBalance   = parseFloat(settings.virtualBalance)  || 10000;
+        session.virtualBalance   = parseFloat(settings.virtualBalance)  || 500;
         // startBalance фиксируется ОДИН РАЗ — при самом первом запуске бота.
         // При следующих перезапусках (STOP → LIVE) не перезаписывается,
         // чтобы totalPnl = virtualBalance - startBalance продолжал показывать
@@ -4737,6 +4913,17 @@ module.exports = function(app) {
         if (session.stepTpEnabled && session.trailingEnabled) {
             session.trailingEnabled = false;
             console.log('[BOT] ⚠ Step TP enabled — trailing force-disabled (mutual exclusion)');
+        }
+
+        // Безубыток (Break-Even)
+        session.breakEvenEnabled = !!settings.breakEvenEnabled;
+        session.breakEvenAt = parseFloat(settings.breakEvenAt);
+        if (!Number.isFinite(session.breakEvenAt) || session.breakEvenAt < 0.01 || session.breakEvenAt > 10) {
+            session.breakEvenAt = 0.15;
+        }
+        session.breakEvenOffset = parseFloat(settings.breakEvenOffset);
+        if (!Number.isFinite(session.breakEvenOffset) || session.breakEvenOffset < 0 || session.breakEvenOffset > 5) {
+            session.breakEvenOffset = 0.03;
         }
 
         // Выход по противоположной полосе Боллинджера (MR) + толерансы возврата/касания
@@ -4949,10 +5136,34 @@ module.exports = function(app) {
         }
     }
 
-    function stopBot(uid, botId, silent) {
+    // mode: 'hard' (по умолчанию) — закрыть позицию и остановить.
+    //       'soft' — не трогать позицию; запретить новые входы; после закрытия
+    //                текущей позиции автостоп выполнится в closePosition.
+    //                Бот без позиции при soft → выполняется обычный hard-stop,
+    //                так как смысла "ждать" нет.
+    function stopBot(uid, botId, silent, mode) {
         const session = getSession(uid, botId);
         const wasRunning = session.running;
+
+        // SOFT STOP: только если бот реально работает И есть открытая позиция.
+        // Иначе откатываемся к hard — нет смысла держать сессию "наполовину живой".
+        if (mode === 'soft' && wasRunning && session.position) {
+            session.pendingStop = true;
+            // Отменяем ожидающую лимитку — она бы открыла НОВУЮ позицию,
+            // что противоречит мягкой остановке. pendingExit (лимитный выход
+            // существующей позиции) — НЕ трогаем, он добивает текущую сделку.
+            if (session.pendingLimit) {
+                console.log(`[BOT] 🖐 SOFT-STOP: LIMIT ENTRY CANCELLED: ${session.pendingLimit.side} @ ${session.pendingLimit.price}`);
+                session.pendingLimit = null;
+            }
+            console.log(`[BOT] ⏸ Soft-stop armed for uid=${uid} bot=${botId} — will hard-stop after position closes`);
+            return { wasRunning, soft: true };
+        }
+
+        // HARD STOP (включая soft без позиции — фолбэк):
         session.running = false;
+        // На случай если был soft перед этим — снимаем флаг.
+        session.pendingStop = false;
 
         // Флаг «молчаливой остановки» — подавляет индивидуальные push во время массового стопа
         if (silent) session._silentStop = true;
@@ -5073,6 +5284,9 @@ module.exports = function(app) {
                 stepTpTrigger:      session.stepTpTrigger,
                 stepTpStep:         session.stepTpStep,
                 stepTpTolerance:    session.stepTpTolerance,
+                breakEvenEnabled:   session.breakEvenEnabled,
+                breakEvenAt:        session.breakEvenAt,
+                breakEvenOffset:    session.breakEvenOffset,
                 maxProfitPct:       session.maxProfitPct,
                 cooldownCandles:    session.cooldownCandles,
                 stopFixedPct:       session.stopFixedPct,
@@ -5118,8 +5332,10 @@ module.exports = function(app) {
             const uid = req.body.uid || 'anonymous';
             const botId = req.body.botId || 'default';
             const silent = !!req.body.silent;
-            const result = stopBot(uid, botId, silent);
-            res.json({ ok: true, wasRunning: result.wasRunning });
+            // mode: 'hard' | 'soft'. По умолчанию 'hard' для обратной совместимости.
+            const mode = (req.body.mode === 'soft') ? 'soft' : 'hard';
+            const result = stopBot(uid, botId, silent, mode);
+            res.json({ ok: true, wasRunning: result.wasRunning, soft: !!result.soft });
         } catch(e) {
             res.status(500).json({ error: e.message });
         }
@@ -5599,12 +5815,49 @@ module.exports = function(app) {
 
     // ── MULTI-BOT ENDPOINTS ──
 
+    // GET /api/user/global-direction — текущий глобальный фильтр направления
+    // Возвращает: { globalDirection: 'long' | 'short' | null }
+    app.get('/api/user/global-direction', (req, res) => {
+        try {
+            const uid = req.query.uid || 'anonymous';
+            const prefs = getUserPrefs(uid);
+            res.json({ globalDirection: prefs.globalDirection || null });
+        } catch(e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // POST /api/user/global-direction — установить глобальный фильтр
+    // body: { uid, direction: 'long' | 'short' | null }
+    // Если direction === null или 'none' — сбрасываем (нейтрал).
+    // Эффект применяется к НОВЫМ входам всех ботов uid. Открытые позиции не трогаем.
+    app.post('/api/user/global-direction', (req, res) => {
+        try {
+            const uid = req.body.uid || 'anonymous';
+            let dir = req.body.direction;
+            if (dir === 'none' || dir === '' || dir === undefined) dir = null;
+            if (dir !== null && dir !== 'long' && dir !== 'short') {
+                return res.status(400).json({ error: 'direction must be long|short|null' });
+            }
+            const prefs = getUserPrefs(uid);
+            const prev = prefs.globalDirection;
+            prefs.globalDirection = dir;
+            // Сразу на диск, чтобы пережить рестарт (между periodic saves могут быть минуты).
+            saveUserPrefsToDisk();
+            console.log(`[USER PREFS] uid=${uid} globalDirection: ${prev || 'null'} → ${dir || 'null'}`);
+            res.json({ ok: true, globalDirection: dir });
+        } catch(e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
     // GET /api/bot/list — список всех ботов пользователя
     app.get('/api/bot/list', (req, res) => {
         try {
             const uid = req.query.uid || 'anonymous';
             const bots = getUserBots(uid);
-            res.json({ bots });
+            const prefs = getUserPrefs(uid);
+            res.json({ bots, globalDirection: prefs.globalDirection || null });
         } catch(e) {
             res.status(500).json({ error: e.message });
         }
@@ -5803,6 +6056,7 @@ module.exports = function(app) {
                 running:     session.running,
                 warmupUntil: session.warmupUntil || 0,
                 paused:      session.paused,
+                pendingStop: !!session.pendingStop,
                 mode:        session.mode,
                 market:      session.market,
                 pair:        session.pair,
@@ -5820,6 +6074,9 @@ module.exports = function(app) {
                 stepTpTrigger: session.stepTpTrigger || 0.50,
                 stepTpStep: session.stepTpStep || 0.06,
                 stepTpTolerance: session.stepTpTolerance || 0.12,
+                breakEvenEnabled: session.breakEvenEnabled || false,
+                breakEvenAt: session.breakEvenAt || 0.15,
+                breakEvenOffset: session.breakEvenOffset || 0.03,
                 bbExitEnabled: session.bbExitEnabled,
                 bbExitTolerance: session.bbExitTolerance,
                 smaReturnEnabled: session.smaReturnEnabled || false,
@@ -5861,6 +6118,7 @@ module.exports = function(app) {
                     stepTpActive:   session.position.stepTpActive || false,
                     stepTpMaxLevel: session.position.stepTpMaxLevel || null,
                     stepTpLastLevel: session.position.stepTpLastLevel != null ? session.position.stepTpLastLevel : -1,
+                    breakEvenActive: session.position.breakEvenActive || false,
                     riskReward:     session.position.riskReward != null ? session.position.riskReward : null,
                     // Live: дополнительные данные с биржи (если есть)
                     pending:        !!session.position._pending,
@@ -6155,6 +6413,15 @@ module.exports = function(app) {
             const byPair     = groupBy(t => t.pair);
             const byBot      = groupBy(t => t.botLabel || 'unknown');
 
+            // Маппинг botLabel → botId для кликабельности в аналитике.
+            // Один botLabel почти всегда = один botId (label включает все ключевые параметры
+            // бота). На случай коллизии берём последний встретившийся (просто перезапись).
+            const botLabelToId = {};
+            for (const t of trades) {
+                const lbl = t.botLabel || 'unknown';
+                if (t.botId) botLabelToId[lbl] = t.botId;
+            }
+
             // Таймфрейм извлекаем из botLabel через tfFromLabel (объявлена выше в начале handler).
             const byTimeframe = groupBy(t => tfFromLabel(t.botLabel));
 
@@ -6345,6 +6612,7 @@ module.exports = function(app) {
                 bySide: bySide,
                 byPair: byPair,
                 byBot: byBot,
+                botLabelToId: botLabelToId,
                 byTimeframe: byTimeframe,
                 byWindow: byWindow,
                 byHour: byHour,
@@ -6769,6 +7037,11 @@ module.exports = function(app) {
         { key: 'stepTpTrigger',   parse: numPos,    label: 'stepTpTrigger' },
         { key: 'stepTpStep',      parse: numPos,    label: 'stepTpStep' },
         { key: 'stepTpTolerance', parse: numNonNeg, label: 'stepTpTolerance' },
+
+        // ── Безубыток (Break-Even) ──
+        { key: 'breakEvenEnabled', parse: bool,      label: onOff('breakEven') },
+        { key: 'breakEvenAt',      parse: numPos,    label: 'breakEvenAt' },
+        { key: 'breakEvenOffset',  parse: numNonNeg, label: 'breakEvenOffset' },
 
         // ── BB Exit / SMA Return (MR) ──
         { key: 'bbExitEnabled',      parse: bool,      label: onOff('bbExit') },
